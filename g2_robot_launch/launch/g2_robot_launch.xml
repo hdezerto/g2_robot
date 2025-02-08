@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<launch>
+    
+    <!-- Step 1: Run the custom frames launch file -->
+    <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_frames_launch.xml" />
+
+
+
+
+</launch>
