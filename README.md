@@ -1,7 +1,40 @@
 # g2_robot
 
+## Overview
+
+EDIT OVERVIEW 
+
+The `g2_robot` repository contains packages and launch files for running various components of the robot, including object detection, motor encoders, camera, and more. This README provides instructions on how to set up and run the different components.
+
+## Setup
+
+1. Navigate to the workspace directory:
+    ```sh
+    cd ~/dd2419_ws/
+    ```
+
+2. Build the workspace:
+    ```sh
+    # Option 1: Build the workspace by copying files (default method)
+    colcon build
+
+    # Option 2: Build the workspace by creating symbolic links (useful for development)
+    colcon build --symlink-install
+    ```
+
+3. Source the setup file:
+    ```sh
+    source install/setup.bash
+    ```
 
 
+## Running the System
+
+To run the system, use the `g2_robot_launch` package:
+
+```sh
+ros2 launch g2_robot_launch g2_robot_launch.xml
+```
 
 
 
