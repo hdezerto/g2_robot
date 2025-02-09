@@ -5,6 +5,7 @@
   <version>0.0.0</version>
   <description>Launch file for g2_robot packages</description>
   <author email="hugoad@kth.se">Hugo Dezerto</author>
+  <!-- more authors can be added here -->
   <maintainer email="hugoad@kth.se">Hugo Dezerto</maintainer>
   <license>MIT</license>
 

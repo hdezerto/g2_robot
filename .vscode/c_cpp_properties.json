@@ -1,0 +1,27 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/happy/esp32_microros_ws/install/micro_ros_agent/include/**",
+        "/home/happy/esp32_microros_ws/install/micro_ros_msgs/include/**",
+        "/opt/ros/jazzy/include/**",
+        "/home/happy/dd2419_ws/src/robp_robot/robp_phidgets/robp_phidgets_encoders/include/**",
+        "/home/happy/dd2419_ws/src/robp_robot/robp_phidgets/robp_phidgets_motors/include/**",
+        "/home/happy/dd2419_ws/src/robp_robot/robp_phidgets/robp_phidgets_spatial/include/**",
+        "/home/happy/dd2419_ws/src/robp_robot/robp_phidgets/robp_phidgets_temperature/include/**",
+        "/home/happy/dd2419_ws/src/robp_robot/usb_cam/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

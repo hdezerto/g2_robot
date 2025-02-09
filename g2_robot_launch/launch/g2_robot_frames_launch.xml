@@ -9,7 +9,4 @@
     <node name="base_to_lidar" pkg="tf2_ros" exec="static_transform_publisher" args="--x 0.00587 --y 0.1005 --z 0.14456 --frame-id base_link --child-frame-id lidar_link" />
     <node name="map_to_odom" pkg="tf2_ros" exec="static_transform_publisher" args="--x 0 --y 0 --z 0 --frame-id map --child-frame-id odom" />
 
-    <!-- Static transform publisher for odometry -->
-    <node pkg="tf2_ros" exec="static_transform_publisher" name="static_transform_publisher" args="0 0 0 0 0 0 map odom" />
-
 </launch>

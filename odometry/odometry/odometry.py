@@ -15,7 +15,7 @@ from robp_interfaces.msg import Encoders
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 
-from builtin_interfaces.msg import Time as BuiltinTime
+
 
 
 class Odometry(Node):
@@ -54,14 +54,13 @@ class Odometry(Node):
         # The kinematic parameters for the differential configuration
         dt = 50 / 1000  # update intervale every 50ms (=20Hz)
         ticks_per_rev = 48 * 64
-        wheel_radius = 0.04921  # Fill in
-        base = 0.3  # Fill in
+        wheel_radius = 0.04921
+        base = 0.3 
 
         # Ticks since last message
         delta_ticks_left = msg.delta_encoder_left
         delta_ticks_right = msg.delta_encoder_right
 
-        # TODO: Fill in
         # Wheel angle since last tick
         delta_phi_left = 2 * math.pi * delta_ticks_left / ticks_per_rev
         delta_phi_right = 2 * math.pi * delta_ticks_right / ticks_per_rev
@@ -75,12 +74,11 @@ class Odometry(Node):
         delta_x = D * math.cos(self._yaw)
         delta_y = D * math.sin(self._yaw)
 
-        self._x = self._x + delta_x  # Fill in
-        self._y = self._y + delta_y  # Fill in
-        self._yaw = self._yaw + delta_theta  # Fill in
+        self._x = self._x + delta_x
+        self._y = self._y + delta_y
+        self._yaw = self._yaw + delta_theta
 
-        # print(f"Stamp:\n{Time().from_msg(msg.header.stamp)}\n")
-        stamp = msg.header.stamp  # Fill in
+        stamp = msg.header.stamp
 
         self.broadcast_transform(stamp, self._x, self._y, self._yaw)
         self.publish_path(stamp, self._x, self._y, self._yaw)
@@ -119,9 +117,8 @@ class Odometry(Node):
         t.transform.rotation.w = q[3]
 
         # Send the transformation
-        # print("works?")
         self._tf_broadcaster.sendTransform(t)
-        # print("yes!")
+
 
     def publish_path(self, stamp, x, y, yaw):
         """Takes a 2D pose appends it to the path and publishes the whole path.
