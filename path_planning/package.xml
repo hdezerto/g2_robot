@@ -4,7 +4,7 @@
   <name>path_planning</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="robot@todo.todo">robot</maintainer>
+  <maintainer email="haala@kth.se">jule</maintainer>
   <license>MIT</license>
 
   <depend>geometry_msgs</depend>

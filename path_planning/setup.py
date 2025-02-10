@@ -14,7 +14,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='robot',
-    maintainer_email='robot@todo.todo',
+    maintainer_email='jule',
     description='TODO: Package description',
     license='MIT',
     tests_require=['pytest'],
