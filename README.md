@@ -25,6 +25,8 @@ The `g2_robot` repository contains packages and launch files for running various
 3. Source the setup file:
     ```sh
     source install/setup.bash
+        or
+    source install/local_setup.bash
     ```
 
 
