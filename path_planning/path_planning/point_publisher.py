@@ -2,6 +2,7 @@
 
 import math
 
+import random
 import numpy as np
 
 import rclpy
@@ -27,6 +28,7 @@ class pathPublisherNode(Node):
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
         self.publisher = self.createPublisher(TransformStamped, "/path/nextpos", 10)
+        self.tf_broadcaster = TransformBroadcaster(self)
 
         self.position_reached = True
         self.goal_position = TransformStamped()
@@ -38,12 +40,16 @@ class pathPublisherNode(Node):
         publish transform to topic
         """
         # init
-        self.goal_position.header.stamp = self.get_clock().now()
-        time = self.goal_position.header.stamp
+        goal_transform = self.goal_position
+        goal_transform.header.stamp = self.get_clock().now()
+        time = goal_transform.header.stamp
         robot_frame = "base_link"
-        goal_frame = self.goal_position.child_frame_id
+        goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
         goal_margin_rotational = math.pi / 10
+
+        # broadcast transform
+        self.tf_broadcaster.sendTransform(goal_transform)
 
         # # Wait for the transform asynchronously
         compared_transform = self.tf_buffer.wait_for_transform_async(
@@ -68,10 +74,10 @@ class pathPublisherNode(Node):
             ):
                 self.position_reached = True
                 self.get_logger().info(
-                    f"Position {self.goal_position.transform} has been reached!"
+                    f"Position {goal_transform.transform} has been reached!"
                 )
             else:
-                self.publisher.publish(self.goal_position)
+                self.publisher.publish(goal_transform)
 
             return
         except Exception as ex:
@@ -81,10 +87,37 @@ class pathPublisherNode(Node):
 
     def get_new_point(self):
         """
-        service request new point
+        generate new point
+
+        assign random point in workspace (within a margin) to self.goal_position.transform.translation.x/y
+        assign random orientation within [0, 2pi] as quaternion to goal_position.transform.rotation.z
+
         """
         self.position_reached = False
-        # assign random point in workspace (within a margin) to self.goal_position.transform.translation.x/y
+
+        # generate new point
+        random_x = random.uniform(
+            -(self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
+        )
+        random_y = random.uniform(
+            (self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
+        )
+        random_rot = random.uniform(0, 2 * math.pi)
+
+        # initialize new transform
+        self.goal_position = TransformStamped()
+        self.goal_position.header.frame_id = "map"
+        self.goal_position.child_frame_id = "goal_position"
+        self.goal_position.header.stamp = self.get_clock().now()
+
+        # assign random point to transform
+        self.goal_position.transform.translation.x = random_x
+        self.goal_position.transform.translation.y = random.y
+        random_quaternion = quaternion_from_euler(0, 0, random_rot)
+        self.goal_position.transform.rotation.z = random_quaternion[2]
+        self.goal_position.transform.rotation.w = random_quaternion[3]
+
+        self.get_logger().info(f"New point:\n{self.goal_position.transform}")
 
 
 def main():
@@ -93,7 +126,7 @@ def main():
 
     try:
         while rclpy.ok():
-            if node.update_goal_position:
+            if node.position_reached:
                 node.get_new_point()
             node.go_to_point()
 

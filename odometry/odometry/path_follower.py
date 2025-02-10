@@ -73,6 +73,7 @@ class pathFollowerNode(Node):
                 if abs(comp_rotation.z) < goal_margin_rotational:
                     cmd_vel.linear.x = 0
                     cmd_vel.angular.z = 0
+                    self.get_logger().info("Position already reached.")
                 elif comp_rotation.z > 0:
                     cmd_vel.angular.z = speed_rot
                 elif comp_rotation.z < 0:
