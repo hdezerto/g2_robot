@@ -70,6 +70,17 @@ colcon build --symlink-install
 
 source install/setup.bash
 
+CREATE PACKAGE
+cd ~dd2419_ws
+ros2 pkg create pkg_name --build-type ament_python --node-name node_name --dependencies geometry_msgs nav_msgs python3-numpy robp_interfaces rclpy tf_transformations tf2_ros --license MIT
+
+MAKE SURE DEPENDENCIES ARE INSTALLED
+cd ~/dd2419_ws
+rosdep install -i --from-path src --rosdistro jazzy -y --as-root pip:false
+
+CONNECT LAPTOP TO ROBOT
+ssh happy@<IP-Adress>
+
 -------------------------------------------------------
 
 General order of run:
