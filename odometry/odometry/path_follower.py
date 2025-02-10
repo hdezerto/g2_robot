@@ -42,6 +42,9 @@ class pathFollowerNode(Node):
 
         goal_margin_translational = 0.05
         goal_margin_rotational = math.pi / 10
+        speed_lin = 1.5
+        speed_rot = 1.5
+        margin_rotate_first = 0.2  # for points below this distance the robot will rotate first without going forward
 
         cmd_vel = Twist()
 
@@ -53,6 +56,7 @@ class pathFollowerNode(Node):
 
         comp_translation = compared_transform.transform.translation
         comp_rotation = comp_translation.transform.rotation
+        distance_to_point = math.sqrt(comp_translation.x ^ 2 + comp_translation.y)
 
         # Check if the future completed successfully
         if not compared_transform.done():
@@ -61,29 +65,43 @@ class pathFollowerNode(Node):
             )
             return
         try:
+            # check whether it is already at goal point
             if (abs(comp_translation.y) < goal_margin_translational) & (
                 abs(comp_translation.x) < goal_margin_translational
             ):
-                if abs(comp_rotation.z) < math.pi / 8:
+                # check whether orientation is correct, rotate if not
+                if abs(comp_rotation.z) < goal_margin_rotational:
                     cmd_vel.linear.x = 0
                     cmd_vel.angular.z = 0
                 elif comp_rotation.z > 0:
-                    cmd_vel.angular.z = 1.5
+                    cmd_vel.angular.z = speed_rot
                 elif comp_rotation.z < 0:
-                    cmd_vel.angular.z = -1.5
+                    cmd_vel.angular.z = -speed_rot
 
-            elif (abs(comp_translation.y) < goal_margin_translational) & (
-                comp_translation.x > 0
-            ):
-                # go forward
-                cmd_vel.linear.x = 1.5
-                cmd_vel.angular.z = 0
+            # # check whether the robot is oriented to move towards the point
+            # elif (abs(comp_translation.y) < goal_margin_translational) & (
+            #     comp_translation.x > 0
+            # ):
+            #     # go forward
+            #     cmd_vel.linear.x = speed_lin
+            #     cmd_vel.angular.z = 0
 
+            # if not oriented
             else:
                 if comp_translation.y > 0:
-                    cmd_vel.angular.z = 1.5
+                    if abs(comp_translation.y) < goal_margin_translational:
+                        cmd_vel.angular.z = speed_rot
+                    if (distance_to_point > margin_rotate_first) & (
+                        comp_translation.x > 0
+                    ):
+                        cmd_vel.linear.x = speed_lin
                 elif comp_translation.y < 0:
-                    cmd_vel.angular.z = -1.5
+                    if abs(comp_translation.y) < goal_margin_translational:
+                        cmd_vel.angular.z = -speed_rot
+                    if (distance_to_point > margin_rotate_first) & (
+                        comp_translation.x > 0
+                    ):
+                        cmd_vel.linear.x = speed_lin
                 cmd_vel.linear.x = 0
 
             self.publisher.publish(cmd_vel)
