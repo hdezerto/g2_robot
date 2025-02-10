@@ -14,12 +14,8 @@
     <!--  Run motor peripherals and motors  -->
     <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.py"/>
 
-
-    <!--  CHECK what's wrong with the camera. see output in the terminal  -->
-
     <!--  Run camera to initiate pointcloud  -->
     <include file="$(find-pkg-share robp_launch)/launch/rs_d435i_launch.py"/>
-
 
     <!--  Run Lidar  -->
     <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
@@ -38,7 +34,6 @@
 
     <!--  Run detection  -->
     <node pkg="detection" exec="detection" name="detection" output="screen"/>
-
 
 
 
