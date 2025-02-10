@@ -38,7 +38,7 @@ class pathPublisherNode(Node):
         self.position_reached = True
         self.goal_position = TransformStamped()
 
-        self.workspace = [100, 100]
+        self.workspace = [1.0, 1.0]
 
     def go_to_point(self):
         """
@@ -47,7 +47,7 @@ class pathPublisherNode(Node):
         # init
         goal_transform = self.goal_position
         goal_transform.header.stamp = self.get_clock().now().to_msg()
-        time = rclpy.time.Time(seconds=0)
+        time = self.get_clock().now().to_msg()
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
@@ -60,12 +60,18 @@ class pathPublisherNode(Node):
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=robot_frame, source_frame=goal_frame, time=time
         )
-        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=0.5)
+        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=1)
+
+        try:
+            print(compared_transform.result().transform)
+        except Exception as ex:
+            print()
+
 
         # Check if the future completed successfully
-        if not (compared_transform.done() and compared_transform.result()):
+        if not (compared_transform.done()): # and compared_transform.result()
             self.get_logger().error(
-                f"Transform future did not complete successfully for Ball"
+                f"Transform future did not complete successfully for time {time}"
             )
             return
         try:
