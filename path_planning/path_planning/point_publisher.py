@@ -8,10 +8,14 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 
+# from builtin_interfaces.msg import Time
+
+import rclpy.time
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros.buffer import Buffer
 from tf2_ros import TransformBroadcaster
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
+
 
 from geometry_msgs.msg import TransformStamped, Twist
 from robp_interfaces.msg import Encoders
@@ -25,9 +29,10 @@ class pathPublisherNode(Node):
     """ """
 
     def __init__(self):
+        super().__init__("point_publisher")  # Call the superclass constructor
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
-        self.publisher = self.createPublisher(TransformStamped, "/path/nextpos", 10)
+        self.publisher = self.create_publisher(TransformStamped, "/path/nextpos", 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.position_reached = True
@@ -41,8 +46,8 @@ class pathPublisherNode(Node):
         """
         # init
         goal_transform = self.goal_position
-        goal_transform.header.stamp = self.get_clock().now()
-        time = goal_transform.header.stamp
+        goal_transform.header.stamp = self.get_clock().now().to_msg()
+        time = rclpy.time.Time(seconds=0)
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
@@ -52,25 +57,28 @@ class pathPublisherNode(Node):
         self.tf_broadcaster.sendTransform(goal_transform)
 
         # # Wait for the transform asynchronously
-        compared_transform = self.tf_buffer.wait_for_transform_async(
-            target_frame=goal_frame, source_frame=robot_frame, time=time
+        compared_transform = self.buffer.wait_for_transform_async(
+            target_frame=robot_frame, source_frame=goal_frame, time=time
         )
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=0.5)
 
-        comp_translation = compared_transform.transform.translation
-        comp_rotation = comp_translation.transform.rotation
-
         # Check if the future completed successfully
-        if not compared_transform.done():
+        if not (compared_transform.done() and compared_transform.result()):
             self.get_logger().error(
                 f"Transform future did not complete successfully for Ball"
             )
             return
         try:
+            # transform translation and rotation
+            # print(type(compared_transform.result()))
+            finished_transform = compared_transform.result()
+            # print(transform)
+            comp_translation = finished_transform.transform.translation
+            comp_rotation = finished_transform.transform.rotation
             if (
                 (abs(comp_translation.x) < goal_margin_translational)
-                & (abs(comp_translation.y) < goal_margin_translational)
-                & (abs(comp_rotation.z) < goal_margin_rotational)
+                and (abs(comp_translation.y) < goal_margin_translational)
+                and (abs(comp_rotation.z) < goal_margin_rotational)
             ):
                 self.position_reached = True
                 self.get_logger().info(
@@ -100,7 +108,7 @@ class pathPublisherNode(Node):
             -(self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
         )
         random_y = random.uniform(
-            (self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
+            -(self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
         )
         random_rot = random.uniform(0, 2 * math.pi)
 
@@ -108,16 +116,19 @@ class pathPublisherNode(Node):
         self.goal_position = TransformStamped()
         self.goal_position.header.frame_id = "map"
         self.goal_position.child_frame_id = "goal_position"
-        self.goal_position.header.stamp = self.get_clock().now()
+        self.goal_position.header.stamp = self.get_clock().now().to_msg()
+        # print(type(self.get_clock().now().to_msg()))
 
         # assign random point to transform
         self.goal_position.transform.translation.x = random_x
-        self.goal_position.transform.translation.y = random.y
+        self.goal_position.transform.translation.y = random_y
         random_quaternion = quaternion_from_euler(0, 0, random_rot)
         self.goal_position.transform.rotation.z = random_quaternion[2]
         self.goal_position.transform.rotation.w = random_quaternion[3]
 
-        self.get_logger().info(f"New point:\n{self.goal_position.transform}")
+        self.get_logger().info(
+            f"New point:\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.translation.z]}\n{[self.goal_position.transform.rotation.x, self.goal_position.transform.rotation.y, self.goal_position.transform.rotation.z, self.goal_position.transform.rotation.w]}"
+        )
 
 
 def main():

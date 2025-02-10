@@ -20,7 +20,7 @@ setup(
     entry_points={
         "console_scripts": [
             "odometry = odometry.odometry:main",
-            "controller = odometry.controller:main"
+            "controller = odometry.controller:main",
             "path_follower = odometry.path_follower:main",
         ],
     },
