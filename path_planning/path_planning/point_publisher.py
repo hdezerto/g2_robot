@@ -26,118 +26,6 @@ from geometry_msgs.msg import PoseStamped
 import tf2_geometry_msgs
 
 
-# class pathPublisherNode(Node):
-#     """ """
-
-#     def __init__(self):
-#         super().__init__("point_publisher")  # Call the superclass constructor
-#         self.buffer = Buffer()
-#         self.listener = TransformListener(self.buffer, self, spin_thread=True)
-#         self.publisher = self.create_publisher(TransformStamped, "/path/nextpos", 10)
-#         self.tf_broadcaster = TransformBroadcaster(self)
-
-#         self.position_reached = True
-#         self.goal_position = TransformStamped()
-
-#         self.workspace = [1.0, 1.0]
-
-#     def go_to_point(self):
-#         """
-#         publish transform to topic
-#         """
-#         # init
-#         goal_transform = self.goal_position
-#         goal_transform.header.stamp = self.get_clock().now().to_msg()
-#         time = self.get_clock().now().to_msg()
-#         robot_frame = "base_link"
-#         goal_frame = goal_transform.child_frame_id # "goal_position"
-#         goal_margin_translational = 0.05
-#         goal_margin_rotational = math.pi / 10
-
-#         # broadcast transform
-#         self.tf_broadcaster.sendTransform(goal_transform)
-
-#         # Wait for the transform synchronously
-#         try:
-#             compared_transform = self.buffer.lookup_transform(
-#                 target_frame=robot_frame, source_frame=goal_frame, time=time, timeout=rclpy.duration.Duration(seconds=2)
-#             )
-#         except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as ex:
-#             self.get_logger().error(f"Transform lookup failed: {ex}")
-#             return
-
-#         # transform translation and rotation
-#         comp_translation = compared_transform.transform.translation
-#         comp_rotation = compared_transform.transform.rotation
-#         if (
-#             (abs(comp_translation.x) < goal_margin_translational)
-#             and (abs(comp_translation.y) < goal_margin_translational)
-#             and (abs(comp_rotation.z) < goal_margin_rotational)
-#         ):
-#             self.position_reached = True
-#             self.get_logger().info(
-#                 f"Position {goal_transform.transform} has been reached!"
-#             )
-#         else:
-#             self.publisher.publish(goal_transform)
-
-#     def get_new_point(self):
-#         """
-#         generate new point
-
-#         assign random point in workspace (within a margin) to self.goal_position.transform.translation.x/y
-#         assign random orientation within [0, 2pi] as quaternion to goal_position.transform.rotation.z
-
-#         """
-#         self.position_reached = False
-
-#         # generate new point
-#         random_x = random.uniform(
-#             -(self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
-#         )
-#         random_y = random.uniform(
-#             -(self.workspace[0] - 10) / 2, (self.workspace[0] - 10) / 2
-#         )
-#         random_rot = random.uniform(0, 2 * math.pi)
-
-#         # initialize new transform
-#         self.goal_position = TransformStamped()
-#         self.goal_position.header.frame_id = "map"
-#         self.goal_position.child_frame_id = "goal_position"
-#         self.goal_position.header.stamp = self.get_clock().now().to_msg()
-#         # print(type(self.get_clock().now().to_msg()))
-
-#         # assign random point to transform
-#         self.goal_position.transform.translation.x = random_x
-#         self.goal_position.transform.translation.y = random_y
-#         random_quaternion = quaternion_from_euler(0, 0, random_rot)
-#         self.goal_position.transform.rotation.z = random_quaternion[2]
-#         self.goal_position.transform.rotation.w = random_quaternion[3]
-
-#         self.get_logger().info(
-#             f"New point:\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.translation.z]}\n{[self.goal_position.transform.rotation.x, self.goal_position.transform.rotation.y, self.goal_position.transform.rotation.z, self.goal_position.transform.rotation.w]}"
-#         )
-
-
-# def main():
-#     rclpy.init()
-#     node = pathPublisherNode()
-
-#     try:
-#         while rclpy.ok():
-#             if node.position_reached:
-#                 node.get_new_point()
-#             node.go_to_point()
-
-#     except KeyboardInterrupt:
-#         pass
-#     rclpy.shutdown()
-
-
-# if __name__ == "__main__":
-#     main()
-
-
 class pathPublisherNode(Node):
     """ """
 
@@ -158,6 +46,8 @@ class pathPublisherNode(Node):
         """
         publish transform to topic
         """
+        print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
+        
         # init
         goal_transform = self.goal_position
         goal_transform.header.stamp = self.get_clock().now().to_msg()
@@ -205,7 +95,7 @@ class pathPublisherNode(Node):
             ):  # and (abs(comp_rotation.z) < goal_margin_rotational)
                 self.position_reached = True
                 self.get_logger().info(
-                    f"Position {goal_transform.transform} has been reached!"
+                    f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
                 self.goal_position = self.get_new_point()
                 print(
@@ -213,6 +103,7 @@ class pathPublisherNode(Node):
                 )
             else:
                 self.publisher.publish(goal_transform)
+                # self.tf_broadcaster.sendTransform(self.goal_position)
 
             return
         except Exception as ex:
@@ -241,24 +132,29 @@ class pathPublisherNode(Node):
         random_rot = random.uniform(0, 2 * math.pi)
 
         # initialize new transform
-        self.goal_position = TransformStamped()
-        self.goal_position.header.frame_id = "map"
-        self.goal_position.child_frame_id = "goal_position"
-        self.goal_position.header.stamp = self.get_clock().now().to_msg()
+        goal_transform = TransformStamped()
+        goal_transform.header.frame_id = "map"
+        goal_transform.child_frame_id = "goal_position"
+        goal_transform.header.stamp = self.get_clock().now().to_msg()
         # print(type(self.get_clock().now().to_msg()))
 
         # assign random point to transform
-        self.goal_position.transform.translation.x = random_x
-        self.goal_position.transform.translation.y = random_y
+        goal_transform.transform.translation.x = random_x
+        goal_transform.transform.translation.y = random_y
         random_quaternion = quaternion_from_euler(0, 0, random_rot)
-        self.goal_position.transform.rotation.z = random_quaternion[2]
-        self.goal_position.transform.rotation.w = random_quaternion[3]
+        goal_transform.transform.rotation.z = random_quaternion[2]
+        goal_transform.transform.rotation.w = random_quaternion[3]
 
-        self.get_logger().info(
-            f"New point:\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.translation.z]}\n{[self.goal_position.transform.rotation.x, self.goal_position.transform.rotation.y, self.goal_position.transform.rotation.z, self.goal_position.transform.rotation.w]}"
+        
+        self.goal_position = goal_transform
+        goal_transform_static = goal_transform
+        goal_transform_static.child_frame_id = "goal_position_static"
+        self.static.sendTransform(goal_transform)
+        # self.tf_broadcaster.sendTransform(goal_transform)
+        print(f"GOT NEW POINT:\n{[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]}")
+        print(
+            f"GOT NEW POINT(self):\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
         )
-
-        self.static.sendTransform(self.goal_position)
 
         return self.goal_position
 
@@ -268,8 +164,10 @@ def main():
     node = pathPublisherNode()
 
     try:
+        node.goal_position = node.get_new_point()
         while rclpy.ok():
             node.go_to_point()
+            rclpy.spin_once(node)
 
     except KeyboardInterrupt:
         pass

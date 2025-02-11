@@ -177,7 +177,7 @@ class pathFollowerNode(Node):
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=goal_frame, source_frame=robot_frame, time=time
         )
-        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=0.5)
+        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=1)
 
         # Check if the future completed successfully
         if not compared_transform.done():
@@ -196,7 +196,7 @@ class pathFollowerNode(Node):
             if distance_to_point < self.goal_margin_translational * 2:
                 print(f"Already at goal point")
                 # check whether orientation is correct, rotate if not
-                if abs(comp_rotation.z) < self.oal_margin_rotational:
+                if abs(comp_rotation.z) < self.goal_margin_rotational:
                     cmd_vel.linear.x = 0.0
                     cmd_vel.angular.z = 0.0
                     self.get_logger().info("Position already reached.")
@@ -217,7 +217,7 @@ class pathFollowerNode(Node):
                     and (abs(comp_translation.y) > self.goal_margin_translational)
                     and (comp_translation.x > 0)
                 ):
-                    cmd_vel.angular.z = self.speed_rot
+                    cmd_vel.angular.z = -self.speed_rot
                     print("turning right")
                     print(f"Difference: {abs(comp_translation.y)}")
 
@@ -243,6 +243,7 @@ class pathFollowerNode(Node):
                     print(
                         f"Distance to position: {[comp_translation.x, comp_translation.y]}"
                     )
+                self.publisher.publish(cmd_vel)
 
         except Exception as ex:
             self.get_logger().error(ex)
