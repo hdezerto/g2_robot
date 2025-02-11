@@ -22,21 +22,51 @@ The `g2_robot` repository contains packages and launch files for running various
     colcon build --symlink-install
     ```
 
-3. Source the setup file:
-    ```sh
-    source install/setup.bash
-        or
-    source install/local_setup.bash
-    ```
-
-
 ## Running the System
 
-To run the system, use the `g2_robot_launch` package:
+### Using the Remote Laptop
 
-```sh
-ros2 launch g2_robot_launch g2_robot_launch.xml
-```
+On the **robot**, run the following commands:
+
+1. Start the FastDDS discovery server:
+    ```sh
+    fastdds discovery -i 0 -t 192.168.128.110 -q 42100
+    ```
+
+On the **remote laptop**, run the following commands:
+
+2. SSH into  robotthe:
+    ```sh
+    ssh -X happy@192.168.128.110
+    ```
+    The `-X` flag enables X11 forwarding (necessary for GUI like RViz).
+
+3. Source the setup file:
+    ```sh
+    source ~/dd2419_ws/install/setup.bash
+    ```
+
+4. Run the system using the `g2_robot_launch` package:
+    ```sh
+    ros2 launch g2_robot_launch g2_robot_launch.xml
+    ```
+
+### Using the Robot
+
+1. Comment out the following lines in the bashrc file to disable the FastDDS discovery server:
+    ```sh
+    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    export ROS_DISCOVERY_SERVER=TCPv4:[192.168.128.110]:42100
+    export ROS_SUPER_CLIENT=TRUE
+    ```
+
+2. Run the system using the `g2_robot_launch` package:
+    ```sh
+    ros2 launch g2_robot_launch g2_robot_launch.xml
+    ```
+
+**Note:**
+The FastDDS discovery server makes the nodes communicate through the server using TCP (Transmission Control Protocol), instead of using Simple Discovery Protocol (SDP) over UDP multicast. This isolates each group's robot in the shared KTH-IoT network, preventing cross-talk between groups. Without it, multicast discovery would make laptops detect all robots, causing topic conflicts and data mix-ups. Additionally, with many robots broadcasting discovery messages, network congestion could occur, leading to delays, dropped packets, and instability. The server ensures efficient, reliable communication while reducing network load.
 
 
 
@@ -71,17 +101,6 @@ cd ~dd2419_ws/
 colcon build --symlink-install
 
 source install/setup.bash
-
-CREATE PACKAGE
-cd ~dd2419_ws
-ros2 pkg create pkg_name --build-type ament_python --node-name node_name --dependencies geometry_msgs nav_msgs python3-numpy robp_interfaces rclpy tf_transformations tf2_ros --license MIT
-
-MAKE SURE DEPENDENCIES ARE INSTALLED
-cd ~/dd2419_ws
-rosdep install -i --from-path src --rosdistro jazzy -y --as-root pip:false
-
-CONNECT LAPTOP TO ROBOT
-ssh happy@<IP-Adress>
 
 -------------------------------------------------------
 
