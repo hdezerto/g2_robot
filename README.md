@@ -30,15 +30,14 @@ On the **robot**, run the following commands:
 
 1. Start the FastDDS discovery server:
     ```sh
-    fastdds discovery -i 0 -t X.Y.Z.W -q 42100
+    fastdds discovery -i 0 -t 192.168.128.110 -q 42100
     ```
-    where `X.Y.Z.W` is the IP address of the robot.
 
 On the **remote laptop**, run the following commands:
 
 2. SSH into  robotthe:
     ```sh
-    ssh -X <username>@<robot_ip>
+    ssh -X happy@192.168.128.110
     ```
     The `-X` flag enables X11 forwarding (necessary for GUI like RViz).
 
@@ -57,7 +56,7 @@ On the **remote laptop**, run the following commands:
 1. Comment out the following lines in the bashrc file to disable the FastDDS discovery server:
     ```sh
     export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-    export ROS_DISCOVERY_SERVER=TCPv4:[X.Y.Z.W]:42100
+    export ROS_DISCOVERY_SERVER=TCPv4:[192.168.128.110]:42100
     export ROS_SUPER_CLIENT=TRUE
     ```
 
