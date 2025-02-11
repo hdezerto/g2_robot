@@ -184,14 +184,13 @@ class pathPublisherNode(Node):
         # except Exception as ex:
         #     self.get_logger().error(f"An error occurred: {ex}")
 
-
         # Check if the future completed successfully
-        if not (compared_transform.done()): # and compared_transform.result()
+        if not (compared_transform.done()):  # and compared_transform.result()
             self.get_logger().error(
                 f"Transform future did not complete successfully for time {time}"
             )
             return
-        
+
         try:
             # transform translation and rotation
             # print(type(compared_transform.result()))
@@ -202,11 +201,15 @@ class pathPublisherNode(Node):
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
             if (
-                distance_to_point < goal_margin_translational*2
-            ): # and (abs(comp_rotation.z) < goal_margin_rotational)
+                distance_to_point < goal_margin_translational * 2
+            ):  # and (abs(comp_rotation.z) < goal_margin_rotational)
                 self.position_reached = True
                 self.get_logger().info(
                     f"Position {goal_transform.transform} has been reached!"
+                )
+                self.goal_position = self.get_new_point()
+                print(
+                    f"NEW GOAL POSITION {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
                 )
             else:
                 self.publisher.publish(goal_transform)
@@ -214,7 +217,7 @@ class pathPublisherNode(Node):
             return
         except Exception as ex:
             # Log any errors (this will only log broadcasting issues now)
-            self.get_logger().error(f"Failed to process ball Error: {ex}")
+            self.get_logger().error(f"Error: {ex}")
             return
 
     def get_new_point(self):
@@ -257,6 +260,8 @@ class pathPublisherNode(Node):
 
         self.static.sendTransform(self.goal_position)
 
+        return self.goal_position
+
 
 def main():
     rclpy.init()
@@ -264,8 +269,6 @@ def main():
 
     try:
         while rclpy.ok():
-            if node.position_reached:
-                node.get_new_point()
             node.go_to_point()
 
     except KeyboardInterrupt:
@@ -275,5 +278,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
