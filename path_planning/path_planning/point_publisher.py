@@ -48,17 +48,20 @@ class pathPublisherNode(Node):
         """
         print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
         
+        self.tf_broadcaster.sendTransform(self.goal_position)
+
         # init
         goal_transform = self.goal_position
-        goal_transform.header.stamp = self.get_clock().now().to_msg()
-        time = self.get_clock().now().to_msg()
+        # goal_transform.header.stamp = self.get_clock().now().to_msg()
+        # time = self.get_clock().now().to_msg()
+        time = self.goal_position.header.stamp
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
         goal_margin_rotational = math.pi / 10
 
         # broadcast transform
-        # self.tf_broadcaster.sendTransform(goal_transform)
+        self.tf_broadcaster.sendTransform(goal_transform)
 
         # Wait for the transform asynchronously
         compared_transform = self.buffer.wait_for_transform_async(
@@ -80,6 +83,8 @@ class pathPublisherNode(Node):
                 f"Transform future did not complete successfully for time {time}"
             )
             return
+        # else:
+            # self.tf_broadcaster.sendTransform(self.goal_position)
 
         try:
             # transform translation and rotation
@@ -102,8 +107,9 @@ class pathPublisherNode(Node):
                     f"NEW GOAL POSITION {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
                 )
             else:
-                self.publisher.publish(goal_transform)
                 # self.tf_broadcaster.sendTransform(self.goal_position)
+                self.publisher.publish(goal_transform)
+                
 
             return
         except Exception as ex:
@@ -147,9 +153,10 @@ class pathPublisherNode(Node):
 
         
         self.goal_position = goal_transform
-        goal_transform_static = goal_transform
-        goal_transform_static.child_frame_id = "goal_position_static"
-        self.static.sendTransform(goal_transform)
+        # goal_transform_static = goal_transform
+        # goal_transform_static.child_frame_id = "goal_position_static"
+        # self.static.sendTransform(goal_transform)
+        # self.tf_broadcaster.sendTransform(goal_transform)
         # self.tf_broadcaster.sendTransform(goal_transform)
         print(f"GOT NEW POINT:\n{[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]}")
         print(
@@ -157,6 +164,13 @@ class pathPublisherNode(Node):
         )
 
         return self.goal_position
+
+    def do_broadcast(self):
+        
+        goal_transform = self.goal_position
+        self.goal_position.header.stamp = self.get_clock().now().to_msg()
+        goal_transform.header.stamp = self.get_clock().now().to_msg()
+        self.tf_broadcaster.sendTransform(goal_transform)
 
 
 def main():
@@ -166,8 +180,10 @@ def main():
     try:
         node.goal_position = node.get_new_point()
         while rclpy.ok():
-            node.go_to_point()
+            node.do_broadcast()
             rclpy.spin_once(node)
+            node.go_to_point()
+            
 
     except KeyboardInterrupt:
         pass
