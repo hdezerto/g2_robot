@@ -67,8 +67,8 @@ class Odometry(Node):
 
         v = wheel_radius * (delta_phi_right / dt + delta_phi_left / dt) / 2
         D = wheel_radius * (delta_phi_right + delta_phi_left) / 2
-        omega = wheel_radius * (delta_phi_right / dt - delta_phi_left / dt) / base
-        delta_theta = omega * dt
+        # omega = wheel_radius * (delta_phi_right / dt - delta_phi_left / dt) / base
+        # delta_theta = omega * dt
         delta_theta = wheel_radius * (delta_phi_right - delta_phi_left) / base
 
         delta_x = D * math.cos(self._yaw)
@@ -118,6 +118,7 @@ class Odometry(Node):
 
         # Send the transformation
         self._tf_broadcaster.sendTransform(t)
+        
 
 
     def publish_path(self, stamp, x, y, yaw):

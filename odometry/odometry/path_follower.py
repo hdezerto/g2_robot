@@ -42,7 +42,7 @@ class pathFollowerNode(Node):
         self.speed_factor = 1
 
         self.speed_lin = 1.5
-        self.speed_rot = 1.5
+        self.speed_rot = 0.75    
 
     def nextpos_callback(self, msg: TransformStamped):
         self.goal_position = msg

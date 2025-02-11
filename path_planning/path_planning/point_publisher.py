@@ -46,7 +46,7 @@ class pathPublisherNode(Node):
         """
         publish transform to topic
         """
-        print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
+        # print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
         
         self.tf_broadcaster.sendTransform(self.goal_position)
 
