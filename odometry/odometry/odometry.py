@@ -55,7 +55,7 @@ class Odometry(Node):
         dt = 50 / 1000  # update intervale every 50ms (=20Hz)
         ticks_per_rev = 48 * 64
         wheel_radius = 0.04921
-        base = 0.3 
+        base = 0.31 
 
         # Ticks since last message
         delta_ticks_left = msg.delta_encoder_left
