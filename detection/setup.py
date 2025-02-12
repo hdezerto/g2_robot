@@ -20,7 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'detection = detection.detection:main'
+            'detection = detection.detection:main',
+            'object_mapping = detection.object_mapping:main'
+            'occupancy_mapping_gray = detection.occupancy_mapping_gray:main',
         ],
     },
 )
