@@ -21,7 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'detection = detection.detection:main',
-            'object_mapping = detection.object_mapping:main'
+            'object_mapping = detection.object_mapping:main',
             'occupancy_mapping_gray = detection.occupancy_mapping_gray:main',
         ],
     },
