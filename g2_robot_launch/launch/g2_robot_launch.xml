@@ -7,9 +7,6 @@
     <!--  Run the custom frames launch file  -->
     <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_frames_launch.xml" />
 
-    <!--  Run odometry node  -->
-    <!--  output="screen" will print the output of the node to the terminal  -->
-    <node pkg="odometry" exec="odometry" name="odometry" output="screen"/>
 
     <!--  Run motor peripherals and motors  -->
     <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.py"/>
@@ -24,16 +21,10 @@
     <!--  ADD   args="-d $(find-pkg-share g2_robot)/rviz/g2_robot.rviz"    to load the g2_robot.rviz file  -->
     <node pkg="rviz2" exec="rviz2" name="rviz"/>
 
-    <!--  Run joystick teleop  -->
-    <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
-    <arg name="joy_config" value="xbox"/>
-    </include>
+    <!--  Run odometry node  -->
+    <!--  output="screen" will print the output of the node to the terminal  -->
+    <node pkg="odometry" exec="odometry" name="odometry" output="screen"/>
 
-    <!--  Run joystick controller  -->
-    <node pkg="odometry" exec="controller" name="controller" output="screen"/>
-
-    <!--  Run detection  -->
-    <node pkg="detection" exec="detection" name="detection" output="screen"/>
 
 
 

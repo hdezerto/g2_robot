@@ -36,15 +36,24 @@ class Detection(Node):
     def twist_callback(self, msg: Twist):
         """Processes the incoming Twist message and sets duty cycles."""
 
-        v = msg.linear.x / 1.5
-        w = msg.angular.z
+        damping_factor = 0.1
+
+        v = msg.linear.x   /1.5 #*damping_factor
+        w = msg.angular.z #*damping_factor * 7
+
+        
 
         # Create a new DutyCycles message
         motor_msg = DutyCycles()
         
         # Define duty cycle values
-        motor_msg.duty_cycle_left = 0.05 * (v - w)
-        motor_msg.duty_cycle_right = 0.05 * (v + w)
+        motor_msg.duty_cycle_left = (v - w)*damping_factor #*0.05
+        motor_msg.duty_cycle_right = (v + w)*damping_factor #*0.05
+        
+        # wheel_radius = 0.04921
+        # base = 0.3
+        # motor_msg.duty_cycle_left = ((2*v) - base*w)/(2*wheel_radius)
+        # motor_msg.duty_cycle_right = ((2*v) + base*w)/(2*wheel_radius)
 
         # Use the latest stored timestamp if available
         if self.latest_timestamp:

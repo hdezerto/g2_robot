@@ -35,7 +35,9 @@ On the **robot**, run the following commands:
 
 On the **remote laptop**, run the following commands:
 
-2. SSH into  robotthe:
+
+2. SSH into the robot:
+
     ```sh
     ssh -X happy@192.168.128.110
     ```
