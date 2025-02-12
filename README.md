@@ -26,40 +26,46 @@ The `g2_robot` repository contains packages and launch files for running various
 
 ### Using the Remote Laptop
 
+On the **remote laptop**, run the following commands:
+
+1. SSH into the robot:
+    ```sh
+    ssh happy@192.168.128.110
+    ```
+
+2. Start the FastDDS discovery server:
+    ```sh
+    fastdds discovery -i 0 -t 192.168.128.110 -q 42100
+    ```
+
+3. In a new terminal, SSH into the robot again:
+    ```sh
+    ssh happy@192.168.128.110
+    ```
+
+4. Source the setup file:
+    ```sh
+    source ~/dd2419_ws/install/setup.bash
+    ```
+
+5. Run the system using the `g2_robot_launch` package:
+    ```sh
+    ros2 launch g2_robot_launch g2_robot_launch.xml
+    ```
+
+6. In a new terminal, run RViz on the laptop (NOT using SSH):
+    ```sh
+    rviz2
+    ```
+
+
+### Using the Robot (avoid it!)
+
 On the **robot**, run the following commands:
 
 1. Start the FastDDS discovery server:
     ```sh
     fastdds discovery -i 0 -t 192.168.128.110 -q 42100
-    ```
-
-On the **remote laptop**, run the following commands:
-
-
-2. SSH into the robot:
-
-    ```sh
-    ssh -X happy@192.168.128.110
-    ```
-    The `-X` flag enables X11 forwarding (necessary for GUI like RViz).
-
-3. Source the setup file:
-    ```sh
-    source ~/dd2419_ws/install/setup.bash
-    ```
-
-4. Run the system using the `g2_robot_launch` package:
-    ```sh
-    ros2 launch g2_robot_launch g2_robot_launch.xml
-    ```
-
-### Using the Robot
-
-1. Comment out the following lines in the bashrc file to disable the FastDDS discovery server:
-    ```sh
-    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-    export ROS_DISCOVERY_SERVER=TCPv4:[192.168.128.110]:42100
-    export ROS_SUPER_CLIENT=TRUE
     ```
 
 2. Run the system using the `g2_robot_launch` package:
@@ -127,7 +133,7 @@ ros2 launch robp_launch rs_d435i_launch.py
 rviz2
 
 7: Run Joy teleop system
-ros2 launch teleop_twist_joy teleop-launch.py joy_config:='xbox' 
+ros2 launch teleop_twist_joy    
 
 8: Run Joy controller
 ros2 run odometry controller

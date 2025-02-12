@@ -40,7 +40,7 @@ class pathPublisherNode(Node):
         self.position_reached = True
         self.goal_position = TransformStamped()
 
-        self.workspace = [1.0, 1.0]
+        self.workspace = [2.2, 1.3]
 
     def go_to_point(self):
         """

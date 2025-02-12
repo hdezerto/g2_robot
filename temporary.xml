@@ -1,22 +1,33 @@
     
 
-
-    <!--  Run camera to initiate pointcloud  -->
-    <include file="$(find-pkg-share robp_launch)/launch/rs_d435i_launch.py"/>
-
-
     <!--  Run Lidar  -->
     <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
-    
+
+    <!--  Run Lidar stabilizer  -->
+    <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/>
+
+    <!--  Run Object Mapping  -->
+    <node pkg="detection" exec="object_mapping" name="object_mapping" output="screen"/>
 
 
+    
 
     
-    
+     <!--  Run joystick teleop  -->
+    <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
+    <arg name="joy_config" value="xbox"/>
+    </include>
+
+    <!--  Run joystick controller  -->
+    <node pkg="odometry" exec="controller" name="controller" output="screen"/>
+
     <!--  Run detection  -->
     <node pkg="detection" exec="detection" name="detection" output="screen"/>
- 
 
+
+
+
+ 
     <!--  Arm movement  -->
     <include file="$(find-pkg-share arm_servos_pubs_subs)/launch/servo_arm_esp32_launch.py"/>
 
@@ -24,10 +35,8 @@
     <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
 
 
-    <!--  Run joystick teleop  -->
-    <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
-    <arg name="joy_config" value="xbox"/>
-    </include>
 
-    <!--  Run joystick controller  -->
-    <node pkg="odometry" exec="controller" name="controller" output="screen"/>
+
+    <!--  Run RViz  -->
+    <!--  ADD   args="-d $(find-pkg-share g2_robot)/rviz/g2_robot.rviz"    to load the g2_robot.rviz file  -->
+    <node pkg="rviz2" exec="rviz2" name="rviz"/>

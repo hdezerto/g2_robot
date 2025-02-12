@@ -58,8 +58,10 @@ class Odometry(Node):
         base = 0.31 
 
         # Ticks since last message
-        delta_ticks_left = msg.delta_encoder_left
-        delta_ticks_right = msg.delta_encoder_right
+        test = 1
+
+        delta_ticks_left = msg.delta_encoder_left *test
+        delta_ticks_right = msg.delta_encoder_right *test
 
         # Wheel angle since last tick
         delta_phi_left = 2 * math.pi * delta_ticks_left / ticks_per_rev

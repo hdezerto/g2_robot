@@ -30,7 +30,7 @@
     </include>
 
     <!--  Run joystick controller  -->
-    <node pkg="odometry" exec="controller" name="controller" output="screen"/>
+    <!-- <node pkg="odometry" exec="controller" name="controller" output="screen"/> -->
 
     <!--  Run detection  -->
     <node pkg="detection" exec="detection" name="detection" output="screen"/>
@@ -40,6 +40,13 @@
 
     <!--  Run Object Mapping  -->
     <node pkg="detection" exec="object_mapping" name="object_mapping" output="screen"/>
+
+    <!-- Run Point Publisher -->
+    <node pkg="path_planning" exec="point_publisher" name="point_publisher" output="screen"/>
+
+    <!--  Run Path Follower  -->
+    <node pkg="odometry" exec="path_follower" name="path_follower" output="screen"/>
+
 
 
 </launch>
