@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<launch>
+
+
+    <!-- To disable printing of the output of the node to the terminal, remove the output="screen" attribute  -->
+
+    <!--  Run odometry node  -->
+    <!-- output="screen" will print the output of the node to the terminal  -->
+    <node pkg="path_planning" exec="point_publisher" name="point_publisher" output="screen"/>
+
+
+
+
+
+
+</launch>

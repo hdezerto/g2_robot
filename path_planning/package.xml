@@ -17,11 +17,19 @@
   <depend>python3-shapely</depend>
 
   <exec_depend>builtin_interfaces</exec_depend>
+  <exec_depend>data_types</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
+
+  <build_depend>rosidl_default_generators</build_depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
 
   <export>
     <build_type>ament_python</build_type>

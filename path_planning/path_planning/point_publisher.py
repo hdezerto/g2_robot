@@ -27,7 +27,7 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 
 from ament_index_python.packages import get_package_share_directory
-from shapely.geometry import Polygon, Point
+from data_types.srv import RandomPoint
 
 import tf2_geometry_msgs
 
@@ -46,21 +46,17 @@ class pathPublisherNode(Node):
         self.position_reached = True
         self.goal_position = TransformStamped()
 
-        workspace_filename = "workspace_1.tsv"
-        package_share_directory = get_package_share_directory("path_planning")
-        self.ws_file = os.path.join(
-            package_share_directory, "resource", workspace_filename
-        )
-        self.ws_vertices = self.read_tsv()
-        self.ws_polygon = Polygon(self.ws_vertices)
-        self.ws_polygon_buffered = self.ws_polygon.buffer(-20)
+        self.client = self.create_client(RandomPoint, "get_random_ws_point")
+        while not self.client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info("Waiting for service to be available...")
+        self.request = RandomPoint.Request()
 
     def go_to_point(self):
         """
         publish transform to topic
         """
         # print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
-        
+
         self.tf_broadcaster.sendTransform(self.goal_position)
 
         # init
@@ -97,7 +93,7 @@ class pathPublisherNode(Node):
             )
             return
         # else:
-            # self.tf_broadcaster.sendTransform(self.goal_position)
+        # self.tf_broadcaster.sendTransform(self.goal_position)
 
         try:
             # transform translation and rotation
@@ -122,7 +118,6 @@ class pathPublisherNode(Node):
             else:
                 # self.tf_broadcaster.sendTransform(self.goal_position)
                 self.publisher.publish(goal_transform)
-                
 
             return
         except Exception as ex:
@@ -147,16 +142,19 @@ class pathPublisherNode(Node):
         # random_y = random.uniform(
         #     -(self.workspace[1] - 0.10) / 2, (self.workspace[1] - 0.10) / 2
         # )
-        (random_x, random_y) = self.point_in_ws()
-        print(random_x, random_y)
-        random_rot = random.uniform(0, 2 * math.pi)
+        ws_point = self.client.call_async(self.request)
+        rclpy.spin_until_future_complete(self, ws_point)
+
+        random_x = ws_point.result().x
+        random_y = ws_point.result().y
+        random_rot = ws_point.result().theta
+        print(random_x, random_y, random_rot)
 
         # initialize new transform
         goal_transform = TransformStamped()
         goal_transform.header.frame_id = "map"
         goal_transform.child_frame_id = "goal_position"
         goal_transform.header.stamp = self.get_clock().now().to_msg()
-        # print(type(self.get_clock().now().to_msg()))
 
         # assign random point to transform
         goal_transform.transform.translation.x = random_x
@@ -165,14 +163,11 @@ class pathPublisherNode(Node):
         goal_transform.transform.rotation.z = random_quaternion[2]
         goal_transform.transform.rotation.w = random_quaternion[3]
 
-        
         self.goal_position = goal_transform
-        # goal_transform_static = goal_transform
-        # goal_transform_static.child_frame_id = "goal_position_static"
-        # self.static.sendTransform(goal_transform)
-        # self.tf_broadcaster.sendTransform(goal_transform)
-        # self.tf_broadcaster.sendTransform(goal_transform)
-        print(f"GOT NEW POINT:\n{[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]}")
+
+        print(
+            f"GOT NEW POINT:\n{[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]}"
+        )
         print(
             f"GOT NEW POINT(self):\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
         )
@@ -180,32 +175,11 @@ class pathPublisherNode(Node):
         return self.goal_position
 
     def do_broadcast(self):
-        
+
         goal_transform = self.goal_position
         self.goal_position.header.stamp = self.get_clock().now().to_msg()
         goal_transform.header.stamp = self.get_clock().now().to_msg()
         self.tf_broadcaster.sendTransform(goal_transform)
-
-    def read_tsv(self):
-        vertices = []
-        with open(self.ws_file, mode='r') as file:
-            reader = csv.reader(file, delimiter='\t')
-            next(reader)  # Skip header row
-            for row in reader:
-                x, y = float(row[0]), float(row[1])
-                vertices.append((x, y))
-        return vertices
-    
-    def point_in_ws(self):
-        min_x, min_y, max_x, max_y = self.ws_polygon_buffered.bounds
-        while True:
-            x = random.uniform(min_x, max_x)
-            y = random.uniform(min_y, max_y)
-            point = Point(x, y)
-            if self.ws_polygon_buffered.contains(point):
-                return (x/100, y/100) # cm to meters
-    
-    def
 
 
 def main():
@@ -218,7 +192,6 @@ def main():
             node.do_broadcast()
             rclpy.spin_once(node)
             node.go_to_point()
-            
 
     except KeyboardInterrupt:
         pass
