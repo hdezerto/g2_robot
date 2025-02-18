@@ -1,25 +1,17 @@
     
 
-    <!--  Run Lidar  -->
-    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
-
     <!--  Run Lidar stabilizer  -->
     <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/>
+
+
+
 
     <!--  Run Object Mapping  -->
     <node pkg="detection" exec="object_mapping" name="object_mapping" output="screen"/>
 
-
+   
     
 
-    
-     <!--  Run joystick teleop  -->
-    <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
-    <arg name="joy_config" value="xbox"/>
-    </include>
-
-    <!--  Run joystick controller  -->
-    <node pkg="odometry" exec="controller" name="controller" output="screen"/>
 
     <!--  Run detection  -->
     <node pkg="detection" exec="detection" name="detection" output="screen"/>

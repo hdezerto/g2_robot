@@ -73,6 +73,20 @@ On the **robot**, run the following commands:
     ros2 launch g2_robot_launch g2_robot_launch.xml
     ```
 
+
+
+RECORD ROSBAG
+ros2 bag record -o bag1 -a
+
+
+PLAY ROSBAG
+ros2 bag play --read-ahead-queue-size 100 -l -r 1.0 --clock 100 --start-paused bag1
+
+Alt: record rosbag as:
+ros2 bag record -o bag11 --topics Topic /camera/camera/color/camera_info /camera/camera/color/image_raw /camera/camera/color/metadata /camera/camera/depth/camera_info /camera/camera/depth/color/points /camera/camera/depth/metadata /camera/camera/rgbd /cmd_vel /imu/data_raw /imu/mag /imu/temperature /joy /joy/set_feedback /motor/current_duty_cycles /motor/duty_cycles /motor/encoders /parameter_events /path /rosout /scan /tf /tf_static
+
+
+
 **Note:**
 The FastDDS discovery server makes the nodes communicate through the server using TCP (Transmission Control Protocol), instead of using Simple Discovery Protocol (SDP) over UDP multicast. This isolates each group's robot in the shared KTH-IoT network, preventing cross-talk between groups. Without it, multicast discovery would make laptops detect all robots, causing topic conflicts and data mix-ups. Additionally, with many robots broadcasting discovery messages, network congestion could occur, leading to delays, dropped packets, and instability. The server ensures efficient, reliable communication while reducing network load.
 
