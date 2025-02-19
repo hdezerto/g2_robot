@@ -10,6 +10,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/resource", ["resource/workspace_1.tsv"]),
+        ("share/" + package_name + "/resource", ["resource/workspace_2.tsv"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -22,6 +23,7 @@ setup(
         "console_scripts": [
             "point_publisher = path_planning.point_publisher:main",
             "random_point = path_planning.random_point:main",
+            "visualize_ws = path_planning.visualize_ws:main",
         ],
     },
 )
