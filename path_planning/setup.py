@@ -11,6 +11,7 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/resource", ["resource/workspace_1.tsv"]),
         ("share/" + package_name + "/resource", ["resource/workspace_2.tsv"]),
+        ("share/" + package_name + "/resource", ["resource/map_1.tsv"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -24,6 +25,8 @@ setup(
             "point_publisher = path_planning.point_publisher:main",
             "random_point = path_planning.random_point:main",
             "visualize_ws = path_planning.visualize_ws:main",
+            "path_planning = path_planning.path_planning:main",
+            "collection = path_planning.collection:main",
         ],
     },
 )
