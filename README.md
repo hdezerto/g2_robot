@@ -76,14 +76,13 @@ On the **robot**, run the following commands:
 
 
 RECORD ROSBAG
+ros2 bag record -o bag_hugo --topics Topic /camera/camera/color/camera_info /camera/camera/color/image_raw /camera/camera/color/metadata /camera/camera/depth/camera_info /camera/camera/depth/color/points /camera/camera/depth/metadata /camera/camera/rgbd /cmd_vel /imu/data_raw /imu/mag /imu/temperature /joy /joy/set_feedback /motor/current_duty_cycles /motor/duty_cycles /motor/encoders /parameter_events /path /rosout /scan /tf /tf_static
+
 ros2 bag record -o bag1 -a
 
 
 PLAY ROSBAG
 ros2 bag play --read-ahead-queue-size 100 -l -r 1.0 --clock 100 --start-paused bag1
-
-Alt: record rosbag as:
-ros2 bag record -o bag11 --topics Topic /camera/camera/color/camera_info /camera/camera/color/image_raw /camera/camera/color/metadata /camera/camera/depth/camera_info /camera/camera/depth/color/points /camera/camera/depth/metadata /camera/camera/rgbd /cmd_vel /imu/data_raw /imu/mag /imu/temperature /joy /joy/set_feedback /motor/current_duty_cycles /motor/duty_cycles /motor/encoders /parameter_events /path /rosout /scan /tf /tf_static
 
 
 

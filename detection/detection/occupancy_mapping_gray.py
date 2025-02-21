@@ -1,9 +1,31 @@
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import LaserScan
-import numpy as np
-import cv2
+# Importing the ROS 2 Python client library
+import rclpy  
+from rclpy.node import Node  # Base class for defining a ROS 2 node
+from rclpy.time import Time  # Used for handling ROS 2 timestamps
+
+# Importing message types used for communication in ROS 2
+from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
+from nav_msgs.msg import OccupancyGrid, MapMetaData  # OccupancyGrid for map representation, MapMetaData for metadata
+from std_msgs.msg import Header  # Standard header message for timestamping and frame information
+from geometry_msgs.msg import Pose, TransformStamped  # Pose for position and orientation, TransformStamped for coordinate transformations
+
+# Importing libraries for LiDAR scan conversion
+from laser_geometry import LaserProjection  # Converts LaserScan messages into 3D PointCloud2 format
+import sensor_msgs_py.point_cloud2 as pc2  # Utilities for working with PointCloud2 messages in Python
+
+# Importing libraries for handling coordinate transformations
+from tf2_ros import Buffer, TransformListener  # Buffer for storing transformations, TransformListener for receiving TF data
+from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud  # Applies transformations to point clouds
+
+# Importing NumPy for numerical computations and array handling
+import numpy as np  
+
+# Importing OpenCV for image processing (used to save maps as PGM images)
+import cv2  
+
+# Importing os for handling file system operations (creating folders, saving files)
 import os  
+
 
 class MapBuilder:
     def __init__(self, resolution=0.1, size=500, folder="maps"):
@@ -16,7 +38,7 @@ class MapBuilder:
     def world_to_map(self, x, y):
         """ Convert real-world (meters) coordinates to map indices """
         mx = int(self.size / 2 + x / self.resolution)
-        my = int(self.size / 2 - y / self.resolution)
+        my = int(self.size / 2 + y / self.resolution)
         return mx, my
 
     def add_scan(self, scan_data):
@@ -26,70 +48,141 @@ class MapBuilder:
             if 0 <= mx < self.size and 0 <= my < self.size:
                 self.map[my, mx] = 50  # Dark gray near obstacles
 
-    def add_object(self, x, y, label):
-        """ Add objects with specific grayscale values based on label """
-        mx, my = self.world_to_map(x, y)
-        if 0 <= mx < self.size and 0 <= my < self.size:
-            if label == 1:  # Square
-                self.map[my, mx] = 100  # Medium gray
-            elif label == 2:  # Ball
-                self.map[my, mx] = 150  # Light gray
-            elif label == 3:  # Fluffy animal
-                self.map[my, mx] = 200  # Very light gray
-            elif label == 'B':  # Box
-                self.map[my, mx] = 0  # Black
-
     def save_map(self, filename="map.pgm"):
         """ Save map as a PGM file """
         filepath = os.path.join(self.folder, filename)
         cv2.imwrite(filepath, self.map)
         print(f"Map saved at {filepath}")
 
-    def save_yaml(self, filename="map.yaml"):
-        """ Save metadata as YAML file """
-        filepath = os.path.join(self.folder, filename)
-        yaml_content = f"""image: map.pgm
-resolution: {self.resolution}
-origin: [-{(self.size / 2) * self.resolution}, -{(self.size / 2) * self.resolution}, 0.0]
-occupied_thresh: 0.65
-free_thresh: 0.196
-negate: 0
-"""
-        with open(filepath, "w") as f:
-            f.write(yaml_content)
-        print(f"YAML metadata saved at {filepath}")
+    def to_occupancy_grid(self, stamp):
+        grid = OccupancyGrid()
+        grid.header = Header()
+        grid.header.stamp = stamp
+        grid.header.frame_id = "map"
+        grid.info = MapMetaData()
+        grid.info.resolution = self.resolution
+        grid.info.width = self.size
+        grid.info.height = self.size
+        grid.info.origin = Pose()
+        grid.info.origin.position.x = - (self.size / 2) * self.resolution
+        grid.info.origin.position.y = - (self.size / 2) * self.resolution
+        grid.info.origin.position.z = 0.0
+        grid.data = (self.map - 205).astype(np.int8).flatten().tolist()
+        return grid
 
 class LidarMapBuilder(Node):
     def __init__(self):
         super().__init__('lidar_map_builder')
         self.subscription = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, 10)
-        
+        self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
+        self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
         self.map_builder = MapBuilder()
-        self.scan_count = 0  
+        self.scan_count = 0
+        self.scan_freq = 50  # Number of scans before saving map
+        self.nth_scan = 5  # Accumulate every Nth scan
+        self.d_filter = 0.40  # Distance filter for LiDAR points
+
+        # TF Buffer and Listener for correcting odometry drift
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.proj = LaserProjection()
+        self.accumulated_points = []  # List to store accumulated LiDAR points
 
     def scan_callback(self, msg):
-        ranges = np.array(msg.ranges)
-        angles = np.linspace(msg.angle_min, msg.angle_max, len(ranges))
-
-        valid_indices = np.isfinite(ranges)  
-        ranges = ranges[valid_indices]
-        angles = angles[valid_indices]
-
-        x = ranges * np.cos(angles)
-        y = ranges * np.sin(angles)
-        scan_data = np.vstack((x, y)).T
-
-        self.map_builder.add_scan(scan_data)
-        self.get_logger().info(f'Added scan to map. Total scans: {self.scan_count}')
         
         self.scan_count += 1  
 
-        if self.scan_count > 100:  
+        # Only process every Nth scan
+        if self.scan_count % self.nth_scan != 0:
+            return  
+        
+        stamp = msg.header.stamp
+        ranges = np.array(msg.ranges)
+        angles = np.linspace(msg.angle_min, msg.angle_max, len(ranges))
+        # Convert angles to degrees for easier filtering
+        # Convert angles to degrees for easier filtering
+        angles_degrees = np.degrees(angles)
+
+        # Create a mask for points behind the robot
+        behind_robot = (angles_degrees < -120) | (angles_degrees > 120)
+        
+        ranges[behind_robot & (ranges < self.d_filter)] = np.inf
+
+
+        if len(ranges) == 0:
+            self.get_logger().warn("All scan points filtered out!")
+            return  # Exit early if no valid points remain
+
+        # Modify the original msg with the filtered values
+        msg.ranges = ranges.tolist()
+        #msg.angle_min = np.min(angles)  # Update min angle
+        #msg.angle_max = np.max(angles)  # Update max angle
+
+
+        # Define frames and get the transform
+        to_frame_rel = 'map'
+        from_frame_rel = msg.header.frame_id
+        time = Time.from_msg(stamp)
+
+        # Transform scan data to correct odometry drift
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                to_frame_rel, 
+                from_frame_rel,
+                time,
+                timeout=rclpy.duration.Duration(seconds=0.5)
+            )
+
+            # Convert LaserScan to PointCloud2
+            cloud = self.proj.projectLaser(msg)
+              # Transform the point cloud
+            transformed_cloud = do_transform_cloud(cloud, transform)
+            
+            transformed_points = np.array([
+                [p[0], p[1]] for p in pc2.read_points(transformed_cloud, field_names=("x", "y"), skip_nans=True)
+            ], dtype=np.float32)
+
+            transformed_filtered_points = transformed_points
+
+            # Aggregate and publish every Nth transformed scan as a PointCloud2
+            
+            point_cloud_points = pc2.read_points(transformed_cloud, field_names=("x", "y","z"), skip_nans=True)
+            for point in point_cloud_points:
+                self.accumulated_points.append([point[0], point[1], point[2]])
+
+
+            # Add every Nth transformed scan to the accumulated point cloud
+            
+            #self.accumulated_points.extend(transformed_points)
+
+            self.publish_accumulated_pointcloud(msg.header)
+
+            # Update the map using the accumulated point cloud
+            self.map_builder.add_scan(transformed_filtered_points)
+
+        except Exception as e:
+            self.get_logger().error(f"Transform error: {str(e)}")
+
+        #Publish the occupancy grid map every scan_freq scans
+        if self.scan_count % self.scan_freq == 0:  # Publish every scan frequency count
+            occupancy_grid = self.map_builder.to_occupancy_grid(stamp)
+            self.publisher.publish(occupancy_grid)
+            self.get_logger().info("Published occupancy grid map.")
+
+        if self.scan_count >= self.scan_freq:  # Save every scan frequency count
             self.map_builder.save_map()
-            self.map_builder.save_yaml()
-            self.get_logger().info("Map and metadata saved in 'maps/' folder.")
             self.scan_count = 0  
+
+    def publish_accumulated_pointcloud(self, header):
+        """ Publishes the accumulated LiDAR point cloud """
+        if len(self.accumulated_points) == 0:
+            return
+        
+        header.frame_id = "map"  # Ensure the point cloud is in the map frame
+        point_cloud_msg = pc2.create_cloud_xyz32(header, np.array(self.accumulated_points, dtype=np.float32))
+        self.pointcloud_publisher.publish(point_cloud_msg)
+        self.get_logger().info(f"Published accumulated point cloud with {len(self.accumulated_points)} points")
 
 
 def main():
