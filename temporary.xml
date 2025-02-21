@@ -12,13 +12,6 @@
    
     
 
-
-    <!--  Run detection  -->
-    <node pkg="detection" exec="detection" name="detection" output="screen"/>
-
-
-
-
  
     <!--  Arm movement  -->
     <include file="$(find-pkg-share arm_servos_pubs_subs)/launch/servo_arm_esp32_launch.py"/>
@@ -26,9 +19,3 @@
     <!--  Arm camera  -->
     <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
 
-
-
-
-    <!--  Run RViz  -->
-    <!--  ADD   args="-d $(find-pkg-share g2_robot)/rviz/g2_robot.rviz"    to load the g2_robot.rviz file  -->
-    <node pkg="rviz2" exec="rviz2" name="rviz"/>

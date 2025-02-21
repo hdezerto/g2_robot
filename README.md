@@ -48,12 +48,17 @@ On the **remote laptop**, run the following commands:
     source ~/dd2419_ws/install/setup.bash
     ```
 
-5. Run the system using the `g2_robot_launch` package:
+5. Launch the hardware using the `g2_robot_launch` package:
     ```sh
-    ros2 launch g2_robot_launch g2_robot_launch.xml
+    ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
     ```
 
-6. In a new terminal, run RViz on the laptop (NOT using SSH):
+6. Launch the mission planner using the `g2_robot_launch` package:
+    ```sh
+    ros2 launch g2_robot_launch g2_robot_launch_mission.xml
+    ```
+
+7. In a new terminal, run RViz on the laptop (NOT using SSH):
     ```sh
     rviz2
     ```
@@ -68,16 +73,13 @@ On the **robot**, run the following commands:
     fastdds discovery -i 0 -t 192.168.128.110 -q 42100
     ```
 
-2. Run the system using the `g2_robot_launch` package:
-    ```sh
-    ros2 launch g2_robot_launch g2_robot_launch.xml
-    ```
-
+2. Run commands from 4 to  in the previous section.
 
 
 RECORD ROSBAG
 ros2 bag record -o bag_hugo --topics Topic /camera/camera/color/camera_info /camera/camera/color/image_raw /camera/camera/color/metadata /camera/camera/depth/camera_info /camera/camera/depth/color/points /camera/camera/depth/metadata /camera/camera/rgbd /cmd_vel /imu/data_raw /imu/mag /imu/temperature /joy /joy/set_feedback /motor/current_duty_cycles /motor/duty_cycles /motor/encoders /parameter_events /path /rosout /scan /tf /tf_static
 
+# OUTDATED COMMAND
 ros2 bag record -o bag1 -a
 
 
