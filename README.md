@@ -73,7 +73,7 @@ On the **robot**, run the following commands:
     fastdds discovery -i 0 -t 192.168.128.110 -q 42100
     ```
 
-2. Run commands from 4 to  in the previous section.
+2. Run commands from 4 to 7 in the previous section.
 
 
 RECORD ROSBAG
