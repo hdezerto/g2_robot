@@ -40,8 +40,15 @@ class pathPublisherNode(Node):
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
         self.publisher = self.create_publisher(TransformStamped, "/path/nextpos", 10)
+        self.finish_publisher = self.create_publisher(
+            TransformStamped, "/path/goal_reached", 10
+        )
         self.tf_broadcaster = TransformBroadcaster(self)
         self.static = StaticTransformBroadcaster(self)
+
+        self.backup_listener = self.create_subscription(
+            TransformStamped, "/path/goal", self.backup_gtg, 10
+        )
 
         self.position_reached = True
         self.goal_position = TransformStamped()
@@ -56,6 +63,8 @@ class pathPublisherNode(Node):
         publish transform to topic
         """
         # print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
+        if self.position_reached:
+            return
 
         self.tf_broadcaster.sendTransform(self.goal_position)
 
@@ -111,10 +120,11 @@ class pathPublisherNode(Node):
                 self.get_logger().info(
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
-                self.goal_position = self.get_new_point()
-                print(
-                    f"NEW GOAL POSITION {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
-                )
+                # self.goal_position = self.get_new_point()
+                # print(
+                #     f"NEW GOAL POSITION {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
+                # )
+                self.finish_publisher.publish(self.goal_position)
             else:
                 # self.tf_broadcaster.sendTransform(self.goal_position)
                 self.publisher.publish(goal_transform)
@@ -168,10 +178,23 @@ class pathPublisherNode(Node):
         print(
             f"GOT NEW POINT:\n{[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]}"
         )
-        print(
+        self.get_logger().info(
             f"GOT NEW POINT(self):\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
         )
+        return self.goal_position
 
+    def backup_gtg(self, msg: TransformStamped):
+        print("TODO")
+        self.position_reached = False
+        goal_transform = msg
+        self.goal_position = goal_transform
+
+        print(
+            f"GOT NEW POINT:\n{[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]}"
+        )
+        self.get_logger().info(
+            f"GOT NEW POINT(self):\n{[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
+        )
         return self.goal_position
 
     def do_broadcast(self):
