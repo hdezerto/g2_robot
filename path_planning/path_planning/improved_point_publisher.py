@@ -101,7 +101,14 @@ class PointPublisherNode(Node):
             # transform translation and rotation
             finished_transform = compared_transform.result()
             comp_translation = finished_transform.transform.translation
-            alpha, beta, comp_rotation = euler_from_quaternion([finished_transform.transform.rotation.x, finished_transform.transform.rotation.y, finished_transform.transform.rotation.z, finished_transform.transform.rotation.w])
+            alpha, beta, comp_rotation = euler_from_quaternion(
+                [
+                    finished_transform.transform.rotation.x,
+                    finished_transform.transform.rotation.y,
+                    finished_transform.transform.rotation.z,
+                    finished_transform.transform.rotation.w,
+                ]
+            )
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
             if distance_to_point < goal_margin_translational:
@@ -162,24 +169,25 @@ class PointPublisherNode(Node):
         try:
             finished_transform = compared_transform.result()
             comp_translation = finished_transform.transform.translation
-            alpha, beta, comp_rotation = euler_from_quaternion([finished_transform.transform.rotation.x, finished_transform.transform.rotation.y, finished_transform.transform.rotation.z, finished_transform.transform.rotation.w])
+            alpha, beta, comp_rotation = euler_from_quaternion(
+                [
+                    finished_transform.transform.rotation.x,
+                    finished_transform.transform.rotation.y,
+                    finished_transform.transform.rotation.z,
+                    finished_transform.transform.rotation.w,
+                ]
+            )
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
-            if distance_to_point < goal_margin_translational * 2:
-                if abs(comp_rotation) < goal_margin_rotational:
-                    self.position_reached = True
-                    self.get_logger().info(
-                        f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
-                    )
-                    self.print(type(self.goal_position))
-                    self.finish_publisher.publish(self.goal_position)
-                else:
-                    self.publisher.publish(goal_transform)
+            if (distance_to_point < goal_margin_translational) and (
+                abs(comp_rotation) < goal_margin_rotational
+            ):
                 self.position_reached = True
                 self.get_logger().info(
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
-                self.finish_publisher.publish(self.goal_position_bu)
+                self.print(type(self.goal_position))
+                self.finish_publisher.publish(self.goal_position)
             else:
                 self.publisher.publish(goal_transform)
 
@@ -269,7 +277,9 @@ class PointPublisherNode(Node):
             self.goal_position_bu.header.stamp = self.get_clock().now().to_msg()
             goal_transform = self.goal_position_bu
             self.tf_broadcaster.sendTransform(goal_transform)
-            self.get_logger().info(f"Broadcasting goal position at time: {goal_transform.header.stamp}")
+            self.get_logger().info(
+                f"Broadcasting goal position at time: {goal_transform.header.stamp}"
+            )
             # rclpy.spin_once(self)
             print("broadcast")
         else:
