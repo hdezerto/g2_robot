@@ -66,8 +66,9 @@ class PointPublisherNode(Node):
         """
         if self.position_reached:
             return
-
+        "got here"
         if self.use_backup:
+            print("backup")
             self.go_to_point_bu()
             return
 
@@ -119,6 +120,7 @@ class PointPublisherNode(Node):
 
             else:
                 self.publisher.publish(goal_transform)
+                print("published")
 
             return
         except Exception as ex:
@@ -127,9 +129,10 @@ class PointPublisherNode(Node):
             return
 
     def go_to_point_bu(self):
-
+        print("do gtp bu")
         self.do_broadcast()
-        rclpy.spin_once(self)
+        print("continued")
+        print(self.goal_position_bu)
 
         # init
         goal_transform = self.goal_position_bu
@@ -137,13 +140,15 @@ class PointPublisherNode(Node):
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
-
+        print("init done")
         # Wait for the transform asynchronously
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=robot_frame, source_frame=goal_frame, time=time
         )
 
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
+
+        print("tf complete?")
 
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
@@ -226,7 +231,7 @@ class PointPublisherNode(Node):
         return next_goal
 
     def backup_gtg(self, msg: TransformStamped):
-        print("TODO")
+        print("backup_gtg")
         self.position_reached = False
         goal_transform = msg
         self.goal_position_bu = goal_transform
@@ -238,7 +243,7 @@ class PointPublisherNode(Node):
             f"GOT NEW POINT(self):\n{[self.goal_position_bu.transform.translation.x, self.goal_position_bu.transform.translation.y, self.goal_position_bu.transform.rotation.z]}"
         )
         self.do_broadcast()
-        return self.goal_position_bu
+        # return goal_transform
 
     def new_path(self, msg: Path):
         poses = msg.poses
@@ -247,11 +252,14 @@ class PointPublisherNode(Node):
         self.pop_goals()
 
     def do_broadcast(self):
+        # rclpy.spin_once(self)
         if self.use_backup:
-            goal_transform = self.goal_position_bu
             self.goal_position_bu.header.stamp = self.get_clock().now().to_msg()
-            goal_transform.header.stamp = self.get_clock().now().to_msg()
+            goal_transform = self.goal_position_bu
             self.tf_broadcaster.sendTransform(goal_transform)
+            self.get_logger().info(f"Broadcasting goal position at time: {goal_transform.header.stamp}")
+            # rclpy.spin_once(self)
+            print("broadcast")
         else:
             goal_transform = self.goal_position
             self.goal_position.header.stamp = self.get_clock().now().to_msg()

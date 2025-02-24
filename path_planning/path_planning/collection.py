@@ -48,6 +48,7 @@ class Collection(Node):
 
         self.goalPosition = Pose()
         self.obj_index = 0
+        print("51")
 
         package_share_directory = get_package_share_directory("path_planning")
         self.ws_file = os.path.join(package_share_directory, "resource", "map_1.tsv")
@@ -60,12 +61,17 @@ class Collection(Node):
         self.object_publisher = self.create_publisher(Pose, "new_object_pos", 10)
         self.box_publisher = self.create_publisher(Pose, "new_box_pos", 10)
 
+
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
 
+        print("68")
         self.marker_publisher = self.create_publisher(
             Marker, "/object_marker", 10
         )
+        self.visualize_things()
+        
+        self.last_position = (0,0)
 
         self.do_init()
 
@@ -77,15 +83,17 @@ class Collection(Node):
                     self.goalPosition = self.get_new_box()
                     self.box_publisher.publish(self.goalPosition)
                     print(
-                        f"Next BOX: {[self.goalPosition.x, self.goalPosition.y, self.goalPosition.theta]}"
+                        f"Next BOX: {[self.goalPosition.position.x, self.goalPosition.position.y]}"
                     )
+                    print("82")
                 else:
                     self.get_logger().info(
                         "NO BOXES WERE FOUND. ROBOT RETURNS TO ORIGIN."
                     )
-                    self.goalPosition.x = 0
-                    self.goalPosition.y = 0
-                    self.goalPosition.theta = 0
+                    self.goalPosition.position.x = 0
+                    self.goalPosition.position.y = 0
+                    self.goalPosition.orientation.z = 0
+                    self.goalPosition.orientation.w = 1
                     self.box_publisher.publish(self.goalPosition)
 
             elif self.state == States.PLACE:
@@ -111,14 +119,16 @@ class Collection(Node):
             self.goalPosition = self.get_new_object()
             self.object_publisher.publish(self.goalPosition)
             print(
-                f"Next Object: {[self.goalPosition.x, self.goalPosition.y, self.goalPosition.theta]}"
+                f"Next Object: {[self.goalPosition.position.x, self.goalPosition.position.y]}"
             )
         else:
             self.get_logger().info("NO OBJECTS WERE FOUND. ROBOT RETURNS TO ORIGIN.")
-            self.goalPosition.x = 0
-            self.goalPosition.y = 0
-            self.goalPosition.theta = 0
+            self.goalPosition.position.x = 0
+            self.goalPosition.position.y = 0
+            self.goalPosition.orientation.z = 0
+            self.goalPosition.orientation.w = 1
             self.object_publisher.publish(self.goalPosition)
+        print("126")
 
     def get_new_object(self):
         current_x, current_y = self.get_current_position()
@@ -137,7 +147,11 @@ class Collection(Node):
         position = self.objects[obj_index]
         goal_point.position.x = position[0]
         goal_point.position.y = position[1]
-        goal_point.orientation = quaternion_from_euler(0, 0, position[2])
+        qx, qy, qz, qw = quaternion_from_euler(0, 0, position[2])
+        goal_point.orientation.x = qx
+        goal_point.orientation.y = qy
+        goal_point.orientation.z = qz
+        goal_point.orientation.w = qw
         return goal_point
 
     def get_new_box(self):
@@ -152,10 +166,14 @@ class Collection(Node):
                 shortest_dist = distance
                 box_index = index
         goal_point = Pose()
-        position = self.objects[obj_index]
+        position = self.boxes[box_index]
         goal_point.position.x = position[0]
         goal_point.position.y = position[1]
-        goal_point.orientation = quaternion_from_euler(0, 0, position[2])
+        qx, qy, qz, qw = quaternion_from_euler(0, 0, position[2])
+        goal_point.orientation.x = qx
+        goal_point.orientation.y = qy
+        goal_point.orientation.z = qz
+        goal_point.orientation.w = qw
         return goal_point
 
     def get_current_position(self):
@@ -172,13 +190,24 @@ class Collection(Node):
         # Check if the future completed successfully
         if not (current_position_future.done()):  # and compared_transform.result()
             self.get_logger().error(
-                f"Transform future did not complete successfully for time {time}"
+                f"Transform future did not complete successfully for time {time}.\nUsing latest transform"
             )
-            return
+            time = rclpy.time.Time(seconds=0)
+            current_position_future = self.buffer.wait_for_transform_async(
+                target_frame="map", source_frame="base_link", time=time
+            )
+            rclpy.spin_until_future_complete(self, current_position_future, timeout_sec=2)
+            if not (current_position_future.done()):
+                self.get_logger().error(
+                    f"Using latest transform time failed. Using (0,0)"
+                )
+                current_x, current_y = self.last_position
+            
         else:
             current_position = current_position_future.result()
             current_x = current_position.transform.translation.x
             current_y = current_position.transform.translation.y
+            self.last_position = (current_x, current_y)
         return current_x, current_y
 
     def read_tsv(self, file_path):
@@ -197,7 +226,6 @@ class Collection(Node):
                     boxes.append((x, y, theta))
                 else:
                     objects.append((x, y, theta))
-        self.visualize_things()
         return objects, boxes
 
     def visualize_things(self):
@@ -215,7 +243,11 @@ class Collection(Node):
             marker.pose.position.x = obj[0]
             marker.pose.position.y = obj[1]
             marker.pose.position.z = 0.5  # Adjust height if needed
-            marker.pose.orientation = quaternion_from_euler(0, 0, obj[2])
+            qx, qy, qz, qw = quaternion_from_euler(0, 0, obj[2])
+            marker.pose.orientation.x = qx
+            marker.pose.orientation.y = qy
+            marker.pose.orientation.z = qz
+            marker.pose.orientation.w = qw
             marker.scale.x = 0.2
             marker.scale.y = 0.2
             marker.scale.z = 0.2
@@ -238,7 +270,11 @@ class Collection(Node):
             marker.pose.position.x = box[0]
             marker.pose.position.y = box[1]
             marker.pose.position.z = 0.5  # Adjust height if needed
-            marker.pose.orientation = quaternion_from_euler(0, 0, box[2])
+            qx, qy, qz, qw = quaternion_from_euler(0, 0, obj[2])
+            marker.pose.orientation.x = qx
+            marker.pose.orientation.y = qy
+            marker.pose.orientation.z = qz
+            marker.pose.orientation.w = qw
             marker.scale.x = 0.3
             marker.scale.y = 0.3
             marker.scale.z = 0.3

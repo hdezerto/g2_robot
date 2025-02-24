@@ -43,6 +43,7 @@ class PathPlanningNode(Node):
         self.object_position = Pose()
         self.box_position = Pose()
 
+        self.use_bu = True
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
 
@@ -61,13 +62,16 @@ class PathPlanningNode(Node):
             current_pos = self.get_current_position()
         self.object_position = msg
         self.goal_point = (msg.position.x, msg.position.y)
-        self.goal_map = (
-            int(msg.position.x / self.map_resolution),
-            int(msg.position.y / self.map_resolution),
-        )
-        # self.goal_positions = self.get_goal_positions(0.2)
-        # self.find_path(self.goal_positions, 0.2)
-        self.backup_planning((msg.position.x, msg.position.y), 0.2)
+        
+        if not self.use_bu:
+            self.goal_map = (
+                int(msg.position.x / self.map_resolution),
+                int(msg.position.y / self.map_resolution),
+            )
+            self.goal_positions = self.get_goal_positions(0.2)
+            self.find_path(self.goal_positions, 0.2)
+        else:
+            self.backup_planning((msg.position.x, msg.position.y), 0.2)
 
     def path_to_box(self, msg: Pose):
         print("TODO")
@@ -82,8 +86,15 @@ class PathPlanningNode(Node):
         self.box_position = msg
         self.goal_point = (msg.position.x, msg.position.y)
         # self.goal = (0, 0)  # TOTOfgoa
-        self.backup_planning((msg.position.x, msg.position.y), 0.2)
-        # define goal states
+        if not self.use_bu:
+            self.goal_map = (
+                int(msg.position.x / self.map_resolution),
+                int(msg.position.y / self.map_resolution),
+            )
+            self.goal_positions = self.get_goal_positions(0.2)
+            self.find_path(self.goal_positions, 0.2)
+        else:
+            self.backup_planning((msg.position.x, msg.position.y), 0.2)
 
     def get_goal_positions(self, radius):
         gx, gy = self.goal_map[0], self.goal_map[1]
@@ -188,10 +199,11 @@ class PathPlanningNode(Node):
             current_y = current_position.transform.translation.y
 
         self.start_point = (current_x, current_y)
-        self.start_map = (
-            int(current_x / self.map_resolution),
-            int(current_y / self.map_resolution),
-        )
+        if not self.use_bu:
+            self.start_map = (
+                int(current_x / self.map_resolution),
+                int(current_y / self.map_resolution),
+            )
         return current_x, current_y
 
     def get_neighbours(self, position):
@@ -249,13 +261,13 @@ class PathPlanningNode(Node):
     def backup_planning(self, goal_position, distance_to_object):
         print("TODO")
         distance = math.sqrt(
-            (self.start[0] - goal_position[0]) ** 2
-            + (self.start[1] - goal_position[1]) ** 2
+            (self.start_point[0] - goal_position[0]) ** 2
+            + (self.start_point[1] - goal_position[1]) ** 2
         )
         factor_dist_to_obj = 1 - distance_to_object / distance
         self.goal = (
-            self.start[0] + (goal_position[0] - self.start[0]) * factor_dist_to_obj,
-            self.start[0] + (goal_position[1] - self.start[1]) * factor_dist_to_obj,
+            self.start_point[0] + (goal_position[0] - self.start_point[0]) * factor_dist_to_obj,
+            self.start_point[0] + (goal_position[1] - self.start_point[1]) * factor_dist_to_obj,
         )
         self.backup_publish(self.goal)
 
@@ -269,7 +281,8 @@ class PathPlanningNode(Node):
         goal_transform.transform.translation.x = point[0]
         goal_transform.transform.translation.y = point[1]
 
-        self.backup_publisher(goal_transform)
+        self.backup_publisher.publish(goal_transform)
+        self.get_logger().info(f"Published goal position: {point}")
 
 
 def main():

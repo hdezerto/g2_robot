@@ -244,6 +244,7 @@ class pathFollowerNode(Node):
                         f"Distance to position: {[comp_translation.x, comp_translation.y]}"
                     )
                 self.publisher.publish(cmd_vel)
+                self.get_logger().info(f"Published! {[cmd_vel.linear.x, cmd_vel.angular.z]}")
 
         except Exception as ex:
             self.get_logger().error(ex)
