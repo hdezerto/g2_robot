@@ -35,13 +35,14 @@ class Controller(Node):
         self.create_subscription(
             TransformStamped, "/path/nextpos", self.nextpos_callback, 10
         )
-        self.publisher = self.create_publisher(DutyCycles, "/motor/duty_cycles", 10)
+        # Initialize the publisher for motor duty cycles
+        self._pub = self.create_publisher(DutyCycles, '/motor/duty_cycles', 10)
         self.goal_position = TransformStamped()
 
         self.goal_margin_translational = 0.05
         self.goal_margin_rotational = math.pi / 6
 
-        self.speed_factor = 1
+        self.speed_factor = 0,5
 
         self.speed_lin = 1.5
         self.speed_rot = 0.75
@@ -85,7 +86,7 @@ class Controller(Node):
             comp_rotation = finished_transform.transform.rotation
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
-            theta_goal = euler_from_quaternion(comp_rotation)[2]
+            alpha, beta, theta_goal = euler_from_quaternion([comp_rotation.x, comp_rotation.y, comp_rotation.z, comp_rotation.w])
             theta_dir = math.atan2(comp_translation.y, comp_translation.x)
             delta_theta = theta_dir
 
@@ -116,111 +117,29 @@ class Controller(Node):
             v = v * v_damper
             w = w * w_damper
 
+            if abs(v) > 1:
+                v = np.sign(v)*1.5
+            if abs(w) > 1:
+                w = np.sign(w)
             # Convert to duty cycles
             motor_msg = DutyCycles()
-            motor_msg.duty_cycle_left = v - 0.5 * w
-            motor_msg.duty_cycle_right = v + 0.5 * w
+            motor_msg.duty_cycle_left = (v - 0.5 * w)*0.05
+            motor_msg.duty_cycle_right = (v + 0.5 * w)*0.1
 
-            motor_msg.header.stamp = msg.header.stamp
+            motor_msg.header.stamp = self.get_clock().now().to_msg() # msg.header.stamp
 
-            self.publisher.publish(motor_msg)
-
-            self.get_logger().info(f"Published!")
-
+            # Publish the message
+            self._pub.publish(motor_msg)
+            self.get_logger().info(f"Published: {motor_msg.duty_cycle_left}, {motor_msg.duty_cycle_right}")
+            print(self._pub.topic)
             return
+
         except Exception as ex:
             # Log any errors (this will only log broadcasting issues now)
             self.get_logger().error(
                 f"Failed to move towards position: {msg.transform} \n {ex}"
             )
             return
-
-    # def do_go_to_point(self):
-
-    #     time = self.get_clock().now().to_msg()
-    #     robot_frame = "goal_position"
-    #     goal_frame = "base_link"
-
-    #     margin_rotate_first = 0.2  # for points below this distance the robot will rotate first without going forward
-
-    #     cmd_vel = Twist()
-    #     cmd_vel.linear.x = 0.0
-    #     cmd_vel.angular.z = 0.0
-
-    #     # # Wait for the transform asynchronously
-    #     compared_transform = self.buffer.wait_for_transform_async(
-    #         target_frame=goal_frame, source_frame=robot_frame, time=time
-    #     )
-    #     rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=1)
-
-    #     # Check if the future completed successfully
-    #     if not compared_transform.done():
-    #         self.get_logger().error(
-    #             f"Transform future did not complete successfully between {robot_frame} and {goal_frame}."
-    #         )
-    #         return
-    #     else:
-    #         finished_transform = compared_transform.result()
-    #         comp_translation = finished_transform.transform.translation
-    #         comp_rotation = finished_transform.transform.rotation
-    #         distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
-
-    #     try:
-    #         # check whether it is already at goal point
-    #         if distance_to_point < self.goal_margin_translational * 2:
-    #             print(f"Already at goal point")
-    #             # check whether orientation is correct, rotate if not
-    #             if abs(comp_rotation.z) < self.goal_margin_rotational:
-    #                 cmd_vel.linear.x = 0.0
-    #                 cmd_vel.angular.z = 0.0
-    #                 self.get_logger().info("Position already reached.")
-    #             elif comp_rotation.z > 0:
-    #                 cmd_vel.angular.z = self.speed_rot
-    #                 self.get_logger().info(
-    #                     "Position already reached. Orientation to be fixed"
-    #                 )
-    #             elif comp_rotation.z < 0:
-    #                 cmd_vel.angular.z = -self.speed_rot
-    #                 self.get_logger().info(
-    #                     "Position already reached. Orientation to be fixed"
-    #                 )
-    #         # if not already at goal point
-    #         else:
-    #             if (
-    #                 (comp_translation.y < 0)
-    #                 and (abs(comp_translation.y) > self.goal_margin_translational)
-    #                 and (comp_translation.x > 0)
-    #             ):
-    #                 cmd_vel.angular.z = -self.speed_rot
-    #                 print("turning right")
-    #                 print(f"Difference: {abs(comp_translation.y)}")
-
-    #             elif (
-    #                 (comp_translation.y > 0)
-    #                 and (abs(comp_translation.y) > self.goal_margin_translational)
-    #                 and (comp_translation.x > 0)
-    #             ):
-    #                 cmd_vel.angular.z = self.speed_rot
-    #                 print("turning left")
-    #                 print(f"Difference: {abs(comp_translation.y)}")
-
-    #             elif comp_translation.x < 0:
-    #                 cmd_vel.angular.z = self.speed_rot
-    #                 print("turning around")
-    #                 print(
-    #                     f"Distance to position: {[comp_translation.x, comp_translation.y]}"
-    #                 )
-
-    #             else:
-    #                 cmd_vel.linear.x = self.speed_lin
-    #                 print("move ahead")
-    #                 print(
-    #                     f"Distance to position: {[comp_translation.x, comp_translation.y]}"
-    #                 )
-    #             self.publisher.publish(cmd_vel)
-
-    #     except Exception as ex:
-    #         self.get_logger().error(ex)
 
 
 def main():

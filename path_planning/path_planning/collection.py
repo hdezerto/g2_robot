@@ -55,7 +55,7 @@ class Collection(Node):
         self.objects, self.boxes = self.read_tsv(self.ws_file)
 
         self.pu_publisher = self.create_publisher(
-            TransformStamped, "/arm/obj_pos", 10
+            Pose, "/arm/obj_pos", 10
         )  # self.create_publisher(Bool, '/arm/pickup', 10)
         self.place_publisher = self.create_publisher(Bool, "/arm/place", 10)
         self.object_publisher = self.create_publisher(Pose, "new_object_pos", 10)
@@ -105,7 +105,7 @@ class Collection(Node):
         if self.state == States.MTPU:
             self.state = States.PU
             self.pu_publisher.publish(self.goalPosition)
-            self.objects.remove(self.obj_index)
+            self.objects.remove(self.go)
 
         elif self.state == States.MTBOX:
             self.state = States.PLACE

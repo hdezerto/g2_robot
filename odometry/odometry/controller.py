@@ -65,6 +65,8 @@ class Detection(Node):
         # Publish the message
         self._pub.publish(motor_msg)
         self.get_logger().info(f"Published: {motor_msg.duty_cycle_left}, {motor_msg.duty_cycle_right}")
+        print(self._pub.topic)
+
 
 
 def main():
