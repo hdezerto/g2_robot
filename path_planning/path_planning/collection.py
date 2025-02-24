@@ -20,7 +20,7 @@ from visualization_msgs.msg import Marker
 
 from ament_index_python.packages import get_package_share_directory
 
-from std_msgs.msg import std_Bool
+from std_msgs.msg import Bool as std_Bool
 
 from enum import Enum
 
@@ -112,6 +112,7 @@ class Collection(Node):
             else:
                 self.get_logger().warn(f"Object index {self.obj_index} is out of range.")
             
+            # !!!!!!! Remove if arm is working !!!!!!! TODO
             true_bool = std_Bool()
             true_bool.data = True
             self.arm_callback(true_bool)
@@ -119,6 +120,7 @@ class Collection(Node):
         elif self.state == States.MTBOX:
             self.state = States.PLACE
 
+            # !!!!!!! Remove if arm is working !!!!!!! TODO
             true_bool = std_Bool()
             true_bool.data = True
             self.arm_callback(true_bool)

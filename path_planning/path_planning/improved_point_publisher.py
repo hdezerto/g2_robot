@@ -111,7 +111,7 @@ class PointPublisherNode(Node):
                         self.get_logger().info(
                             f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                         )
-                        self.print(type(self.goal_position))
+                        print(type(self.goal_position))
                         self.finish_publisher.publish(self.goal_position)
                     else:
                         self.publisher.publish(goal_transform)

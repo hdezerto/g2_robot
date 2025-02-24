@@ -44,11 +44,11 @@ class Controller(Node):
 
         self.speed_factor = 0,5
 
-        self.speed_lin = 1.5
-        self.speed_rot = 0.75
+        self.speed_lin = 1
+        self.speed_rot = 1
 
         self.p_rotation = (
-            12  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
+            40  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
         self.p_translation = (
             30  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
@@ -62,7 +62,7 @@ class Controller(Node):
         goal_frame = "base_link"
 
         goal_margin_translational = 0.05
-        goal_margin_rotational = math.pi / 10
+        goal_margin_rotational = math.pi / 15
 
         # cmd_vel = Twist()
         # cmd_vel.linear.x = 0.0
@@ -108,15 +108,18 @@ class Controller(Node):
                 print(f"Moving towards {[comp_translation.x, comp_translation.y]}")
                 print(f"v: {v}")
             elif (distance_to_point < goal_margin_translational) and (
-                theta_goal > goal_margin_rotational
+                abs(theta_goal) > goal_margin_rotational
             ):
                 # w = self.p_rotation*theta_goal
                 print(f"AT GOAL\nROTATING DIST: {theta_goal}")
+            else:
+                print("AT GOAL")
             print(f"v: {v}, w: {w}")
+
 
             # Damping
             v_damper = 1
-            w_damper = 1
+            w_damper = 2
             v = v * v_damper
             w = w * w_damper
 
