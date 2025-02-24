@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'g2_robot_launch'
+package_name = 'manipulation'
 data_files = []
 data_files.append(('share/ament_index/resource_index/packages', ['resource/' + package_name]))
 data_files.append((os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*.xml'))))
@@ -17,7 +17,7 @@ setup(
     zip_safe=True,
     maintainer='Hugo Dezerto',
     maintainer_email='hugoad@kth.se',
-    description='Launch file for g2_robot packages',
+    description='Package containing all necessary scripts for arm manipulation',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
