@@ -48,7 +48,7 @@ class Controller(Node):
         self.speed_rot = 0.75
 
         self.p_rotation = (
-            10  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
+            12  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
         self.p_translation = (
             30  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
@@ -62,7 +62,7 @@ class Controller(Node):
         goal_frame = "base_link"
 
         goal_margin_translational = 0.05
-        goal_margin_rotational = math.pi / 6
+        goal_margin_rotational = math.pi / 10
 
         # cmd_vel = Twist()
         # cmd_vel.linear.x = 0.0
@@ -89,13 +89,15 @@ class Controller(Node):
             alpha, beta, theta_goal = euler_from_quaternion([comp_rotation.x, comp_rotation.y, comp_rotation.z, comp_rotation.w])
             theta_dir = math.atan2(comp_translation.y, comp_translation.x)
             delta_theta = theta_dir
+            print(delta_theta)
 
         try:
-            if delta_theta > goal_margin_rotational:
+            if abs(delta_theta) > goal_margin_rotational:
                 w = self.p_rotation * delta_theta
                 v = 0
                 # v = self.p_trans_rotation * (cos(theta_))
                 print(f"Rotating towards {[comp_translation.x, comp_translation.y]}")
+                print(f"Rotating w: {w}")
             elif distance_to_point > goal_margin_translational:
                 v = self.p_translation * (
                     comp_translation.x * math.cos(delta_theta)
@@ -104,6 +106,7 @@ class Controller(Node):
                 # w = self.p_rot_translation * (math.sin(delta_theta*))
                 w = 0
                 print(f"Moving towards {[comp_translation.x, comp_translation.y]}")
+                print(f"v: {v}")
             elif (distance_to_point < goal_margin_translational) and (
                 theta_goal > goal_margin_rotational
             ):
@@ -123,15 +126,15 @@ class Controller(Node):
                 w = np.sign(w)
             # Convert to duty cycles
             motor_msg = DutyCycles()
-            motor_msg.duty_cycle_left = (v - 0.5 * w)*0.05
+            motor_msg.duty_cycle_left = (v - 0.5 * w)*0.1
             motor_msg.duty_cycle_right = (v + 0.5 * w)*0.1
 
             motor_msg.header.stamp = self.get_clock().now().to_msg() # msg.header.stamp
 
             # Publish the message
             self._pub.publish(motor_msg)
-            self.get_logger().info(f"Published: {motor_msg.duty_cycle_left}, {motor_msg.duty_cycle_right}")
-            print(self._pub.topic)
+            # self.get_logger().info(f"Published: {motor_msg.duty_cycle_left}, {motor_msg.duty_cycle_right}")
+            # print(self._pub.topic)
             return
 
         except Exception as ex:

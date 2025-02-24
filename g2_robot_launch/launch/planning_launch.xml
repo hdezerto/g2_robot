@@ -22,35 +22,23 @@
     <node pkg="rviz2" exec="rviz2" name="rviz"/>
 
     <!--  Run joystick teleop  -->
-    <!-- <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py">  -->
-    <!-- <arg name="joy_config" value="xbox"/> -->
-    <!-- </include> -->
-
-    <!--  Run joystick controller  -->
-    <!-- <node pkg="odometry" exec="controller" name="controller" output="screen"/> -->
-
-    <!--  Run detection  -->
-    <!-- <node pkg="detection" exec="detection" name="detection" output="screen"/> -->
-
-    <!--  Run Lidar stabilizer  -->
-    <!-- <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/> -->
-
-    <!--  Run Object Mapping  -->
-    <!-- <node pkg="detection" exec="object_mapping" name="object_mapping" output="screen"/> -->
+    <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
+    <arg name="joy_config" value="xbox"/>
+    </include>
 
     <!-- Run Point Publisher -->
     <!-- <node pkg="path_planning" exec="point_publisher" name="point_publisher" output="screen"/> -->
 
     <!--  Run Path Follower  -->
-    <!-- <node pkg="odometry" exec="path_follower" name="path_follower" output="screen"/> -->
+    <node pkg="odometry" exec="path_follower" name="path_follower" output="screen"/>
 
-    <!-- <node pkg="path_planning" exec="point_publisher" name="point_publisher" output="screen"/> -->
+    <node pkg="path_planning" exec="improved_point_publisher" name="improved_point_publisher" output="screen"/>
 
     <!-- <node pkg="path_planning" exec="random_point" name="random_point" output="screen"/> -->
 
-    <!-- <node pkg="path_planning" exec="path_planning" name="path_planning" output="screen"/> -->
+    <node pkg="path_planning" exec="path_planning" name="path_planning" output="screen"/>
 
-    <!-- <node pkg="path_planning" exec="collection" name="collection" output="screen"/> -->
+    <node pkg="path_planning" exec="collection" name="collection" output="screen"/>
 
 
 

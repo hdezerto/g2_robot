@@ -20,7 +20,7 @@ from visualization_msgs.msg import Marker
 
 from ament_index_python.packages import get_package_share_directory
 
-from std_msgs.msg import Bool
+from std_msgs.msg import std_Bool
 
 from enum import Enum
 
@@ -40,7 +40,7 @@ class Collection(Node):
         super().__init__("automaton")
         self.state = States.INIT
         self.arm_subscription = self.create_subscription(
-            Bool, "/arm/arm_done", self.arm_callback, 10
+            std_Bool, "/arm/arm_done", self.arm_callback, 10
         )
         self.move_subscription = self.create_subscription(
             TransformStamped, "/path/goal_reached", self.move_callback, 10
@@ -57,7 +57,7 @@ class Collection(Node):
         self.pu_publisher = self.create_publisher(
             Pose, "/arm/obj_pos", 10
         )  # self.create_publisher(Bool, '/arm/pickup', 10)
-        self.place_publisher = self.create_publisher(Bool, "/arm/place", 10)
+        self.place_publisher = self.create_publisher(std_Bool, "/arm/place", 10)
         self.object_publisher = self.create_publisher(Pose, "new_object_pos", 10)
         self.box_publisher = self.create_publisher(Pose, "new_box_pos", 10)
 
@@ -75,7 +75,7 @@ class Collection(Node):
 
         self.do_init()
 
-    def arm_callback(self, msg: Bool):
+    def arm_callback(self, msg: std_Bool):
         if msg:
             if self.state == States.PU:
                 self.state = States.MTBOX
@@ -111,10 +111,17 @@ class Collection(Node):
                 self.get_logger().info(f"Removed object: {removed_object}")
             else:
                 self.get_logger().warn(f"Object index {self.obj_index} is out of range.")
+            
+            true_bool = std_Bool()
+            true_bool.data = True
+            self.arm_callback(true_bool)
 
         elif self.state == States.MTBOX:
             self.state = States.PLACE
-            self.place_publisher.publish(True)
+
+            true_bool = std_Bool()
+            true_bool.data = True
+            self.arm_callback(true_bool)
 
     def do_init(self):
         if not self.boxes:
