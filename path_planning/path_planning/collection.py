@@ -15,16 +15,16 @@ from tf2_ros import TransformBroadcaster
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Pose
+from visualization_msgs.msg import Marker
 
 from ament_index_python.packages import get_package_share_directory
-
-# from data_types.srv import RandomPoint
-from geometry_msgs.msg import Pose
 
 from std_msgs.msg import Bool
 
 from enum import Enum
+
+from builtin_interfaces.msg import Duration
 
 
 class States(Enum):
@@ -62,6 +62,10 @@ class Collection(Node):
 
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
+
+        self.marker_publisher = self.create_publisher(
+            Marker, "/object_marker", 10
+        )
 
         self.do_init()
 
@@ -193,9 +197,59 @@ class Collection(Node):
                     boxes.append((x, y, theta))
                 else:
                     objects.append((x, y, theta))
-
+        self.visualize_things()
         return objects, boxes
 
+    def visualize_things(self):
+        marker_array = []
+        # Visualize objects
+        for i, obj in enumerate(self.objects):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "objects"
+            marker.id = i
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.lifetime = Duration(seconds=0) 
+            marker.pose.position.x = obj[0]
+            marker.pose.position.y = obj[1]
+            marker.pose.position.z = 0.5  # Adjust height if needed
+            marker.pose.orientation = quaternion_from_euler(0, 0, obj[2])
+            marker.scale.x = 0.2
+            marker.scale.y = 0.2
+            marker.scale.z = 0.2
+            marker.color.r = 0.0
+            marker.color.g = 0.0
+            marker.color.b = 1.0
+            marker.color.a = 1.0
+            marker_array.append(marker)
+        
+        # Visualize boxes
+        for i, box in enumerate(self.boxes):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "boxes"
+            marker.id = i + len(self.objects)  # Ensure unique IDs
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.lifetime = Duration(seconds=0) 
+            marker.pose.position.x = box[0]
+            marker.pose.position.y = box[1]
+            marker.pose.position.z = 0.5  # Adjust height if needed
+            marker.pose.orientation = quaternion_from_euler(0, 0, box[2])
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+            marker_array.append(marker)
+
+        for marker in marker_array:
+            self.marker_publisher.publish(marker)
 
 def main():
     rclpy.init()

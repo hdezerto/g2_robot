@@ -27,7 +27,6 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 
 from ament_index_python.packages import get_package_share_directory
-from data_types.srv import RandomPoint
 
 import tf2_geometry_msgs
 

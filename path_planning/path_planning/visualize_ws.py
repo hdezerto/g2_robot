@@ -46,7 +46,7 @@ class WorkspaceVisualizer(Node):
         marker.color.b = 0.0
         marker.color.a = 1.0
         print(type(Duration(seconds=0)))
-        marker.lifetime = Duration(seconds=10)  # Infinite lifetime
+        marker.lifetime = Duration(seconds=0)  # Infinite lifetime
 
         for vertex in self.vertices:
             point = Point()  # Use Point from geometry_msgs

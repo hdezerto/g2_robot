@@ -21,7 +21,7 @@ from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
-from geometry_msgs.msg import TransformStamped, Twist
+from geometry_msgs.msg import Point as gm_Point
 from robp_interfaces.msg import Encoders
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
@@ -30,7 +30,8 @@ from ament_index_python.packages import get_package_share_directory
 
 
 from shapely.geometry import Polygon, Point
-from data_types.srv import RandomPoint
+from builtin_interfaces.msg import Duration
+
 
 import tf2_geometry_msgs
 
@@ -51,7 +52,7 @@ class RandomWsPoint(Node):
         self.ws_polygon_buffered = self.ws_polygon.buffer(-20)
 
         self.srv = self.create_service(
-            RandomPoint, "get_random_ws_point", self.get_new_point_callback
+            gm_Point, "get_random_ws_point", self.get_new_point_callback
         )
 
     def get_new_point_callback(self, request, response):
@@ -72,9 +73,9 @@ class RandomWsPoint(Node):
         random_x, random_y = self.point_in_ws()
         print(random_x, random_y)
         random_rot = random.uniform(0, 2 * math.pi)
-        response.x = random_x
-        response.y = random_y
-        response.theta = random_rot
+        response.position.x = random_x
+        response.position.y = random_y
+        response.orientation = quaternion_from_euler(0, 0, random_rot)
 
         return response
 
