@@ -8,12 +8,3 @@
 
     <!--  Run Object Mapping  -->
     <node pkg="detection" exec="object_mapping" name="object_mapping" output="screen"/>
-
-   
- 
-    <!--  Arm movement  -->
-    <include file="$(find-pkg-share arm_servos_pubs_subs)/launch/servo_arm_esp32_launch.py"/>
-
-    <!--  Arm camera  -->
-    <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
-
