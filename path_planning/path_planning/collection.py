@@ -2,16 +2,11 @@
 
 import math
 
-import random
-import numpy as np
-
 import os
 import csv
 
 import rclpy
 from rclpy.node import Node
-
-# from builtin_interfaces.msg import Time
 
 import rclpy.time
 from tf2_ros.transform_listener import TransformListener
@@ -19,21 +14,17 @@ from tf2_ros.buffer import Buffer
 from tf2_ros import TransformBroadcaster
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
-from geometry_msgs.msg import TransformStamped, Twist
-from robp_interfaces.msg import Encoders
-from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import TransformStamped
 
 from ament_index_python.packages import get_package_share_directory
-from data_types.srv import RandomPoint
 
-from ament_index_python.packages import get_package_share_directory
+# from data_types.srv import RandomPoint
+from geometry_msgs.msg import Pose
+
+from std_msgs.msg import Bool
 
 from enum import Enum
-
-import tf2_geometry_msgs
 
 
 class States(Enum):
@@ -49,36 +40,49 @@ class Collection(Node):
         super().__init__("automaton")
         self.state = States.INIT
         self.arm_subscription = self.create_subscription(
-            bool, "/arm/arm_done", self.arm_callback, 10
+            Bool, "/arm/arm_done", self.arm_callback, 10
         )
         self.move_subscription = self.create_subscription(
             TransformStamped, "/path/goal_reached", self.move_callback, 10
         )
 
-        self.goalPosition = RandomPoint
+        self.goalPosition = Pose()
         self.obj_index = 0
 
         package_share_directory = get_package_share_directory("path_planning")
-        self.ws_file = os.path.join(
-            package_share_directory, "resource", "map_1.tsv"
-        )
+        self.ws_file = os.path.join(package_share_directory, "resource", "map_1.tsv")
         self.objects, self.boxes = self.read_tsv(self.ws_file)
 
         self.pu_publisher = self.create_publisher(
             TransformStamped, "/arm/obj_pos", 10
-        )  # self.create_publisher(bool, '/arm/pickup', 10)
-        self.place_publisher = self.create_publisher(bool, "/arm/place", 10)
-        self.object_publisher = self.create_publisher(RandomPoint, 'new_object_pos', 10)
-        self.box_publisher = self.create_publisher(RandomPoint, 'new_box_pos', 10)
+        )  # self.create_publisher(Bool, '/arm/pickup', 10)
+        self.place_publisher = self.create_publisher(Bool, "/arm/place", 10)
+        self.object_publisher = self.create_publisher(Pose, "new_object_pos", 10)
+        self.box_publisher = self.create_publisher(Pose, "new_box_pos", 10)
+
+        self.buffer = Buffer()
+        self.listener = TransformListener(self.buffer, self, spin_thread=False)
 
         self.do_init()
 
-    def arm_callback(self, msg: bool):
+    def arm_callback(self, msg: Bool):
         if msg:
             if self.state == States.PU:
                 self.state = States.MTBOX
-                self.get_new_box()
-                self.
+                if self.boxes:
+                    self.goalPosition = self.get_new_box()
+                    self.box_publisher.publish(self.goalPosition)
+                    print(
+                        f"Next BOX: {[self.goalPosition.x, self.goalPosition.y, self.goalPosition.theta]}"
+                    )
+                else:
+                    self.get_logger().info(
+                        "NO BOXES WERE FOUND. ROBOT RETURNS TO ORIGIN."
+                    )
+                    self.goalPosition.x = 0
+                    self.goalPosition.y = 0
+                    self.goalPosition.theta = 0
+                    self.box_publisher.publish(self.goalPosition)
 
             elif self.state == States.PLACE:
                 self.state = States.INIT
@@ -89,6 +93,7 @@ class Collection(Node):
         if self.state == States.MTPU:
             self.state = States.PU
             self.pu_publisher.publish(self.goalPosition)
+            self.objects.remove(self.obj_index)
 
         elif self.state == States.MTBOX:
             self.state = States.PLACE
@@ -100,61 +105,61 @@ class Collection(Node):
         if self.objects:
             self.state = States.MTPU
             self.goalPosition = self.get_new_object()
-            self.path_publisher(self.goalPosition)
-            print(f"Next Object: {[self.goalPosition.x, self.goalPosition.y, self.goalPosition.theta]}")
+            self.object_publisher.publish(self.goalPosition)
+            print(
+                f"Next Object: {[self.goalPosition.x, self.goalPosition.y, self.goalPosition.theta]}"
+            )
         else:
             self.get_logger().info("NO OBJECTS WERE FOUND. ROBOT RETURNS TO ORIGIN.")
             self.goalPosition.x = 0
             self.goalPosition.y = 0
             self.goalPosition.theta = 0
-            self.path_publisher(self.goalPosition)
-
+            self.object_publisher.publish(self.goalPosition)
 
     def get_new_object(self):
         current_x, current_y = self.get_current_position()
-        
+
         shortest_dist = 3000
         obj_index = 0
         for index, object in enumerate(self.objects):
             obj_x, obj_y = object[0], object[1]
-            distance = math.sqrt((current_x-obj_x)**2 + (current_y - obj_y)**2)
+            distance = math.sqrt((current_x - obj_x) ** 2 + (current_y - obj_y) ** 2)
             if distance < shortest_dist:
                 shortest_dist = distance
                 obj_index = index
-        
+
         self.obj_index = obj_index
-        goal_point = RandomPoint()
+        goal_point = Pose()
         position = self.objects[obj_index]
-        goal_point.x = position[0]
-        goal_point.y = position[1]
-        goal_point.theta = position[2]
+        goal_point.position.x = position[0]
+        goal_point.position.y = position[1]
+        goal_point.orientation = quaternion_from_euler(0, 0, position[2])
         return goal_point
 
     def get_new_box(self):
         current_x, current_y = self.get_current_position()
-        
+
         shortest_dist = 3000
         box_index = 0
         for index, box in enumerate(self.boxes):
             box_x, box_y = box[0], box[1]
-            distance = math.sqrt((current_x-box_x)**2 + (current_y - box_y)**2)
+            distance = math.sqrt((current_x - box_x) ** 2 + (current_y - box_y) ** 2)
             if distance < shortest_dist:
                 shortest_dist = distance
                 box_index = index
-        goal_point = RandomPoint()
-        position = self.boxes[box_index]
-        goal_point.x = position[0]
-        goal_point.y = position[1]
-        goal_point.theta = position[2]
+        goal_point = Pose()
+        position = self.objects[obj_index]
+        goal_point.position.x = position[0]
+        goal_point.position.y = position[1]
+        goal_point.orientation = quaternion_from_euler(0, 0, position[2])
         return goal_point
-        
 
     def get_current_position(self):
-        time = self.self.get_clock().now().to_msg()
+        time = self.get_clock().now().to_msg()
 
         # Wait for the transform asynchronously
         current_position_future = self.buffer.wait_for_transform_async(
-            target_frame='map', source_frame='base_link', time=time
+            target_frame="map", source_frame="base_link", time=time
         )
 
         rclpy.spin_until_future_complete(self, current_position_future, timeout_sec=2)
@@ -171,7 +176,6 @@ class Collection(Node):
             current_x = current_position.transform.translation.x
             current_y = current_position.transform.translation.y
         return current_x, current_y
-
 
     def read_tsv(self, file_path):
         objects = []
@@ -197,15 +201,6 @@ def main():
     rclpy.init()
     node = Collection()
     rclpy.spin(node)
-    # try:
-    #     node.goal_position = node.get_new_point()
-    #     while rclpy.ok():
-    #         node.do_broadcast()
-    #         rclpy.spin_once(node)
-    #         node.go_to_point()
-
-    # except KeyboardInterrupt:
-    #     pass
     rclpy.shutdown()
 
 

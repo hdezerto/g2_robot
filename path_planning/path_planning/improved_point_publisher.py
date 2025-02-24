@@ -2,16 +2,8 @@
 
 import math
 
-import random
-import numpy as np
-
-import os
-import csv
-
 import rclpy
 from rclpy.node import Node
-
-# from builtin_interfaces.msg import Time
 
 import rclpy.time
 from tf2_ros.transform_listener import TransformListener
@@ -19,20 +11,14 @@ from tf2_ros.buffer import Buffer
 from tf2_ros import TransformBroadcaster
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
-from geometry_msgs.msg import TransformStamped, Twist
-from robp_interfaces.msg import Encoders
+from geometry_msgs.msg import TransformStamped, PoseStamped
 from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
-
-from ament_index_python.packages import get_package_share_directory
-from data_types.srv import RandomPoint
 
 import tf2_geometry_msgs
 
 
-class pathPublisherNode(Node):
+class PointPublisherNode(Node):
     """
     Publishes the goal point for the controller to move towards.
 
@@ -40,7 +26,8 @@ class pathPublisherNode(Node):
 
     Args:
         Node (_type_): _description_
-    """    
+    """
+
     def __init__(self):
         super().__init__("point_publisher")  # Call the superclass constructor
         self.buffer = Buffer()
@@ -50,13 +37,14 @@ class pathPublisherNode(Node):
             TransformStamped, "/path/goal_reached", 10
         )
         self.tf_broadcaster = TransformBroadcaster(self)
-        self.static = StaticTransformBroadcaster(self)
 
         self.backup_listener = self.create_subscription(
             TransformStamped, "/path/goal", self.backup_gtg, 10
         )
 
-        self.path_listener = self.create_subscription(Path, "/path/planned_path", self.new_path, 10)
+        self.path_listener = self.create_subscription(
+            Path, "/path/planned_path", self.new_path, 10
+        )
 
         self.position_reached = True
         self.goal_position_bu = TransformStamped()
@@ -64,6 +52,8 @@ class pathPublisherNode(Node):
         self.goal_position = TransformStamped()
 
         self.use_backup = True
+
+        self.create_timer(0.5, self.go_to_point)
 
         # self.client = self.create_client(RandomPoint, "get_random_ws_point")
         # while not self.client.wait_for_service(timeout_sec=1.0):
@@ -74,35 +64,30 @@ class pathPublisherNode(Node):
         """
         publish transform to topic
         """
-        # print(f"GOING TOWARDS: {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}")
         if self.position_reached:
             return
 
         if self.use_backup:
             self.go_to_point_bu()
             return
-        
-        self.tf_broadcaster.sendTransform(self.goal_position)
+
+        self.do_broadcast()
+        rclpy.spin_once(self)
 
         # init
-        goal_transform = self.goal_position_bu
-        # goal_transform.header.stamp = self.get_clock().now().to_msg()
-        # time = self.get_clock().now().to_msg()
-        time = self.goal_position_bu.header.stamp
+        goal_transform = self.goal_position
+        time = self.goal_position.header.stamp
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
         goal_margin_rotational = math.pi / 10
-
-        # broadcast transform
-        self.tf_broadcaster.sendTransform(goal_transform)
 
         # Wait for the transform asynchronously
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=robot_frame, source_frame=goal_frame, time=time
         )
 
-        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
+        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=1)
 
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
@@ -111,30 +96,28 @@ class pathPublisherNode(Node):
             )
             return
 
-
         try:
             # transform translation and rotation
-            # print(type(compared_transform.result()))
             finished_transform = compared_transform.result()
-            # print(transform)
             comp_translation = finished_transform.transform.translation
-            comp_rotation = finished_transform.transform.rotation
+            comp_rotation = euler_from_quaternion(finished_transform.transform.rotation)
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
-            if (
-                distance_to_point < goal_margin_translational * 2
-            ):  # and (abs(comp_rotation.z) < goal_margin_rotational)
-                self.position_reached = True
-                self.get_logger().info(
-                    f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
-                )
-                # self.goal_position = self.get_new_point()
-                # print(
-                #     f"NEW GOAL POSITION {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
-                # )
-                self.finish_publisher.publish(self.goal_position_bu)
+            if distance_to_point < goal_margin_translational:
+                if not self.goals:
+                    if abs(comp_rotation[2]) < goal_margin_rotational:
+                        self.position_reached = True
+                        self.get_logger().info(
+                            f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
+                        )
+                        self.finish_publisher.publish(self.goal_position)
+                    else:
+                        self.publisher.publish(goal_transform)
+                else:
+                    goal_transform = self.pop_goals()
+                    self.publisher.publish(goal_transform)
+
             else:
-                # self.tf_broadcaster.sendTransform(self.goal_position)
                 self.publisher.publish(goal_transform)
 
             return
@@ -145,20 +128,15 @@ class pathPublisherNode(Node):
 
     def go_to_point_bu(self):
 
-        self.tf_broadcaster.sendTransform(self.goal_position_bu)
+        self.do_broadcast()
+        rclpy.spin_once(self)
 
         # init
         goal_transform = self.goal_position_bu
-        # goal_transform.header.stamp = self.get_clock().now().to_msg()
-        # time = self.get_clock().now().to_msg()
         time = self.goal_position_bu.header.stamp
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
-        goal_margin_rotational = math.pi / 10
-
-        # broadcast transform
-        self.tf_broadcaster.sendTransform(goal_transform)
 
         # Wait for the transform asynchronously
         compared_transform = self.buffer.wait_for_transform_async(
@@ -167,45 +145,25 @@ class pathPublisherNode(Node):
 
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
 
-        # try:
-        #     # print(compared_transform.result().transform)
-        # except rclpy.executors.TimeoutException:
-        #     self.get_logger().error(f"Transform future did not complete successfully for time {time}")
-        # except Exception as ex:
-        #     self.get_logger().error(f"An error occurred: {ex}")
-
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
             self.get_logger().error(
                 f"Transform future did not complete successfully for time {time}"
             )
             return
-        # else:
-        # self.tf_broadcaster.sendTransform(self.goal_position)
 
         try:
-            # transform translation and rotation
-            # print(type(compared_transform.result()))
             finished_transform = compared_transform.result()
-            # print(transform)
             comp_translation = finished_transform.transform.translation
-            comp_rotation = finished_transform.transform.rotation
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
-            if (
-                distance_to_point < goal_margin_translational * 2
-            ):  # and (abs(comp_rotation.z) < goal_margin_rotational)
+            if distance_to_point < goal_margin_translational * 2:
                 self.position_reached = True
                 self.get_logger().info(
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
-                # self.goal_position = self.get_new_point()
-                # print(
-                #     f"NEW GOAL POSITION {[self.goal_position.transform.translation.x, self.goal_position.transform.translation.y, self.goal_position.transform.rotation.z]}"
-                # )
                 self.finish_publisher.publish(self.goal_position_bu)
             else:
-                # self.tf_broadcaster.sendTransform(self.goal_position)
                 self.publisher.publish(goal_transform)
 
             return
@@ -213,7 +171,7 @@ class pathPublisherNode(Node):
             # Log any errors (this will only log broadcasting issues now)
             self.get_logger().error(f"Error: {ex}")
             return
-    
+
     def get_new_point(self):
         """
         generate new point
@@ -224,13 +182,6 @@ class pathPublisherNode(Node):
         """
         self.position_reached = False
 
-        # # generate new point
-        # random_x = random.uniform(
-        #     -(self.workspace[0] - 0.10) / 2, (self.workspace[0] - 0.10) / 2
-        # )
-        # random_y = random.uniform(
-        #     -(self.workspace[1] - 0.10) / 2, (self.workspace[1] - 0.10) / 2
-        # )
         ws_point = self.client.call_async(self.request)
         rclpy.spin_until_future_complete(self, ws_point)
 
@@ -262,6 +213,18 @@ class pathPublisherNode(Node):
         )
         return self.goal_position_bu
 
+    def pop_goals(self) -> TransformStamped:
+        next_pose = self.goals.pop(0)
+        next_goal = TransformStamped()
+        next_goal.transform.translation = next_pose.pose.position
+        next_goal.transform.rotation = next_pose.pose.orientation
+        next_goal.header.stamp = self.get_clock().now().to_msg()
+        next_goal.header.frame_id = "map"
+        next_goal.child_frame_id = "goal_position"
+        next_goal = self.goal_position
+
+        return next_goal
+
     def backup_gtg(self, msg: TransformStamped):
         print("TODO")
         self.position_reached = False
@@ -274,10 +237,14 @@ class pathPublisherNode(Node):
         self.get_logger().info(
             f"GOT NEW POINT(self):\n{[self.goal_position_bu.transform.translation.x, self.goal_position_bu.transform.translation.y, self.goal_position_bu.transform.rotation.z]}"
         )
+        self.do_broadcast()
         return self.goal_position_bu
-    
+
     def new_path(self, msg: Path):
-        print("TODO")
+        poses = msg.poses
+        self.goals = poses
+        self.position_reached = False
+        self.pop_goals()
 
     def do_broadcast(self):
         if self.use_backup:
@@ -294,17 +261,8 @@ class pathPublisherNode(Node):
 
 def main():
     rclpy.init()
-    node = pathPublisherNode()
-
-    try:
-        node.goal_position_bu = node.get_new_point()
-        while rclpy.ok():
-            node.do_broadcast()
-            rclpy.spin_once(node)
-            node.go_to_point()
-
-    except KeyboardInterrupt:
-        pass
+    node = PointPublisherNode()
+    rclpy.spin(node)
     rclpy.shutdown()
 
 

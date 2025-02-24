@@ -16,18 +16,11 @@ from rclpy.node import Node
 import rclpy.time
 from tf2_ros.transform_listener import TransformListener
 from tf2_ros.buffer import Buffer
-from tf2_ros import TransformBroadcaster
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
-from geometry_msgs.msg import TransformStamped, Twist
-from robp_interfaces.msg import Encoders
+from geometry_msgs.msg import TransformStamped, Pose, PoseStamped
 from nav_msgs.msg import Path, OccupancyGrid
-from geometry_msgs.msg import PoseStamped
-
-from ament_index_python.packages import get_package_share_directory
-from data_types.srv import RandomPoint
 
 from heapq import heappush, heappop
 
@@ -47,41 +40,49 @@ class PathPlanningNode(Node):
         self.goal_map = (0, 0)
         self.goal_point = (0, 0)
         self.goal_positions = []
-        self.object_position = RandomPoint()
-        self.box_position = RandomPoint()
+        self.object_position = Pose()
+        self.box_position = Pose()
+
+        self.buffer = Buffer()
+        self.listener = TransformListener(self.buffer, self, spin_thread=False)
 
         self.create_subscription(OccupancyGrid, "map_update", self.map_update, 10)
-        self.create_subscription(RandomPoint, "new_object_pos", self.path_to_object, 10)
-        self.create_subscription(RandomPoint, "new_box_pos", self.path_to_box, 10)
+        self.create_subscription(Pose, "new_object_pos", self.path_to_object, 10)
+        self.create_subscription(Pose, "new_box_pos", self.path_to_box, 10)
 
-        self.path_publisher = self.create_publisher(Path, "/path/planned_path")
-        self.backup_publisher = self.create_publisher(TransformStamped, "/path/goal")
+        self.path_publisher = self.create_publisher(Path, "/path/planned_path", 10)
+        self.backup_publisher = self.create_publisher(TransformStamped, "/path/goal", 10)
 
-    def path_to_object(self, msg: RandomPoint):
+
+    def path_to_object(self, msg: Pose):
         print("TODO")
-        self.get_current_position()
+        current_pos = None
+        while not current_pos
+            current_pos = self.get_current_position()
         self.object_position = msg
-        self.goal_point = (msg.x, msg.y)
+        self.goal_point = (msg.position.x, msg.position.y)
         self.goal_map = (
-            int(msg.x / self.map_resolution),
-            int(msg.y / self.map_resolution),
+            int(msg.position.x / self.map_resolution),
+            int(msg.position.y / self.map_resolution),
         )
         # self.goal_positions = self.get_goal_positions(0.2)
         # self.find_path(self.goal_positions, 0.2)
-        self.backup_planning((msg.x, msg.y), 0.2)
+        self.backup_planning((msg.position.x, msg.position.y), 0.2)
 
-    def path_to_box(self, msg: RandomPoint):
+    def path_to_box(self, msg: Pose):
         print("TODO")
-        self.get_current_position()
+        current_pos = None
+        while not current_pos:
+            current_pos = self.get_current_position()
         # self.start_map = (
         #     int(current_pos[0] / self.map_resolution),
         #     int(current_pos[1] / self.map_resolution),
         # )
         # self.start_point = current_pos
         self.box_position = msg
-        self.goal_point = (msg.x, msg.y)
-        # self.goal = (0, 0)  # TOTO
-        self.backup_planning((msg.x, msg.y), 0.2)
+        self.goal_point = (msg.position.x, msg.position.y)
+        # self.goal = (0, 0)  # TOTOfgoa
+        self.backup_planning((msg.position.x, msg.position.y), 0.2)
         # define goal states
 
     def get_goal_positions(self, radius):
@@ -105,7 +106,7 @@ class PathPlanningNode(Node):
 
     def find_path(self, goals, radius):
         print("TODO")
-        smallest_f = 10000
+        smallest_f = float('inf')
         goal_path = None
         direction = ""
         # find path to goal states
@@ -115,7 +116,8 @@ class PathPlanningNode(Node):
                 goal_path = path
                 smallest_f = f
                 direction = goal_pos[2]
-        self.publish_path(goal_path, direction, radius)
+        if goal_path:
+            self.publish_path(goal_path, direction, radius)
 
     def astar(self, start: tuple[int, int], goal: tuple[int, int]):
         print("TODO")
@@ -164,7 +166,7 @@ class PathPlanningNode(Node):
         self.map_origin = (msg.info.origin.position.x, msg.info.origin.position.y)
 
     def get_current_position(self) -> float:
-        time = self.self.get_clock().now().to_msg()
+        time = self.get_clock().now().to_msg()
 
         # Wait for the transform asynchronously
         current_position_future = self.buffer.wait_for_transform_async(
@@ -274,15 +276,6 @@ def main():
     rclpy.init()
     node = PathPlanningNode()
     rclpy.spin(node)
-    # try:
-    #     node.goal_position = node.get_new_point()
-    #     while rclpy.ok():
-    #         node.do_broadcast()
-    #         rclpy.spin_once(node)
-    #         node.go_to_point()
-
-    # except KeyboardInterrupt:
-    #     pass
     rclpy.shutdown()
 
 
