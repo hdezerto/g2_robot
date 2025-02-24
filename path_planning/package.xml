@@ -16,6 +16,8 @@
   <depend>tf2_ros</depend>
   <depend>python3-shapely</depend>
   <depend>heapq</depend>
+  <depend>enum</depend>
+  <depend>std_msgs</depend>
 
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>data_types</exec_depend>

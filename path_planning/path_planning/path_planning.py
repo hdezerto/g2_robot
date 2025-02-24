@@ -19,12 +19,12 @@ from tf2_ros.buffer import Buffer
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 
+from ament_index_python.packages import get_package_share_directory
+
 from geometry_msgs.msg import TransformStamped, Pose, PoseStamped
 from nav_msgs.msg import Path, OccupancyGrid
 
 from heapq import heappush, heappop
-
-import tf2_geometry_msgs
 
 
 class PathPlanningNode(Node):
@@ -57,7 +57,7 @@ class PathPlanningNode(Node):
     def path_to_object(self, msg: Pose):
         print("TODO")
         current_pos = None
-        while not current_pos
+        while not current_pos:
             current_pos = self.get_current_position()
         self.object_position = msg
         self.goal_point = (msg.position.x, msg.position.y)

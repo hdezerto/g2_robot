@@ -27,6 +27,7 @@ setup(
             "visualize_ws = path_planning.visualize_ws:main",
             "path_planning = path_planning.path_planning:main",
             "collection = path_planning.collection:main",
+            "improved_point_publisher = path_planning:improved_point_publisher:main",
         ],
     },
 )
