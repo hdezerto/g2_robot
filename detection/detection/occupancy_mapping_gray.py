@@ -32,6 +32,7 @@ class MapBuilder:
         self.resolution = resolution  # 10 cm per pixel
         self.size = size  # pixels (map will be size x size)
         self.map = 205 * np.ones((size, size), dtype=np.uint8)  # Initialize as unknown (gray)
+        self.confidence_map = np.zeros((size, size), dtype=np.uint8)  # Track confidence (0-100)
         self.folder = folder  
         os.makedirs(self.folder, exist_ok=True)
 
@@ -46,7 +47,12 @@ class MapBuilder:
         for x, y in scan_data:
             mx, my = self.world_to_map(x, y)
             if 0 <= mx < self.size and 0 <= my < self.size:
-                self.map[my, mx] = 50  # Dark gray near obstacles
+                # Increase confidence by 25% each hit, max 100%
+                self.confidence_map[my, mx] = min(self.confidence_map[my, mx] + 25, 100)
+
+                # Convert confidence to an occupancy probability (0 = free, 100 = occupied)
+                self.map[my, mx] = int(205 - (self.confidence_map[my, mx] * 2.05))  # Scale 100 → 0, 0 → 205
+
 
     def save_map(self, filename="map.pgm"):
         """ Save map as a PGM file """
@@ -59,6 +65,7 @@ class MapBuilder:
         grid.header = Header()
         grid.header.stamp = stamp
         grid.header.frame_id = "map"
+
         grid.info = MapMetaData()
         grid.info.resolution = self.resolution
         grid.info.width = self.size
@@ -67,7 +74,8 @@ class MapBuilder:
         grid.info.origin.position.x = - (self.size / 2) * self.resolution
         grid.info.origin.position.y = - (self.size / 2) * self.resolution
         grid.info.origin.position.z = 0.0
-        grid.data = (self.map - 205).astype(np.int8).flatten().tolist()
+        
+        grid.data = (self.confidence_map - 205).astype(np.int8).flatten().tolist()
         return grid
 
 class LidarMapBuilder(Node):
