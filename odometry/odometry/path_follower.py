@@ -37,7 +37,7 @@ class pathFollowerNode(Node):
         self.goal_position = TransformStamped()
 
         self.goal_margin_translational = 0.05
-        self.goal_margin_rotational = math.pi / 6
+        self.goal_margin_rotational = math.pi / 10
 
         self.speed_factor = 1
 

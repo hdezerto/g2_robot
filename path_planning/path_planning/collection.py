@@ -105,7 +105,12 @@ class Collection(Node):
         if self.state == States.MTPU:
             self.state = States.PU
             self.pu_publisher.publish(self.goalPosition)
-            self.objects.remove(self.go)
+            self.get_logger().info(f"Published Position for Object Pickup: {self.goalPosition}")
+            if self.obj_index < len(self.objects):
+                removed_object = self.objects.pop(self.obj_index)  # This removes the object by index
+                self.get_logger().info(f"Removed object: {removed_object}")
+            else:
+                self.get_logger().warn(f"Object index {self.obj_index} is out of range.")
 
         elif self.state == States.MTBOX:
             self.state = States.PLACE

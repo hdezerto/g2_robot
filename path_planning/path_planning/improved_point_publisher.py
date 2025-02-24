@@ -101,12 +101,12 @@ class PointPublisherNode(Node):
             # transform translation and rotation
             finished_transform = compared_transform.result()
             comp_translation = finished_transform.transform.translation
-            comp_rotation = euler_from_quaternion(finished_transform.transform.rotation)
+            alpha, beta, comp_rotation = euler_from_quaternion([finished_transform.transform.rotation.x, finished_transform.transform.rotation.y, finished_transform.transform.rotation.z, finished_transform.transform.rotation.w])
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
             if distance_to_point < goal_margin_translational:
                 if not self.goals:
-                    if abs(comp_rotation[2]) < goal_margin_rotational:
+                    if abs(comp_rotation) < goal_margin_rotational:
                         self.position_reached = True
                         self.get_logger().info(
                             f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
@@ -141,6 +141,7 @@ class PointPublisherNode(Node):
         robot_frame = "base_link"
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
+        goal_margin_rotational = math.pi / 10
         print("init done")
         # Wait for the transform asynchronously
         compared_transform = self.buffer.wait_for_transform_async(
@@ -161,9 +162,19 @@ class PointPublisherNode(Node):
         try:
             finished_transform = compared_transform.result()
             comp_translation = finished_transform.transform.translation
+            alpha, beta, comp_rotation = euler_from_quaternion([finished_transform.transform.rotation.x, finished_transform.transform.rotation.y, finished_transform.transform.rotation.z, finished_transform.transform.rotation.w])
             distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
             if distance_to_point < goal_margin_translational * 2:
+                if abs(comp_rotation) < goal_margin_rotational:
+                    self.position_reached = True
+                    self.get_logger().info(
+                        f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
+                    )
+                    self.print(type(self.goal_position))
+                    self.finish_publisher.publish(self.goal_position)
+                else:
+                    self.publisher.publish(goal_transform)
                 self.position_reached = True
                 self.get_logger().info(
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
