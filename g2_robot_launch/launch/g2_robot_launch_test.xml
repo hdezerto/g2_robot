@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+
+
+    <!-- To disable printing of the output of the node to the terminal, remove the output="screen" attribute  -->
+
+
+    <!-- Run micro_ros_agent -->
+    <node pkg="micro_ros_agent" exec="micro_ros_agent" name="micro_ros_agent_node" output="screen"
+        args="serial --dev /dev/ttyUSB1 -v6"/>
+
+
+</launch>
