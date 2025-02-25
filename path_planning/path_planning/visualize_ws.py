@@ -21,6 +21,7 @@ class WorkspaceVisualizer(Node):
             package_share_directory, "resource", "workspace_2.tsv"
         )
         self.vertices = self.read_tsv(self.ws_file)
+        self.create_timer(10, self.publish_workspace)
         self.publish_workspace()
 
     def read_tsv(self, file_path):

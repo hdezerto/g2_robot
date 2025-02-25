@@ -65,11 +65,11 @@ class Collection(Node):
         self.buffer = Buffer()
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
 
-        print("68")
         self.marker_publisher = self.create_publisher(
             Marker, "/object_marker", 10
         )
         self.visualize_things()
+        self.create_timer(10, self.visualize_things)
         
         self.last_position = (0,0)
 
@@ -242,7 +242,7 @@ class Collection(Node):
                     objects.append((x, y, theta))
         return objects, boxes
 
-    def visualize_things(self):
+    # def visualize_things(self):
         marker_array = []
         # Visualize objects
         for i, obj in enumerate(self.objects):
@@ -298,6 +298,86 @@ class Collection(Node):
             marker.color.a = 1.0
             marker_array.append(marker)
 
+        for marker in marker_array:
+            self.marker_publisher.publish(marker)
+    
+    def visualize_things(self):
+        # Create a marker array to store all markers
+        marker_array = []
+
+        # Visualize objects
+        for i, obj in enumerate(self.objects):
+            marker = Marker()
+            marker.header.frame_id = "map"  # Ensure the frame is correct in RViz
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "objects"
+            marker.id = i
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.lifetime = Duration(sec=10)  # Permanent marker
+
+            # Set position
+            marker.pose.position.x = obj[0]
+            marker.pose.position.y = obj[1]
+            marker.pose.position.z = 0.01  # Slightly above the ground
+
+            # Set orientation using quaternion
+            qx, qy, qz, qw = quaternion_from_euler(0, 0, obj[2])
+            marker.pose.orientation.x = qx
+            marker.pose.orientation.y = qy
+            marker.pose.orientation.z = qz
+            marker.pose.orientation.w = qw
+
+            # Set size
+            marker.scale.x = 0.2
+            marker.scale.y = 0.2
+            marker.scale.z = 0.2
+
+            # Set color (blue for objects)
+            marker.color.r = 0.0
+            marker.color.g = 0.0
+            marker.color.b = 1.0
+            marker.color.a = 1.0  # Fully visible
+
+            marker_array.append(marker)
+
+        # Visualize boxes
+        for i, box in enumerate(self.boxes):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "boxes"
+            marker.id = i + len(self.objects)  # Unique ID to avoid conflicts
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.lifetime = Duration(sec=0)  # Permanent marker
+
+            # Set position
+            marker.pose.position.x = box[0]
+            marker.pose.position.y = box[1]
+            marker.pose.position.z = 0.01
+
+            # Set orientation
+            qx, qy, qz, qw = quaternion_from_euler(0, 0, box[2])
+            marker.pose.orientation.x = qx
+            marker.pose.orientation.y = qy
+            marker.pose.orientation.z = qz
+            marker.pose.orientation.w = qw
+
+            # Set size
+            marker.scale.x = 0.3
+            marker.scale.y = 0.3
+            marker.scale.z = 0.3
+
+            # Set color (green for boxes)
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+
+            marker_array.append(marker)
+
+        # Publish all markers
         for marker in marker_array:
             self.marker_publisher.publish(marker)
 

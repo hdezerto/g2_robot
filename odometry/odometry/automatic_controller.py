@@ -53,7 +53,7 @@ class Controller(Node):
         self.goal_margin_rotational = math.pi / 15
 
         self.p_rotation = (
-            40  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
+            10  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
         self.p_translation = (
             30  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
@@ -62,7 +62,7 @@ class Controller(Node):
             30  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
         )
         self.v_damper = 1
-        self.w_damper = 2
+        self.w_damper = 1
         self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
 
         self.cycle_damping = 0.1
@@ -218,9 +218,7 @@ class Controller(Node):
 
         try:
             if self.phase_one == 1:
-                if not math.isclose(
-                    theta, self.theta_g, 1e-9, self.goal_margin_rotational
-                ):
+                if (abs(theta - self.theta_g) > self.goal_margin_rotational):
                     w = self.p_rotation * delta_theta
                     v = 0
                     # v = self.p_trans_rotation * (cos(theta_))
@@ -292,12 +290,6 @@ class Controller(Node):
 def main():
     rclpy.init()
     node = Controller()
-    # try:
-    #     while rclpy.ok():
-    #         rclpy.spin_once(node)
-    #         node.do_go_to_point()
-    # except KeyboardInterrupt:
-    #     pass
     rclpy.spin(node)
 
     rclpy.shutdown()

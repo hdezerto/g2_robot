@@ -118,7 +118,6 @@ class PointPublisherNode(Node):
                         self.get_logger().info(
                             f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                         )
-                        print(type(self.goal_position))
                         self.finish_publisher.publish(self.goal_position)
                     else:
                         self.publisher.publish(goal_transform)
@@ -128,7 +127,6 @@ class PointPublisherNode(Node):
 
             else:
                 self.publisher.publish(goal_transform)
-                print("published")
 
             return
         except Exception as ex:
@@ -137,10 +135,7 @@ class PointPublisherNode(Node):
             return
 
     def go_to_point_bu(self):
-        print("do gtp bu")
         self.do_broadcast()
-        print("continued")
-        print(self.goal_position_bu)
 
         # init
         goal_transform = self.goal_position_bu
@@ -149,7 +144,6 @@ class PointPublisherNode(Node):
         goal_frame = goal_transform.child_frame_id
         goal_margin_translational = 0.05
         goal_margin_rotational = math.pi / 10
-        print("init done")
         # Wait for the transform asynchronously
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=robot_frame, source_frame=goal_frame, time=time
@@ -157,7 +151,6 @@ class PointPublisherNode(Node):
 
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
 
-        print("tf complete?")
 
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
@@ -186,7 +179,7 @@ class PointPublisherNode(Node):
                 self.get_logger().info(
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
-                self.print(type(self.goal_position))
+                print(type(self.goal_position))
                 self.finish_publisher.publish(self.goal_position)
             else:
                 self.publisher.publish(goal_transform)

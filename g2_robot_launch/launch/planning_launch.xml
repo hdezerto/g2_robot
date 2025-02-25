@@ -12,7 +12,7 @@
     <node pkg="rviz2" exec="rviz2" name="rviz"/>
 
     <!--  Run Path Follower  -->
-    <node pkg="odometry" exec="path_follower" name="path_follower" output="screen"/>
+    <!-- <node pkg="odometry" exec="path_follower" name="path_follower" output="screen"/> -->
 
     <node pkg="path_planning" exec="improved_point_publisher" name="improved_point_publisher" output="screen"/>
 

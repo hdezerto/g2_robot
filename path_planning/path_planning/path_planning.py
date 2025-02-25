@@ -282,7 +282,21 @@ class PathPlanningNode(Node):
         goal_transform.transform.translation.y = point[1]
 
         self.backup_publisher.publish(goal_transform)
+        self.publish_path_bu(point)
         self.get_logger().info(f"Published goal position: {point}")
+
+    def publish_path_bu(self, goal_point):
+        path_msg = Path()
+        path_msg.header.frame_id = "map"
+        start_pose = PoseStamped()
+        start_pose.pose.position.x = self.start_point[0]
+        start_pose.pose.position.y = self.start_point[1]
+        path_msg.poses.append(start_pose)
+        goal_pose = PoseStamped()
+        goal_pose.pose.position.x = goal_point[0]
+        goal_pose.pose.position.y = goal_point[1]
+        path_msg.poses.append(goal_pose)
+        self.path_publisher.publish(path_msg)
 
 
 def main():
