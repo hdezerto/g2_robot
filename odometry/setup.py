@@ -24,7 +24,8 @@ setup(
             "path_follower = odometry.path_follower:main",
             "mapper = odometry.mapper:main",
             "odom_fusion = odometry.odom_fusion:main",
-
+            "lidar_cloud = odometry.lidar_cloud:main",
+            "automatic_controller = odometry.automatic_controller:main",
         ],
     },
 )

@@ -31,13 +31,21 @@ class Odometry(Node):
         # Store the path here
         self._path = Path()
 
+        self.latest_position = TransformStamped()
+
         # Subscribe to encoder topic and call callback function on each recieved message
         self.create_subscription(Encoders, "/motor/encoders", self.encoder_callback, 10)
-
+        
+        self.create_timer(0.1, self.timer_callback)
         # 2D pose
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
+
+    def timer_callback(self):
+        t = self.latest_position
+        t.header.stamp = self.get_clock().now().to_msg()
+        self._tf_broadcaster.sendTransform(t)
 
     def encoder_callback(self, msg: Encoders):
         """Takes encoder readings and updates the odometry.
@@ -116,6 +124,7 @@ class Odometry(Node):
         t.transform.rotation.w = q[3]
 
         # Send the transformation
+        self.latest_position = t
         self._tf_broadcaster.sendTransform(t)
         
 

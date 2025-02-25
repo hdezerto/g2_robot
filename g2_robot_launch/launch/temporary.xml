@@ -1,0 +1,10 @@
+    
+
+    <!--  Run Lidar stabilizer  -->
+    <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/>
+
+
+
+
+    <!--  Run Object Mapping  -->
+    <node pkg="detection" exec="object_mapping" name="object_mapping" output="screen"/>
