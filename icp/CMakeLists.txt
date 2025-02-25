@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(detection)
+project(icp)
 
 # Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
