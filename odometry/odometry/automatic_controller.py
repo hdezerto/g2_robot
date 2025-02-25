@@ -36,10 +36,10 @@ class Controller(Node):
             TransformStamped, "/path/nextpos", self.nextpos_callback, 10
         )
         # Initialize the publisher for motor duty cycles
-        self._pub = self.create_publisher(DutyCycles, '/motor/duty_cycles', 10)
+        self._pub = self.create_publisher(DutyCycles, "/motor/duty_cycles", 10)
         self.goal_position = TransformStamped()
 
-        # initialize variables 
+        # initialize variables
         self.x_g = 0.0
         self.y_g = 0.0
         self.theta_g = 0.0
@@ -58,23 +58,21 @@ class Controller(Node):
         self.p_translation = (
             30  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
         )
-        self.p_rotation_two = 30 # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
+        self.p_rotation_two = (
+            30  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
+        )
         self.v_damper = 1
         self.w_damper = 2
-        self.p = 0.3 # !>0 orientiert sich an einen punkt p meter vor sich
+        self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
 
         self.cycle_damping = 0.1
-
-        
 
     def nextpos_callback_v1(self, msg: TransformStamped):
         self.goal_position = msg
         # init
         time = msg.header.stamp
-        # robot_frame = msg.child_frame_id
-        # goal_frame = "base_link"
-        robot_frame = 'base_link'
-        goal_frame = 'map'
+        robot_frame = msg.child_frame_id
+        goal_frame = "base_link"
 
         goal_margin_translational = 0.05
         goal_margin_rotational = math.pi / 15
@@ -83,11 +81,6 @@ class Controller(Node):
         self.y_g = self.goal_position.transform.translation.y
 
         # Wait for the transform asynchronously
-        # compared_transform = self.buffer.wait_for_transform_async(
-        #     target_frame=goal_frame, source_frame=robot_frame, time=time
-        # )
-        # rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=0.5)
-
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=goal_frame, source_frame=robot_frame, time=time
         )
@@ -100,15 +93,17 @@ class Controller(Node):
             )
             return
         else:
-            # finished_transform = compared_transform.result()
-            # comp_translation = finished_transform.transform.translation
-            # comp_rotation = finished_transform.transform.rotation
-            # distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
+            finished_transform = compared_transform.result()
+            comp_translation = finished_transform.transform.translation
+            comp_rotation = finished_transform.transform.rotation
+            distance_to_point = math.sqrt(comp_translation.x**2 + comp_translation.y**2)
 
-            # alpha, beta, theta_goal = euler_from_quaternion([comp_rotation.x, comp_rotation.y, comp_rotation.z, comp_rotation.w])
-            # theta_dir = math.atan2(comp_translation.y, comp_translation.x)
-            # delta_theta = theta_dir
-            # print(delta_theta)
+            alpha, beta, theta_goal = euler_from_quaternion(
+                [comp_rotation.x, comp_rotation.y, comp_rotation.z, comp_rotation.w]
+            )
+            theta_dir = math.atan2(comp_translation.y, comp_translation.x)
+            delta_theta = theta_dir
+            print(delta_theta)
 
         try:
             if abs(delta_theta) > goal_margin_rotational:
@@ -135,23 +130,20 @@ class Controller(Node):
                 print("AT GOAL")
             print(f"v: {v}, w: {w}")
 
-
             # Damping
-            v_damper = 1
-            w_damper = 2
-            v = v * v_damper
-            w = w * w_damper
+            v = v * self.v_damper
+            w = w * self.w_damper
 
             if abs(v) > 1:
-                v = np.sign(v)*1.5
+                v = np.sign(v) * 1.5
             if abs(w) > 1:
                 w = np.sign(w)
             # Convert to duty cycles
             motor_msg = DutyCycles()
-            motor_msg.duty_cycle_left = (v - 0.5 * w)*0.1
-            motor_msg.duty_cycle_right = (v + 0.5 * w)*0.1
+            motor_msg.duty_cycle_left = (v - 0.5 * w) * 0.1
+            motor_msg.duty_cycle_right = (v + 0.5 * w) * 0.1
 
-            motor_msg.header.stamp = self.get_clock().now().to_msg() # msg.header.stamp
+            motor_msg.header.stamp = self.get_clock().now().to_msg()  # msg.header.stamp
 
             # Publish the message
             self._pub.publish(motor_msg)
@@ -170,8 +162,8 @@ class Controller(Node):
         self.goal_position = msg
         # init
         time = msg.header.stamp
-        robot_frame = 'base_link'
-        goal_frame = 'map'
+        robot_frame = "base_link"
+        goal_frame = "map"
         v = 0
         w = 0
 
@@ -181,7 +173,14 @@ class Controller(Node):
             self.reset_rotation = True
             self.phase_one = 1
 
-        alpha, beta, theta_final = euler_from_quaternion([msg.transform.rotation.x, msg.transform.rotation.y, msg.transform.rotation.z, msg.transform.rotation.w])
+        alpha, beta, theta_final = euler_from_quaternion(
+            [
+                msg.transform.rotation.x,
+                msg.transform.rotation.y,
+                msg.transform.rotation.z,
+                msg.transform.rotation.w,
+            ]
+        )
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=goal_frame, source_frame=robot_frame, time=time
         )
@@ -199,9 +198,16 @@ class Controller(Node):
             current_rotation = finished_transform.transform.rotation
             x = current_translation.x
             y = current_translation.y
-            alpha, beta, theta = euler_from_quaternion([current_rotation.x, current_rotation.y, current_rotation.z, current_rotation.w])
+            alpha, beta, theta = euler_from_quaternion(
+                [
+                    current_rotation.x,
+                    current_rotation.y,
+                    current_rotation.z,
+                    current_rotation.w,
+                ]
+            )
 
-            distance_to_point = math.sqrt((x-self.x_g)**2 + (y-self.y_g)**2)
+            distance_to_point = math.sqrt((x - self.x_g) ** 2 + (y - self.y_g) ** 2)
             delta_x = self.x_g - x
             delta_y = self.y_g - y
             if self.reset_rotation:
@@ -212,7 +218,9 @@ class Controller(Node):
 
         try:
             if self.phase_one == 1:
-                if not math.isclose(theta, self.theta_g, 1e-9, self.goal_margin_rotational):
+                if not math.isclose(
+                    theta, self.theta_g, 1e-9, self.goal_margin_rotational
+                ):
                     w = self.p_rotation * delta_theta
                     v = 0
                     # v = self.p_trans_rotation * (cos(theta_))
@@ -228,39 +236,44 @@ class Controller(Node):
                         + delta_y * math.sin(self.theta_g)
                     )
                     # w = self.p_rot_translation * (math.sin(delta_theta*))
-                    dp = math.sin(self.theta_g)*(x+self.p*math.cos(theta) - self.x_0) - math.cos(self.theta_g) * (y + self.p*math.sin(theta) - self.y_0)
+                    dp = math.sin(self.theta_g) * (
+                        x + self.p * math.cos(theta) - self.x_0
+                    ) - math.cos(self.theta_g) * (
+                        y + self.p * math.sin(theta) - self.y_0
+                    )
                     w = self.p_rotation_two * dp
                     print(f"Moving towards {[delta_x, delta_y]}")
                     print(f"v: {v}, w: {w}")
                 else:
                     self.phase_one = 3
-                    self.get_logger().info("Position reached. Correct orientation to be assigned.")
+                    self.get_logger().info(
+                        "Position reached. Correct orientation to be assigned."
+                    )
             elif self.phase_one == 3:
-                if (abs(theta_final-theta) > self.goal_margin_rotational):
+                if abs(theta_final - theta) > self.goal_margin_rotational:
                     delta_theta = theta_final - theta
                     w = self.p_rotation * delta_theta
                     v = 0
                     print(f"AT GOAL\nROTATING DIST: {theta_final}")
                 else:
                     print("Already AT GOAL")
-                    v,w = 0, 0
+                    v, w = 0, 0
             print(f"v: {v}, w: {w}")
-
 
             # Damping
             v = v * self.v_damper
             w = w * self.w_damper
 
             if abs(v) > 1.5:
-                v = np.sign(v)*1.5
+                v = np.sign(v) * 1.5
             if abs(w) > 1.5:
-                w = np.sign(w)*1.5
+                w = np.sign(w) * 1.5
             # Convert to duty cycles
             motor_msg = DutyCycles()
-            motor_msg.duty_cycle_left = (v - 0.5 * w)*self.cycle_damping
-            motor_msg.duty_cycle_right = (v + 0.5 * w)*self.cycle_damping
+            motor_msg.duty_cycle_left = (v - 0.5 * w) * self.cycle_damping
+            motor_msg.duty_cycle_right = (v + 0.5 * w) * self.cycle_damping
 
-            motor_msg.header.stamp = self.get_clock().now().to_msg() # msg.header.stamp
+            motor_msg.header.stamp = self.get_clock().now().to_msg()  # msg.header.stamp
 
             # Publish the message
             self._pub.publish(motor_msg)
@@ -274,6 +287,7 @@ class Controller(Node):
                 f"Failed to move towards position: {msg.transform} \n {ex}"
             )
             return
+
 
 def main():
     rclpy.init()
