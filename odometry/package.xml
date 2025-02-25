@@ -14,7 +14,7 @@
   <depend>rclpy</depend>
   <depend>tf_transformations</depend>
   <depend>tf2_ros</depend>
-  <depend>pyfilter</depend>
+  <depend>python3-filterpy-pip</depend>
 
 
   <test_depend>ament_copyright</test_depend>

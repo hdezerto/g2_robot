@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='robot',
     maintainer_email='robot@todo.todo',
-    description='TODO: Package description',
+    description='Detection package currently managing object detection and mappping',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
@@ -23,6 +23,7 @@ setup(
             'detection = detection.detection:main',
             'object_mapping = detection.object_mapping:main',
             'occupancy_mapping_gray = detection.occupancy_mapping_gray:main',
+            'lidar_mapper = detection.Lidar_Processor_Mapper:main',
         ],
     },
 )
