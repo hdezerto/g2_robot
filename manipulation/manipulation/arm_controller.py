@@ -34,7 +34,7 @@ class ArmController(Node):
         self.get_logger().info(f'Received message: {msg.data}')
         if msg.data == 'PICK':
             self.control_servos(pick=True)
-        elif msg.data == 'DROP':
+        elif msg.data == 'PLACE':
             self.control_servos(pick=False)
         else:
             self.get_logger().info('Invalid message received.')

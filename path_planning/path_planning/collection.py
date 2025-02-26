@@ -20,7 +20,7 @@ from visualization_msgs.msg import Marker
 
 from ament_index_python.packages import get_package_share_directory
 
-from std_msgs.msg import Bool as std_Bool
+from std_msgs.msg import Bool, String
 
 from enum import Enum
 
@@ -40,7 +40,7 @@ class Collection(Node):
         super().__init__("automaton")
         self.state = States.INIT
         self.arm_subscription = self.create_subscription(
-            std_Bool, "/arm/arm_done", self.arm_callback, 10
+            String, '/arm_controller_feedback', self.arm_callback, 10
         )
         self.move_subscription = self.create_subscription(
             TransformStamped, "/path/goal_reached", self.move_callback, 10
@@ -55,9 +55,10 @@ class Collection(Node):
         self.objects, self.boxes = self.read_tsv(self.ws_file)
 
         self.pu_publisher = self.create_publisher(
-            Pose, "/arm/obj_pos", 10
+            String,
+            '/arm_controller', 10
         )  # self.create_publisher(Bool, '/arm/pickup', 10)
-        self.place_publisher = self.create_publisher(std_Bool, "/arm/place", 10)
+        self.place_publisher = self.create_publisher(String, "/arm/place", 10)
         self.object_publisher = self.create_publisher(Pose, "new_object_pos", 10)
         self.box_publisher = self.create_publisher(Pose, "new_box_pos", 10)
 
@@ -75,7 +76,7 @@ class Collection(Node):
 
         self.do_init()
 
-    def arm_callback(self, msg: std_Bool):
+    def arm_callback(self, msg: String):
         if msg:
             if self.state == States.PU:
                 self.state = States.MTBOX
@@ -85,7 +86,6 @@ class Collection(Node):
                     print(
                         f"Next BOX: {[self.goalPosition.position.x, self.goalPosition.position.y]}"
                     )
-                    print("82")
                 else:
                     self.get_logger().info(
                         "NO BOXES WERE FOUND. ROBOT RETURNS TO ORIGIN."
@@ -104,8 +104,10 @@ class Collection(Node):
         # if self.goalPosition.transform == msg.transform:
         if self.state == States.MTPU:
             self.state = States.PU
-            self.pu_publisher.publish(self.goalPosition)
-            self.get_logger().info(f"Published Position for Object Pickup: {self.goalPosition}")
+            pu_msg = String()
+            pu_msg.data = "PICK"
+            self.pu_publisher.publish(pu_msg)
+            self.get_logger().info(f"Published Pickup message: {pu_msg.data}")
             if self.obj_index < len(self.objects):
                 removed_object = self.objects.pop(self.obj_index)  # This removes the object by index
                 self.get_logger().info(f"Removed object: {removed_object}")
@@ -113,17 +115,20 @@ class Collection(Node):
                 self.get_logger().warn(f"Object index {self.obj_index} is out of range.")
             
             # !!!!!!! Remove if arm is working !!!!!!! TODO
-            true_bool = std_Bool()
-            true_bool.data = True
-            self.arm_callback(true_bool)
+            # true_bool = std_Bool()
+            # true_bool.data = True
+            # self.arm_callback(true_bool)
 
         elif self.state == States.MTBOX:
             self.state = States.PLACE
-
+            pu_msg = String()
+            pu_msg.data = "PLACE"
+            self.pu_publisher.publish(pu_msg)
+            self.get_logger().info(f"Published Place message: {pu_msg.data}")
             # !!!!!!! Remove if arm is working !!!!!!! TODO
-            true_bool = std_Bool()
-            true_bool.data = True
-            self.arm_callback(true_bool)
+            # true_bool = std_Bool()
+            # true_bool.data = True
+            # self.arm_callback(true_bool)
 
     def do_init(self):
         if not self.boxes:
