@@ -56,16 +56,16 @@ class Controller(Node):
             10  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
         self.p_translation = (
-            30  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
+            10  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
         )
         self.p_rotation_two = (
-            30  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
+            10  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
         )
         self.v_damper = 1
         self.w_damper = 1
         self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
 
-        self.cycle_damping = 0.1
+        self.cycle_damping = 0.05
 
     def nextpos_callback_v1(self, msg: TransformStamped):
         self.goal_position = msg
@@ -212,6 +212,9 @@ class Controller(Node):
             delta_y = self.y_g - y
             if self.reset_rotation:
                 self.theta_g = math.atan2(delta_y, delta_x)
+                self.x_0 = x
+                self.y_0 = y
+                self.reset_rotation = False
 
             delta_theta = self.theta_g - theta
             print(delta_theta)
