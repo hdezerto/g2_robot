@@ -7,7 +7,6 @@ from std_msgs.msg import Int16MultiArray, MultiArrayDimension, MultiArrayLayout
 import time
 
 
-
 """
 To test the node, run the following command in the terminal:
 
@@ -18,18 +17,17 @@ ros2 topic pub -1 /arm_controller std_msgs/msg/String "{data: 'DROP'}"
 """
 
 
-
-class ServosPublisher(Node):
+class ArmController(Node):
 
     def __init__(self):
-        super().__init__('move_servos_publisher')
-        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub', 10)
-        self.feedback_publisher = self.create_publisher(String, '/arm_controller_feedback', 10)
+        super().__init__('ArmController_node')
+        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub', 10) # 10 as maximum number of messages to be stored in the publisher queue
+        self.feedback_publisher = self.create_publisher(String, '/arm_controller_feedback', 10) 
         self.subscription = self.create_subscription(
             String,
             '/arm_controller',
             self.listener_callback,
-            10)
+            10) # 10 as maximum number of messages to be stored in the subscription queue
         self.subscription  # prevent unused variable warning
 
     def listener_callback(self, msg):
@@ -44,6 +42,7 @@ class ServosPublisher(Node):
     def control_servos(self, pick=True):
         self.get_logger().info('Control servos triggered.')
 
+        # These angles were tested and found to be the best for the pick and drop actions
         if pick:
             servos_angles_times = [[3000,12000,12000,12000,12000,12000,  2000,2000,2000,2000,2000,2000],
                                    [3000,16500,3500,12800,4000,12000,  2000,2000,2000,2000,2000,2000],
@@ -74,8 +73,8 @@ class ServosPublisher(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    minimal_publisher = ServosPublisher()
-    minimal_publisher.get_logger().info('MinimalPublisher node has been created.')
+    minimal_publisher = ArmController()
+    minimal_publisher.get_logger().info('ArmController node has been created.')
 
     try:
         rclpy.spin(minimal_publisher)
