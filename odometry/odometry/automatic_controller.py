@@ -65,7 +65,8 @@ class Controller(Node):
         self.w_damper = 1
         self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
 
-        self.cycle_damping = 0.05
+        self.cycle_damping = 0.1 
+        #self.cycle_damping = 0
 
     def nextpos_callback_v1(self, msg: TransformStamped):
         self.goal_position = msg

@@ -115,8 +115,8 @@ class Collection(Node):
                 self.get_logger().warn(f"Object index {self.obj_index} is out of range.")
             
             # !!!!!!! Remove if arm is working !!!!!!! TODO
-            # true_bool = std_Bool()
-            # true_bool.data = True
+            # true_bool = String()
+            # true_bool.data = "SUCCESS"
             # self.arm_callback(true_bool)
 
         elif self.state == States.MTBOX:
@@ -126,9 +126,9 @@ class Collection(Node):
             self.pu_publisher.publish(pu_msg)
             self.get_logger().info(f"Published Place message: {pu_msg.data}")
             # !!!!!!! Remove if arm is working !!!!!!! TODO
-            # true_bool = std_Bool()
-            # true_bool.data = True
-            # self.arm_callback(true_bool)
+            #true_bool = String()
+            #true_bool.data = "SUCCESS"
+            #self.arm_callback(true_bool)
 
     def do_init(self):
         if not self.boxes:
@@ -234,13 +234,14 @@ class Collection(Node):
         boxes = []
         with open(file_path, mode="r") as file:
             reader = csv.reader(file, delimiter="\t")
-            next(reader)  # Skip header row
+            #next(reader)  # Skip header row
             for row in reader:
                 x, y, theta = (
                     float(row[1]) / 100,
                     float(row[2]) / 100,
                     float(row[3]) * math.pi / 180,
                 )
+                print(f"X: {x}, Y: {y}, Theta: {theta}") # Debug
                 if row[0] == "B":
                     boxes.append((x, y, theta))
                 else:

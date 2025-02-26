@@ -12,7 +12,7 @@ To test the node, run the following command in the terminal:
 
 ros2 topic pub -1 /arm_controller std_msgs/msg/String "{data: 'PICK'}"
 
-ros2 topic pub -1 /arm_controller std_msgs/msg/String "{data: 'DROP'}"
+ros2 topic pub -1 /arm_controller std_msgs/msg/String "{data: 'PLACE'}"
 
 """
 

@@ -68,7 +68,7 @@ class PointPublisherNode(Node):
             return
         "got here"
         if self.use_backup:
-            print("backup")
+            # print("backup")
             self.go_to_point_bu()
             return
 
@@ -270,11 +270,11 @@ class PointPublisherNode(Node):
             self.goal_position_bu.header.stamp = self.get_clock().now().to_msg()
             goal_transform = self.goal_position_bu
             self.tf_broadcaster.sendTransform(goal_transform)
-            self.get_logger().info(
-                f"Broadcasting goal position at time: {goal_transform.header.stamp}"
-            )
+            # self.get_logger().info(
+            #     f"Broadcasting goal position at time: {goal_transform.header.stamp}"
+            # )
             # rclpy.spin_once(self)
-            print("broadcast")
+            # print("broadcast")
         else:
             goal_transform = self.goal_position
             self.goal_position.header.stamp = self.get_clock().now().to_msg()

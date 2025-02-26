@@ -78,11 +78,6 @@ class PathPlanningNode(Node):
         current_pos = None
         while not current_pos:
             current_pos = self.get_current_position()
-        # self.start_map = (
-        #     int(current_pos[0] / self.map_resolution),
-        #     int(current_pos[1] / self.map_resolution),
-        # )
-        # self.start_point = current_pos
         self.box_position = msg
         self.goal_point = (msg.position.x, msg.position.y)
         # self.goal = (0, 0)  # TOTOfgoa
@@ -264,11 +259,23 @@ class PathPlanningNode(Node):
             (self.start_point[0] - goal_position[0]) ** 2
             + (self.start_point[1] - goal_position[1]) ** 2
         )
-        factor_dist_to_obj = 1 - distance_to_object / distance
-        self.goal = (
-            self.start_point[0] + (goal_position[0] - self.start_point[0]) * factor_dist_to_obj,
-            self.start_point[0] + (goal_position[1] - self.start_point[1]) * factor_dist_to_obj,
+        print(f"Start Position: {self.start_point}")
+        theta = math.atan2(
+            goal_position[1] - self.start_point[1],
+            goal_position[0] - self.start_point[0]
         )
+        factor_dist_to_obj = 1 - distance_to_object / distance
+        cos_angle = math.acos(
+            (goal_position[0] - self.start_point[0]) / distance
+        )
+        self.goal = (
+            self.start_point[0] + math.cos(cos_angle)*(distance - distance_to_object),
+            # self.start_point[0] + (goal_position[0] - self.start_point[0]) * factor_dist_to_obj,
+            # self.start_point[1] + (goal_position[1] - self.start_point[1]) * factor_dist_to_obj,
+            self.start_point[1] + math.sin(cos_angle)*(distance - distance_to_object),
+            theta
+        )
+        print(f"Object Position: {goal_position}")
         self.backup_publish(self.goal)
 
     def backup_publish(self, point):
@@ -280,6 +287,9 @@ class PathPlanningNode(Node):
         # assign random point to transform
         goal_transform.transform.translation.x = point[0]
         goal_transform.transform.translation.y = point[1]
+        qx, qy, qz, qw = quaternion_from_euler(0, 0, point[2])
+        goal_transform.transform.rotation.z = qz
+        goal_transform.transform.rotation.w = qw
 
         self.backup_publisher.publish(goal_transform)
         self.publish_path_bu(point)
