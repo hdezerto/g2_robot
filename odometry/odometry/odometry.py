@@ -16,8 +16,6 @@ from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 
 
-
-
 class Odometry(Node):
 
     def __init__(self):
@@ -35,12 +33,16 @@ class Odometry(Node):
 
         # Subscribe to encoder topic and call callback function on each recieved message
         self.create_subscription(Encoders, "/motor/encoders", self.encoder_callback, 10)
-        
+
         self.create_timer(0.1, self.timer_callback)
         # 2D pose
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
+
+        self.total_ticks_left = 0
+        self.total_ticks_right = 0
+        init = True
 
     def timer_callback(self):
         t = self.latest_position
@@ -58,15 +60,30 @@ class Odometry(Node):
         msg -- An encoders ROS message. To see more information about it
         run 'ros2 interface show robp_interfaces/msg/Encoders' in a terminal.
         """
-
+        if init == True:
+            self.total_ticks_left = msg.total_encoder_left
+            self.total_ticks_right = msg.total_encoder_right
+            delta_ticks_left = msg.delta_encoder_left
+            delta_ticks_right = msg.delta_encoder_right
+            init = False
         # The kinematic parameters for the differential configuration
         dt = 50 / 1000  # update intervale every 50ms (=20Hz)
         ticks_per_rev = 48 * 64
         wheel_radius = 0.04921
-        base = 0.31 
+        base = 0.31
 
+        total_delta_left = msg.total_encoder_left - self.total_ticks_left
+        total_delta_right = msg.total_encoder_right - self.total_ticks_right
         delta_ticks_left = msg.delta_encoder_left
         delta_ticks_right = msg.delta_encoder_right
+        self.total_ticks_left = msg.total_encoder_left
+        self.total_ticks_right = msg.total_encoder_right
+        if (total_delta_left != delta_ticks_left) or (
+            total_delta_right != delta_ticks_right
+        ):
+            self.get_logger().warn(
+                f"ODOMETRY FAILURE.\nTotal delta left: {total_delta_left}, delta left: {delta_ticks_left}, total delta right: {total_delta_right}, delta right: {delta_ticks_right}\nTRY USING TOTAL DELTA"
+            )
 
         # Wheel angle since last tick
         delta_phi_left = 2 * math.pi * delta_ticks_left / ticks_per_rev
@@ -126,8 +143,6 @@ class Odometry(Node):
         # Send the transformation
         self.latest_position = t
         self._tf_broadcaster.sendTransform(t)
-        
-
 
     def publish_path(self, stamp, x, y, yaw):
         """Takes a 2D pose appends it to the path and publishes the whole path.
