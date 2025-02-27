@@ -45,6 +45,9 @@ class PointPublisherNode(Node):
         self.path_listener = self.create_subscription(
             Path, "/path/planned_path", self.new_path, 10
         )
+        self.exploration_listener = self.create_subscription(
+            Path, "/path/exploration_path", self.new_path, 10
+        )
 
         self.position_reached = True
         self.goal_position_bu = TransformStamped()
@@ -151,7 +154,6 @@ class PointPublisherNode(Node):
 
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
 
-
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
             self.get_logger().error(
@@ -239,7 +241,7 @@ class PointPublisherNode(Node):
         next_goal.header.stamp = self.get_clock().now().to_msg()
         next_goal.header.frame_id = "map"
         next_goal.child_frame_id = "goal_position"
-        next_goal = self.goal_position
+        self.goal_position = next_goal
 
         return next_goal
 
@@ -262,7 +264,7 @@ class PointPublisherNode(Node):
         poses = msg.poses
         self.goals = poses
         self.position_reached = False
-        self.pop_goals()
+        nothing = self.pop_goals()
 
     def do_broadcast(self):
         # rclpy.spin_once(self)

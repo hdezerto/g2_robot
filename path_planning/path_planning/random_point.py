@@ -21,7 +21,7 @@ from tf_transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 
-from geometry_msgs.msg import Point as gm_Point
+from geometry_msgs.msg import Pose
 from robp_interfaces.msg import Encoders
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
@@ -42,7 +42,7 @@ class RandomWsPoint(Node):
     def __init__(self):
         super().__init__("random_point")  # Call the superclass constructor
 
-        workspace_filename = "workspace_1.tsv"
+        workspace_filename = "workspace_2.tsv"
         package_share_directory = get_package_share_directory("path_planning")
         self.ws_file = os.path.join(
             package_share_directory, "resource", workspace_filename
@@ -52,7 +52,7 @@ class RandomWsPoint(Node):
         self.ws_polygon_buffered = self.ws_polygon.buffer(-20)
 
         self.srv = self.create_service(
-            gm_Point, "get_random_ws_point", self.get_new_point_callback
+            Pose, "get_random_ws_point", self.get_new_point_callback
         )
 
     def get_new_point_callback(self, request, response):
