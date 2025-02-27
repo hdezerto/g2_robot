@@ -1,6 +1,6 @@
     
 
-    
+
 
     <!--  Run detection  -->
     <node pkg="detection" exec="detection" name="detection_node" output="screen"/>
