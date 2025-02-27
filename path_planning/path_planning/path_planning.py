@@ -77,7 +77,7 @@ class PathPlanningNode(Node):
             self.goal_positions = self.get_goal_positions(0.2)
             self.find_path(self.goal_positions, 0.2)
         else:
-            self.backup_planning((msg.position.x, msg.position.y), 0.2)
+            self.backup_planning((msg.position.x, msg.position.y), 0.14)
 
     def path_to_box(self, msg: Pose):
         print("TODO")

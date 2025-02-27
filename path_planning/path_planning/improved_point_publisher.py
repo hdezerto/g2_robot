@@ -15,6 +15,8 @@ import tf2_ros
 from geometry_msgs.msg import TransformStamped, PoseStamped
 from nav_msgs.msg import Path
 
+from std_msgs.msg import Bool, String
+
 import tf2_geometry_msgs
 
 
@@ -34,7 +36,7 @@ class PointPublisherNode(Node):
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
         self.publisher = self.create_publisher(TransformStamped, "/path/nextpos", 10)
         self.finish_publisher = self.create_publisher(
-            TransformStamped, "/path/goal_reached", 10
+            String, "/path/goal_reached", 10
         )
         self.tf_broadcaster = TransformBroadcaster(self)
 
@@ -139,7 +141,7 @@ class PointPublisherNode(Node):
 
     def go_to_point_bu(self):
         self.do_broadcast()
-
+        self.get_logger().info("142")
         # init
         goal_transform = self.goal_position_bu
         time = self.goal_position_bu.header.stamp
@@ -153,7 +155,6 @@ class PointPublisherNode(Node):
         )
 
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
-
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
             self.get_logger().error(
@@ -182,17 +183,18 @@ class PointPublisherNode(Node):
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
                 print(type(self.goal_position))
-                self.finish_publisher.publish(self.goal_position)
+                reached_msg = String()
+                reached_msg.data = "reached"
+                self.finish_publisher.publish(reached_msg)
             else:
                 self.publisher.publish(goal_transform)
-
             return
         except Exception as ex:
             # Log any errors (this will only log broadcasting issues now)
             self.get_logger().error(f"Error: {ex}")
             return
 
-    def get_new_point(self):
+    # def get_new_point(self):
         """
         generate new point
 

@@ -43,7 +43,7 @@ class Collection(Node):
             String, '/arm_controller_feedback', self.arm_callback, 10
         )
         self.move_subscription = self.create_subscription(
-            TransformStamped, "/path/goal_reached", self.move_callback, 10
+            String, "/path/goal_reached", self.move_callback, 10
         )
 
         self.goalPosition = Pose()
@@ -90,17 +90,18 @@ class Collection(Node):
                     self.get_logger().info(
                         "NO BOXES WERE FOUND. ROBOT RETURNS TO ORIGIN."
                     )
-                    self.goalPosition.position.x = 0
-                    self.goalPosition.position.y = 0
-                    self.goalPosition.orientation.z = 0
-                    self.goalPosition.orientation.w = 1
+                    self.goalPosition.position.x = 0.0
+                    self.goalPosition.position.y = 0.0
+                    self.goalPosition.orientation.z = 0.0
+                    self.goalPosition.orientation.w = 1.0
                     self.box_publisher.publish(self.goalPosition)
 
             elif self.state == States.PLACE:
+                self.get_logger().info("Object placed")
                 self.state = States.INIT
                 self.do_init()
 
-    def move_callback(self, msg: TransformStamped):
+    def move_callback(self, msg: String):
         # if self.goalPosition.transform == msg.transform:
         if self.state == States.MTPU:
             self.state = States.PU
