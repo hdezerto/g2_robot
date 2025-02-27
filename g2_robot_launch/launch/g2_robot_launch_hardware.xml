@@ -7,9 +7,7 @@
     <!--  Run the custom frames launch file  -->
     <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_frames_launch.xml" />
 
-    <!--  Run odometry node  -->
-    <!--  output="screen" will print the output of the node to the terminal  -->
-    <node pkg="odometry" exec="odometry" name="odometry_node" output="screen"/>
+
 
     <!--  Run motor peripherals and motors  -->
     <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.py"/>

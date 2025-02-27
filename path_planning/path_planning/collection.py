@@ -196,38 +196,63 @@ class Collection(Node):
         goal_point.orientation.w = qw
         return goal_point
 
-    def get_current_position(self):
-        time = self.get_clock().now().to_msg()
+    # def get_current_position(self):
+    #     time = self.get_clock().now().to_msg()
 
+    #     # Wait for the transform asynchronously
+    #     current_position_future = self.buffer.wait_for_transform_async(
+    #         target_frame="map", source_frame="base_link", time=time
+    #     )
+
+    #     rclpy.spin_until_future_complete(self, current_position_future, timeout_sec=2)
+    #     current_x = 0
+    #     current_y = 0
+    #     # Check if the future completed successfully
+    #     if not (current_position_future.done()):  # and compared_transform.result()
+    #         self.get_logger().error(
+    #             f"Transform future did not complete successfully for time {time}.\nUsing latest transform"
+    #         )
+    #         time = rclpy.time.Time(seconds=0)
+    #         current_position_future = self.buffer.wait_for_transform_async(
+    #             target_frame="map", source_frame="base_link", time=time
+    #         )
+    #         rclpy.spin_until_future_complete(self, current_position_future, timeout_sec=2)
+    #         if not (current_position_future.done()):
+    #             self.get_logger().error(
+    #                 f"Using latest transform time failed. Using (0,0)"
+    #             )
+    #             current_x, current_y = self.last_position
+            
+    #     else:
+    #         current_position = current_position_future.result()
+    #         current_x = current_position.transform.translation.x
+    #         current_y = current_position.transform.translation.y
+    #         self.last_position = (current_x, current_y)
+    #     return current_x, current_y
+
+    
+    def get_current_position(self):
+        # Use the latest available transform
+        time = rclpy.time.Time(seconds=0).to_msg()
+    
         # Wait for the transform asynchronously
         current_position_future = self.buffer.wait_for_transform_async(
             target_frame="map", source_frame="base_link", time=time
         )
-
+    
         rclpy.spin_until_future_complete(self, current_position_future, timeout_sec=2)
-        current_x = 0
-        current_y = 0
-        # Check if the future completed successfully
-        if not (current_position_future.done()):  # and compared_transform.result()
+    
+        if not current_position_future.done():
             self.get_logger().error(
-                f"Transform future did not complete successfully for time {time}.\nUsing latest transform"
+                f"Transform future did not complete successfully. Using last known position {self.last_position}"
             )
-            time = rclpy.time.Time(seconds=0)
-            current_position_future = self.buffer.wait_for_transform_async(
-                target_frame="map", source_frame="base_link", time=time
-            )
-            rclpy.spin_until_future_complete(self, current_position_future, timeout_sec=2)
-            if not (current_position_future.done()):
-                self.get_logger().error(
-                    f"Using latest transform time failed. Using (0,0)"
-                )
-                current_x, current_y = self.last_position
-            
-        else:
-            current_position = current_position_future.result()
-            current_x = current_position.transform.translation.x
-            current_y = current_position.transform.translation.y
-            self.last_position = (current_x, current_y)
+            return self.last_position
+    
+        current_position = current_position_future.result()
+        current_x = current_position.transform.translation.x
+        current_y = current_position.transform.translation.y
+        self.last_position = (current_x, current_y)
+    
         return current_x, current_y
 
     def read_tsv(self, file_path):

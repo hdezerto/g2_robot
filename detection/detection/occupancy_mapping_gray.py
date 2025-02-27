@@ -17,6 +17,8 @@ import sensor_msgs_py.point_cloud2 as pc2  # Utilities for working with PointClo
 from tf2_ros import Buffer, TransformListener  # Buffer for storing transformations, TransformListener for receiving TF data
 from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud  # Applies transformations to point clouds
 
+from ament_index_python.packages import get_package_share_directory
+
 # Importing NumPy for numerical computations and array handling
 import numpy as np  
 
@@ -26,6 +28,7 @@ import cv2
 # Importing os for handling file system operations (creating folders, saving files)
 import os  
 
+import csv
 
 class MapBuilder:
     def __init__(self, resolution=0.1, size=500, folder="maps"):
@@ -35,12 +38,7 @@ class MapBuilder:
         self.confidence_map = np.zeros((size, size), dtype=np.uint8)  # Track confidence (0-100)
         self.folder = folder  
         os.makedirs(self.folder, exist_ok=True)
-        #workspace viz
-        package_share_directory = get_package_share_directory("path_planning")
-        self.ws_file = os.path.join(
-            package_share_directory, "resource", "workspace_2.tsv"
-        )
-        self.vertices = self.read_tsv(self.ws_file)
+        
 
     def world_to_map(self, x, y):
         """ Convert real-world (meters) coordinates to map indices """
@@ -84,55 +82,7 @@ class MapBuilder:
         grid.data = (self.confidence_map - 205).astype(np.int8).flatten().tolist()
         return grid
 
-        #Read vertices from tvs file
-    def read_tsv(self, file_path):
-        vertices = []
-        with open(file_path, mode="r") as file:
-            reader = csv.reader(file, delimiter="\t")
-            next(reader)  # Skip header row
-            for row in reader:
-                x, y = float(row[0]) / 100, float(row[1]) / 100
-                vertices.append((x, y))
-            update_workspace_boundary(self,vertices)
-            self.get_logger().info(f"Added workspace boundary with {len(msg.points)} vertices")
     
-        return vertices
-        
-    def update_workspace_boundary(self, vertices):
-        """ Mark the grid cells along the boundary of the workspace """
-        for i in range(len(vertices)):
-            # Get two consecutive points to form an edge
-            p1 = vertices[i]
-            p2 = vertices[(i + 1) % len(vertices)]  # Wrap around to the first point
-
-            # Convert the world coordinates (p1, p2) to map indices
-            mx1, my1 = self.map_builder.world_to_map(p1[0], p1[1])
-            mx2, my2 = self.map_builder.world_to_map(p2[0], p2[1])
-
-            # Mark the cells along the edge (this is a simplified line segment marking)
-            self.draw_line_on_map(mx1, my1, mx2, my2)
-    def draw_line_on_map(self, x1, y1, x2, y2):
-        """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid """
-        dx = abs(x2 - x1)
-        dy = abs(y2 - y1)
-        sx = 1 if x1 < x2 else -1
-        sy = 1 if y1 < y2 else -1
-        err = dx - dy
-
-        while True:
-            # Mark the current point as occupied
-            self.map_builder.map[y1, x1] = 0  # Occupied
-            self.map_builder.confidence_map[y1, x1] = 100  # Max confidence
-
-            if x1 == x2 and y1 == y2:
-                break
-            e2 = err * 2
-            if e2 > -dy:
-                err -= dy
-                x1 += sx
-            if e2 < dx:
-                err += dx
-                y1 += sy'
 
 class LidarMapBuilder(Node):
     def __init__(self):
@@ -152,6 +102,13 @@ class LidarMapBuilder(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.proj = LaserProjection()
         self.accumulated_points = []  # List to store accumulated LiDAR points
+
+        #workspace viz
+        package_share_directory = get_package_share_directory("path_planning")
+        self.ws_file = os.path.join(
+            package_share_directory, "resource", "workspace_2.tsv"
+        )
+        self.vertices = self.read_tsv(self.ws_file)
 
     def scan_callback(self, msg):
         
@@ -247,7 +204,56 @@ class LidarMapBuilder(Node):
         point_cloud_msg = pc2.create_cloud_xyz32(header, np.array(self.accumulated_points, dtype=np.float32))
         self.pointcloud_publisher.publish(point_cloud_msg)
         self.get_logger().info(f"Published accumulated point cloud with {len(self.accumulated_points)} points")
+        #Read vertices from tvs file
 
+    def read_tsv(self, file_path):
+        vertices = []
+        with open(file_path, mode="r") as file:
+            reader = csv.reader(file, delimiter="\t")
+            next(reader)  # Skip header row
+            for row in reader:
+                x, y = float(row[0]) / 100, float(row[1]) / 100
+                vertices.append((x, y))
+            self.update_workspace_boundary(vertices)
+            self.get_logger().info(f"Added workspace boundary with {len(vertices)} vertices")
+    
+        return vertices
+        
+    def update_workspace_boundary(self, vertices):
+        """ Mark the grid cells along the boundary of the workspace """
+        for i in range(len(vertices)):
+            # Get two consecutive points to form an edge
+            p1 = vertices[i]
+            p2 = vertices[(i + 1) % len(vertices)]  # Wrap around to the first point
+
+            # Convert the world coordinates (p1, p2) to map indices
+            mx1, my1 = self.map_builder.world_to_map(p1[0], p1[1])
+            mx2, my2 = self.map_builder.world_to_map(p2[0], p2[1])
+
+            # Mark the cells along the edge (this is a simplified line segment marking)
+            self.draw_line_on_map(mx1, my1, mx2, my2)
+    def draw_line_on_map(self, x1, y1, x2, y2):
+        """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid """
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        err = dx - dy
+
+        while True:
+            # Mark the current point as occupied
+            self.map_builder.map[y1, x1] = 0  # Occupied
+            self.map_builder.confidence_map[y1, x1] = 100  # Max confidence
+
+            if x1 == x2 and y1 == y2:
+                break
+            e2 = err * 2
+            if e2 > -dy:
+                err -= dy
+                x1 += sx
+            if e2 < dx:
+                err += dx
+                y1 += sy
 
 def main():
     rclpy.init()
