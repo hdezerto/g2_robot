@@ -89,6 +89,10 @@ class LidarMapBuilder(Node):
         super().__init__('lidar_map_builder')
         self.subscription = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, 10)
+
+        # Create map_trigger subscriber to trigger the map creation
+        self.trigger_subscriber = self.create_subscription(bool,'/map_trigger',self.map_trigger_callback,10)
+
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
         self.map_builder = MapBuilder()
@@ -109,6 +113,17 @@ class LidarMapBuilder(Node):
             package_share_directory, "resource", "workspace_2.tsv"
         )
         self.vertices = self.read_tsv(self.ws_file)
+
+    def map_trigger_callback(self, msg):
+        """ Callback function that is called when a message is received on '/map_trigger' """
+        self.get_logger().info('Received map trigger message.')
+
+        # Directly call the map builder to create the occupancy grid map using the message timestamp
+        occupancy_grid = self.map_builder.to_occupancy_grid(msg.stamp)
+        self.grid_publisher.publish(occupancy_grid)
+        self.get_logger().info('Published occupancy grid map after trigger.')
+
+
 
     def scan_callback(self, msg):
         
