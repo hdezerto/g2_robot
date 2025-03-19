@@ -97,7 +97,7 @@ class LidarMapBuilder(Node):
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
         self.map_builder = MapBuilder()
         self.scan_count = 0
-        self.scan_freq = 50  # Number of scans before saving map
+        self.scan_freq = 20  # Number of scans before saving map
         self.nth_scan = 5  # Accumulate every Nth scan
         self.d_filter = 0.40  # Distance filter for LiDAR points
 
