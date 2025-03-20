@@ -24,5 +24,7 @@ setup(
     description='Detection message package',
     license='Apache License 2.0',
     tests_require=['pytest'],
-    entry_points={},
+    entry_points={
+        'detection = detection.detection:main',
+    },
 )

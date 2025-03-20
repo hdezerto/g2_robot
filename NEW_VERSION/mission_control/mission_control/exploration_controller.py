@@ -170,8 +170,8 @@ class ExplorationController(Node):
         # Publisher for the stop command
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
-        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
-
+        #self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
+        self.state = ExplorationState.MOVING # DEBUG detection
 
     def get_next_exploration_point(self):
 
@@ -221,19 +221,19 @@ class ExplorationController(Node):
     def detections_callback(self, msg):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Handle the detection message
-        if self.is_new_detection(msg):
-            self.stop_robot()
-            if msg.type == 'OBJECT':
-                self.detected_objects.append((msg.x, msg.y, msg.cat))
-            else:  # msg.type == 'BOX'
-                self.detected_boxes.append((msg.x, msg.y, msg.theta))
-            #else: # 'OBSTACLE' case
-            #    self.detected_obstacles.append((msg.x, msg.y))
-            self.publish_detections_to_rviz() # Update RViz with the new detections (labels and positions)
-            self.state = ExplorationState.NEW_WAYPOINT
-        else:
-            # Ignore previously detected objects/obstacles
-            pass
+        # if self.is_new_detection(msg):
+        #     self.stop_robot()
+        #     if msg.type == 'OBJECT':
+        #         self.detected_objects.append((msg.x, msg.y, msg.cat))
+        #     else:  # msg.type == 'BOX'
+        #         self.detected_boxes.append((msg.x, msg.y, msg.theta))
+        #     #else: # 'OBSTACLE' case
+        #     #    self.detected_obstacles.append((msg.x, msg.y))
+        #     self.publish_detections_to_rviz() # Update RViz with the new detections (labels and positions)
+        #     self.state = ExplorationState.NEW_WAYPOINT
+        # else:
+        #     # Ignore previously detected objects/obstacles
+        #     pass
 
     
     def lidar_occupancy_grid_callback(self, msg):

@@ -30,12 +30,13 @@ import time
 
 
 
-# ------- TUNNING
+# ---------- TUNABLE PARAMETERS ----------
 
 N_THRESHOLD = 5  # Process every 5 messages TEST
 MAX_DISTANCE = 0.9 # Maximum distance from the sensor (in meters) TEST
 MIN_DISTANCE = 0.04 # Minimum distance from the sensor (in meters) TEST
 
+# ----------------------------------------
 
 
 class PointCloudDetection(Node):
