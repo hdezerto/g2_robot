@@ -28,6 +28,16 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
 from sensor_msgs_py.point_cloud2 import create_cloud # Convert colors to a single float value representing RGB
 import time
 
+
+
+# ------- TUNNING
+
+N_THRESHOLD = 5  # Process every 5 messages TEST
+MAX_DISTANCE = 0.9 # Maximum distance from the sensor (in meters) TEST
+MIN_DISTANCE = 0.04 # Minimum distance from the sensor (in meters) TEST
+
+
+
 class PointCloudDetection(Node):
 
     def __init__(self):
@@ -105,8 +115,8 @@ class PointCloudDetection(Node):
 
         # Increment the message counter
         self.message_counter += 1
-        # Only process every 5 messages. Fequency of /camera/camera/depth/color/points is around 15 point clouds per second
-        if self.message_counter % 2 != 0:
+        # Only process every N_THRESHOLD messages. Fequency of /camera/camera/depth/color/points is around 15 point clouds per second
+        if self.message_counter % N_THRESHOLD != 0:
             return
         # Reset the counter to avoid overflow
         self.message_counter = 0
@@ -128,7 +138,7 @@ class PointCloudDetection(Node):
         # Create a boolean mask to filter points:
         # - Points within max_dist from the sensor
         # - Points above the floor (0.01 < y < 0.085) (y-axis points downwards)
-        mask = (distances < max_dist) & (points[:, 1] < 0.085) & (0.01 < points[:, 1]) # TEST: maybe more floor can be removed by decreasing the y value
+        mask = (MIN_DISTANCE < distances < MAX_DISTANCE) & (points[:, 1] < 0.085) & (-0.065 < points[:, 1]) # TEST
         
         # Apply the mask to filter points before processing colors
         points = points[mask]
@@ -715,48 +725,6 @@ class PointCloudDetection(Node):
         self.marker_publisher.publish(marker_array)
 
     
-
-
-    # def publish_workspace_perimeter(self):
-    #     """
-    #     Publish the workspace perimeter as a LINE_STRIP marker in RViz2.
-    #     """
-    #     marker = Marker()
-    #     marker.header.frame_id = "map"  # Ensure this frame exists in your TF tree
-    #     marker.header.stamp = self.get_clock().now().to_msg()  # Ensure current timestamp
-    #     marker.ns = "workspace"
-    #     marker.id = 0
-    #     marker.type = Marker.LINE_STRIP
-    #     marker.action = Marker.ADD
-
-    #     # Set the scale of the lines (thickness)
-    #     marker.scale.x = 0.05  # Increased line thickness for better visibility
-
-    #     # Set the color of the lines (e.g., green)
-    #     marker.color.r = 0.0
-    #     marker.color.g = 1.0
-    #     marker.color.b = 0.0
-    #     marker.color.a = 1.0  # Fully opaque
-
-    #     # Add the vertices of the workspace polygon
-    #     for x, y in self.workspace_vertices:
-    #         point = Point()
-    #         point.x = x  # Already in meters
-    #         point.y = y  # Already in meters
-    #         point.z = 0.0  # Workspace is on the ground (z = 0)
-    #         marker.points.append(point)
-
-    #     # Close the polygon by adding the first vertex again
-    #     first_point = Point()
-    #     first_point.x = self.workspace_vertices[0][0]
-    #     first_point.y = self.workspace_vertices[0][1]
-    #     first_point.z = 0.0
-    #     marker.points.append(first_point)
-
-    #     # Publish the marker
-    #     self.workspace_publisher.publish(marker)
-
-
 
 
 

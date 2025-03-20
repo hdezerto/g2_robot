@@ -1,0 +1,37 @@
+    
+    
+
+
+    
+
+    <!--  Run detection  -->
+    <node pkg="detection" exec="detection" name="detection_node" output="screen"/>
+    
+
+
+
+
+
+
+    <!--  Run Lidar  -->
+    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
+
+    
+
+   
+    <!-- Run micro_ros_agent for the arm -->
+    <node pkg="micro_ros_agent" exec="micro_ros_agent" name="micro_ros_agent_node" output="screen"
+        args="serial --dev /dev/ttyUSB1 -v6"/>
+
+    <!--  Run the arm camera  -->
+    <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
+
+
+
+
+    
+    
+    <!--  Run Lidar stabilizer  -->
+    <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/>
+
+

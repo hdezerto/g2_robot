@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<launch>
+
+
+    <!-- To disable printing of the output of the node to the terminal, remove the output="screen" attribute  -->
+    
+    <!--  Run the custom frames launch file  -->
+    <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_frames_launch.xml" />
+
+    <!--  Run odometry node  -->
+    <!--  output="screen" will print the output of the node to the terminal  -->
+    <node pkg="motion_control" exec="odometry" name="odometry_node" output="screen"/>
+
+    <!--  Run motor peripherals and motors  -->
+    <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.py"/>
+
+    <!--  Run camera to initiate pointcloud  -->
+    <include file="$(find-pkg-share robp_launch)/launch/rs_d435i_launch.py"/>
+
+
+
+    <!--  Run joystick teleop  -->
+    <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
+        <arg name="joy_config" value="xbox"/>
+    </include>
+
+    <!--  Run joystick controller -->
+    <!-- This node subscribes to /cmd_vel from the joystick, and it is tuned only for the joystick.
+    So DO NOT publishing to /cmd_vel from other nodes to avoid errors. -->
+    <node pkg="motion_control" exec="joystick_motor_controller" name="controller_node" output="screen"/>
+
+
+
+
+
+</launch>
