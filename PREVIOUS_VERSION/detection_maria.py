@@ -28,20 +28,6 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
 from sensor_msgs_py.point_cloud2 import create_cloud # Convert colors to a single float value representing RGB
 import time
 
-
-
-# ---------- TUNABLE PARAMETERS ----------
-
-N_THRESHOLD = 5  # Process every 5 messages TEST
-MAX_DISTANCE = 0.9 # Maximum distance from the sensor [m] TEST
-MIN_DISTANCE = 0.04 # Minimum distance from the sensor [m] TEST
-
-MAX_HEIGHT = 0.09 # Maximum height from the floor [m] TEST
-MIN_HEIGHT = -0.065 # Minimum height from the floor [m] TEST
-
-# ----------------------------------------
-
-
 class PointCloudDetection(Node):
 
     def __init__(self):
@@ -69,10 +55,49 @@ class PointCloudDetection(Node):
 
         self.pub = self.create_publisher(PointCloud2, '/depth_points_filtered', 100)
 
+        folder_path = os.path.join(os.getcwd(), 'maps') # current directory + /maps
+        
+        # Create the 'maps' folder if it doesn't exist
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        
+        file_name = 'Map.txt'
+        self.file_path = os.path.join(folder_path, file_name)
+        with open(self.file_path, 'w') as file:
+            file.write(f"")
 
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
 
+        #self.marker_publisher = self.create_publisher(MarkerArray, '/map_objects', 10)
+        
+        #self.timer = self.create_timer(2.0, self.publish_map_objects)  # Update every 2 seconds
+
+        # Add a counter to track the number of messages received
         self.message_counter = 0
+
+        self.last_line_count = 0
+
+        # Initialize the list of existing entries to avoid always reading the file
+        self.existing_entries = []
+
+
+        # # Publisher for the workspace perimeter marker
+        # self.workspace_publisher = self.create_publisher(Marker, 'workspace_perimeter', 10)
+
+        # # Define workspace vertices (in centimeters, converted to meters)
+        # self.workspace_vertices = [
+        #     (-220 / 100, -130 / 100),
+        #     (220 / 100, -130 / 100),
+        #     (450 / 100, 66 / 100),
+        #     (700 / 100, 66 / 100),
+        #     (700 / 100, 284 / 100),
+        #     (546 / 100, 284 / 100),
+        #     (546 / 100, 130 / 100),
+        #     (-220 / 100, 130 / 100)
+        # ]
+
+        # # Publish the workspace perimeter
+        # self.publish_workspace_perimeter()
 
 
 
@@ -80,8 +105,8 @@ class PointCloudDetection(Node):
 
         # Increment the message counter
         self.message_counter += 1
-        # Only process every N_THRESHOLD messages. Fequency of /camera/camera/depth/color/points is around 15 point clouds per second
-        if self.message_counter % N_THRESHOLD != 0:
+        # Only process every 5 messages. Fequency of /camera/camera/depth/color/points is around 15 point clouds per second
+        if self.message_counter % 2 != 0:
             return
         # Reset the counter to avoid overflow
         self.message_counter = 0
@@ -103,12 +128,10 @@ class PointCloudDetection(Node):
         # Create a boolean mask to filter points:
         # - Points within max_dist from the sensor
         # - Points above the floor (0.01 < y < 0.085) (y-axis points downwards)
-        mask = (distances > MIN_DISTANCE) & (distances < MAX_DISTANCE) & (points[:, 1] < MAX_HEIGHT) & (points[:, 1] > MIN_HEIGHT)  # TEST
+        mask = (distances < max_dist) & (points[:, 1] < 0.085) & (0.01 < points[:, 1]) # TEST: maybe more floor can be removed by decreasing the y value
         
         # Apply the mask to filter points before processing colors
         points = points[mask]
-
-
 
         #print(f"Y min: {np.min(points[:,1])}, Y max: {np.max(points[:,1])}") # TO TEST THE FLOOR RANGE
 
@@ -149,13 +172,11 @@ class PointCloudDetection(Node):
 
         # Publish the filtered point cloud
         self.pub.publish(filtered_cloud_msg)
-
-
         # ^ ----------------------------------------------------------------- ^
 
         
         # Perform spatial clustering using DBSCAN
-        labels = self.dbscan(points, eps=0.05, min_samples=200) # CHECK
+        labels = self.dbscan(points, eps=0.05, min_samples=300) # CHECK
         
         # Publish clusters using the original header
         self.publish_clusters(points, labels, msg.header) # CAN BE COMMENTED OUT AFTER TESTING
@@ -270,7 +291,6 @@ class PointCloudDetection(Node):
             else:
                 self.get_logger().info(f'Cluster {cluster_label} is NOT a recognized object.')
 
-
             # ------------ TIMER FOR EFFICIENCY CHECK (move where desired) ------------
             end_time = time.time()
             self.get_logger().info(f"Processing time: {end_time - start_time:.4f} seconds")
@@ -346,10 +366,36 @@ class PointCloudDetection(Node):
             y_transformed = point_out.point.y
             z_transformed = point_out.point.z
 
-            # Print the transformed coordinates
-            self.get_logger().info(
-                f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
-            )
+            # Format the new object entry with transformed coordinates
+            new_entry = f"{L} {x_transformed:.2f} {y_transformed:.2f} {angle:.1f}\n"
+
+            # Check if the new entry is a duplicate based on proximity
+            is_duplicate = False
+            for entry in self.existing_entries:
+                parts = entry.strip().split()
+                if len(parts) < 4:
+                    continue
+
+                # Extract coordinates from the existing entry
+                existing_x = float(parts[1])
+                existing_y = float(parts[2])
+
+                # Calculate Euclidean distance between the new and existing coordinates
+                distance = np.sqrt((x_transformed - existing_x)**2 + (y_transformed - existing_y)**2)
+
+                # If the distance is less than 0.01, consider it a duplicate
+                if distance < 0.01:
+                    is_duplicate = True
+                    break
+
+            # If not a duplicate, append the new entry to the file
+            if not is_duplicate:
+                with open(self.file_path, 'a') as file:
+                    file.write(new_entry)
+                self.existing_entries.append(new_entry)
+                #self.get_logger().info(f"Created object: {L} at position: ({x_transformed:.2f}, {y_transformed:.2f})")
+            #else:
+                #self.get_logger().info(f"Object already exists near position: ({x_transformed:.2f}, {y_transformed:.2f})")
 
         except TransformException as e:
             self.get_logger().error(f"Failed to transform coordinates: {e}")     
@@ -548,6 +594,170 @@ class PointCloudDetection(Node):
         # )
 
         return height_ok and (dim_match or aspect_ok)
+
+
+
+
+    def publish_map_objects(self):
+        marker_array = MarkerArray()
+
+        # Read the Map.txt file
+        if not os.path.exists(self.file_path):
+            return
+
+        with open(self.file_path, 'r') as file:
+            lines = file.readlines()
+
+        # Get the number of new lines added since the last read
+        new_line_count = len(lines) - self.last_line_count
+
+        # If no new lines, return
+        if new_line_count <= 0:
+            return
+
+        # Clear all previous markers
+        clear_marker = Marker()
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+
+        # Process only the new lines
+        for idx, line in enumerate(lines[-new_line_count:]):
+            parts = line.strip().split()
+            if len(parts) < 4:
+                continue
+
+            obj_type = parts[0]
+            x = float(parts[1])
+            y = float(parts[2])
+            angle = float(parts[3])
+
+            marker = Marker()
+            marker.header.frame_id = "map"  # Map frame for 2D visualization
+            marker.header.stamp = self.get_clock().now().to_msg()
+
+            # Unique ID for each marker
+            marker.id = self.last_line_count + idx  # Ensure unique IDs
+
+            # Set a unique namespace to avoid duplication in the same MarkerArray
+            marker.ns = "object_{}".format(self.last_line_count + idx)
+
+            # Default to CUBE (for 2D square)
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.pose.position.x = x
+            marker.pose.position.y = y
+            marker.pose.position.z = 0.0  # z is always 0 for 2D
+
+            # Set the orientation based on the angle
+            q = Quaternion()
+            q.z = np.sin(np.radians(angle) / 2.0)
+            q.w = np.cos(np.radians(angle) / 2.0)
+            marker.pose.orientation = q
+
+            if obj_type == '1':  # Cube (using CUBE type with adjusted scale)
+                marker.type = Marker.CUBE
+                marker.scale.x = 0.04  # Width of the square
+                marker.scale.y = 0.04  # Height of the square
+                marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            elif obj_type == '2':  # Sphere (using SPHERE type, but we keep z = 0)
+                marker.type = Marker.SPHERE
+                marker.scale.x = 0.04  # Diameter of the circle
+                marker.scale.y = 0.04  # Diameter of the circle
+                marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
+                marker.color.r = 1.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            elif obj_type == '3':  # Plushie (using CUBE type, but we keep z = 0)
+                marker.type = Marker.CUBE
+                marker.scale.x = 0.06  # Width of the square
+                marker.scale.y = 0.08  # Height of the square
+                marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            elif obj_type == 'B':  # Box (using CUBE type, just as a 2D object)
+                # Original dimensions of the box
+                original_width = 0.16
+                original_length = 0.24
+
+                # Set the scale of the marker to the original dimensions
+                marker.scale.x = original_width  # Width of the box
+                marker.scale.y = original_length  # Length of the box
+                marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
+
+                # Convert the angle from degrees to radians
+                angle_rad = np.radians(angle)
+
+                # Set the orientation based on the angle
+                q = Quaternion()
+                q.z = np.sin(angle_rad / 2.0)  # Rotation around the Z-axis
+                q.w = np.cos(angle_rad / 2.0)  # Quaternion scalar component
+                marker.pose.orientation = q
+
+                # Set the color
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 1.0
+                marker.color.a = 1.0  # Fully opaque
+
+            marker.color.a = 1.0  # Alpha (opacity)
+            marker.lifetime.sec = 2  # Persist for 2 seconds
+
+            marker_array.markers.append(marker)
+
+        # Update the last line count
+        self.last_line_count = len(lines)
+
+        # Publish the markers
+        self.marker_publisher.publish(marker_array)
+
+    
+
+
+    # def publish_workspace_perimeter(self):
+    #     """
+    #     Publish the workspace perimeter as a LINE_STRIP marker in RViz2.
+    #     """
+    #     marker = Marker()
+    #     marker.header.frame_id = "map"  # Ensure this frame exists in your TF tree
+    #     marker.header.stamp = self.get_clock().now().to_msg()  # Ensure current timestamp
+    #     marker.ns = "workspace"
+    #     marker.id = 0
+    #     marker.type = Marker.LINE_STRIP
+    #     marker.action = Marker.ADD
+
+    #     # Set the scale of the lines (thickness)
+    #     marker.scale.x = 0.05  # Increased line thickness for better visibility
+
+    #     # Set the color of the lines (e.g., green)
+    #     marker.color.r = 0.0
+    #     marker.color.g = 1.0
+    #     marker.color.b = 0.0
+    #     marker.color.a = 1.0  # Fully opaque
+
+    #     # Add the vertices of the workspace polygon
+    #     for x, y in self.workspace_vertices:
+    #         point = Point()
+    #         point.x = x  # Already in meters
+    #         point.y = y  # Already in meters
+    #         point.z = 0.0  # Workspace is on the ground (z = 0)
+    #         marker.points.append(point)
+
+    #     # Close the polygon by adding the first vertex again
+    #     first_point = Point()
+    #     first_point.x = self.workspace_vertices[0][0]
+    #     first_point.y = self.workspace_vertices[0][1]
+    #     first_point.z = 0.0
+    #     marker.points.append(first_point)
+
+    #     # Publish the marker
+    #     self.workspace_publisher.publish(marker)
+
+
+
 
 
 

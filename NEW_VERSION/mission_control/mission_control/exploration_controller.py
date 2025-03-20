@@ -147,7 +147,6 @@ class ExplorationController(Node):
         self.waypoints = [] # List of waypoints to reach the exploration point
         self.detected_objects = []
         self.detected_boxes = []
-        self.detected_obstacles = []
         self.current_position = (0, 0)  # Initialize with the starting position in grid coordinates
         # Grid obtained by adding the detected objects/boxes to the lidar grid.
         # Will only be updated before when:
@@ -220,20 +219,20 @@ class ExplorationController(Node):
 
     def detections_callback(self, msg):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
-        # Handle the detection message
-        # if self.is_new_detection(msg):
-        #     self.stop_robot()
-        #     if msg.type == 'OBJECT':
-        #         self.detected_objects.append((msg.x, msg.y, msg.cat))
-        #     else:  # msg.type == 'BOX'
-        #         self.detected_boxes.append((msg.x, msg.y, msg.theta))
-        #     #else: # 'OBSTACLE' case
-        #     #    self.detected_obstacles.append((msg.x, msg.y))
-        #     self.publish_detections_to_rviz() # Update RViz with the new detections (labels and positions)
-        #     self.state = ExplorationState.NEW_WAYPOINT
-        # else:
-        #     # Ignore previously detected objects/obstacles
-        #     pass
+        #Handle the detection message
+        if self.is_new_detection(msg):
+            self.stop_robot()
+            if msg.type == 'OBJECT':
+                self.detected_objects.append((msg.x, msg.y, msg.cat))
+            else:  # msg.type == 'BOX'
+                self.detected_boxes.append((msg.x, msg.y, msg.theta))
+            #else: # 'OBSTACLE' case
+            #    self.detected_obstacles.append((msg.x, msg.y))
+            self.publish_detections_to_rviz() # Update RViz with the new detections (labels and positions)
+            self.state = ExplorationState.NEW_WAYPOINT
+        else:
+            # Ignore previously detected objects/obstacles
+            pass
 
     
     def lidar_occupancy_grid_callback(self, msg):
