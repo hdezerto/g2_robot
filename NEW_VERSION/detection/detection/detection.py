@@ -28,6 +28,9 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
 from sensor_msgs_py.point_cloud2 import create_cloud # Convert colors to a single float value representing RGB
 import time
 
+from detection.msg import DetectionMsg
+
+
 
 
 # ---------- TUNABLE PARAMETERS ----------
@@ -71,6 +74,9 @@ class PointCloudDetection(Node):
 
 
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
+
+
+        self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
 
         self.message_counter = 0
 
@@ -304,15 +310,15 @@ class PointCloudDetection(Node):
     def create_object(self, type, x, z, angle, stamp):
         # Map object type to a label
         if type == 'cube':
-            L = 1
+            category = 1
         elif type == 'sphere':
-            L = 2
+            category = 2
         elif type == 'plushie':
-            L = 3
+            category = 3
         elif type == 'box':
-            L = 'B'
+            category = 4
         else:
-            L = 'Undefined'
+            category = 0  # Undefined category
 
         # Create a PointStamped message for the input coordinates
         point_in = PointStamped()
@@ -342,10 +348,18 @@ class PointCloudDetection(Node):
                 f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
             )
 
-        except TransformException as e:
-            self.get_logger().error(f"Failed to transform coordinates: {e}")     
+            # Publish the detection message
+            detection_msg = DetectionMsg()
+            detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
+            detection_msg.cat = category  # Category (1, 2, 3, etc.)
+            detection_msg.x = x_transformed
+            detection_msg.y = y_transformed
+            detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
 
-        return None
+            self.detection_publisher.publish(detection_msg)
+
+        except TransformException as e:
+            self.get_logger().error(f"Failed to transform coordinates: {e}")
 
 
 

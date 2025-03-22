@@ -42,6 +42,12 @@ from enum import Enum, auto
 from nav_msgs.msg import Path
 from std_msgs.msg import Bool
 
+from visualization_msgs.msg import Marker, MarkerArray
+from detection.msg import DetectionMsg
+import numpy as np
+from geometry_msgs.msg import Quaternion
+
+
 import time # DEBUG
 
 # -------- Tunable parameters --------
@@ -95,12 +101,7 @@ class ExplorationController(Node):
         )
 
         # Subscribe to the /detections topic
-        # self.detections_subscriber = self.create_subscription(
-        #     DetectionMsg,
-        #     '/detections',
-        #     self.detections_callback,
-        #     5
-        # )
+        self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5)
 
         # Publisher for the exploration grid (only with workspace and computed exploration points)
         self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', 10)
@@ -239,14 +240,107 @@ class ExplorationController(Node):
 
     def publish_detections_to_rviz(self):
         # Implementation to publish detections to RViz
-        # TO DO
-        pass
-    
-    
-    def write_map_file(self):
-        # TO DO
-        pass
+        marker_array = MarkerArray()
 
+        #add markers for detected objects
+        # Add markers for detected objects
+        for idx, (x, y, category) in enumerate(self.detected_objects):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "detected_objects"
+            marker.id = idx
+            marker.type = Marker.CUBE # Default type
+            marker.action = Marker.ADD
+            marker.pose.position.x = x
+            marker.pose.position.y = y
+            marker.pose.position.z = 0.0  
+
+            """do i need orientation? when its not a box?"""
+            
+             # Set scale and color based on category
+            if category == '1':  # Cube
+                marker.scale.x = 0.04
+                marker.scale.y = 0.04
+                marker.scale.z = 0.01
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            elif category == '2':  # Sphere
+                marker.scale.x = 0.04
+                marker.scale.y = 0.04
+                marker.scale.z = 0.01
+                marker.color.r = 1.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+            elif category == '3':  # Plushie
+                marker.scale.x = 0.06
+                marker.scale.y = 0.08
+                marker.scale.z = 0.01
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 1.0
+
+            marker.color.a = 1.0  # Fully opaque
+            marker.lifetime.sec = 2  # Persist for 2 seconds
+            marker_array.markers.append(marker)   
+        
+        # Add markers for detected boxes
+        for idx, (x, y, theta) in enumerate(self.detected_boxes, start=len(self.detected_objects)):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "detected_boxes"
+            marker.id = idx
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+            marker.pose.position.x = x
+            marker.pose.position.y = y
+            marker.pose.position.z = 0.0  
+
+            # Convert theta (angle in degrees) to quaternion for orientation
+            angle_rad = np.radians(theta)
+            marker.pose.orientation.z = np.sin(angle_rad / 2.0)
+            marker.pose.orientation.w = np.cos(angle_rad / 2.0)
+
+            # Set scale and color for boxes
+            marker.scale.x = 0.16  # Original width of the box
+            marker.scale.y = 0.24  # Original length of the box
+            marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
+            marker.color.r = 0.0
+            marker.color.g = 1.0
+            marker.color.b = 1.0
+            marker.color.a = 1.0  # Fully opaque
+
+            marker.lifetime.sec = 2  # Persist for 2 seconds
+            marker_array.markers.append(marker)
+        
+            # Set the orientation based on the angle
+            #             q = Quaternion()
+            #             q.z = np.sin(np.radians(angle) / 2.0)
+            #             q.w = np.cos(np.radians(angle) / 2.0)
+            #             marker.pose.orientation = q
+
+        # Publish the markers
+        self.marker_publisher.publish(marker_array)
+
+
+    def write_map_file(self):
+
+        file_name = "map_file.txt"
+
+        with open(file_name, 'w') as file:
+            # lets put the objects in the file:
+            for x, y, category in self.detected_objects:
+                file.write(f"OBJECT {category} in position: {x:.2f} {y:.2f} \n")
+
+            # lets write the boxes in the file:
+            for x, y, theta in self.detected_boxes:
+                file.write(f"BOX in position{x:.2f} {y:.2f} with {theta:.2f}\n")
+
+        self.get_logger().info(f"Map file '{file_name}' has been written successfully.") #later, remove this
+
+    
     
     # TO FINISH
     def is_new_detection(self, msg):
