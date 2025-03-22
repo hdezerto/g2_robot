@@ -12,7 +12,7 @@ from scipy.interpolate import CubicSpline
 from geometry_msgs.msg import TransformStamped
 from tf_transformations import quaternion_from_euler
 
-from occupancy_grid_map import read_workspace, grid_to_real_coordinates
+from .occupancy_grid_map import read_workspace, grid_to_real_coordinates
 
 
 

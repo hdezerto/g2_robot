@@ -10,11 +10,12 @@
 
     
 
-    <!--  Run detection  -->
-    <node pkg="detection" exec="detection" name="detection_node" output="screen"/>
     
 
 
+
+    <!-- Run arm controller -->
+    <node pkg="manipulation" exec="arm_controller" name="arm_controller_node" output="screen"/>
 
 
 

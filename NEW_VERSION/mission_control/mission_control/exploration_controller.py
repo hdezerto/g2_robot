@@ -32,8 +32,8 @@ EXPLORATION LOGIC:
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PolygonStamped
-from mission_control_utils import publish_workspace, compute_path, publish_detections_to_rviz, is_in_collision
-from occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
+from .mission_control_utils import publish_workspace, compute_path, publish_detections_to_rviz
+from .occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
                                 grid_to_real_coordinates, real_to_grid_coordinates
                                 )
 from nav_msgs.msg import OccupancyGrid
