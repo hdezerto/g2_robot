@@ -56,6 +56,14 @@ from tf2_ros import TransformBroadcaster
 
 import time # DEBUG
 
+"""
+TO DO:
+- Check the case when a box is also considered as a plushie
+- 
+
+"""
+
+
 # -------- Tunable parameters --------
 #EXPLORATION_STEP = 7  # Step size for generating exploration points [cells]
 EXPLORATION_STEP = 15 # DEBUGGING
@@ -66,6 +74,7 @@ POSITION_THRESHOLD = 0.1  # Threshold for considering two detections as the same
 # ------------------------------- ExplorationState class -------------------------------
 class ExplorationState(Enum):
     INIT = auto()
+    OBSERVING = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     START_MOVING = auto()
     MOVING = auto() # Just proccessing callbacks
@@ -128,13 +137,13 @@ class ExplorationController(Node):
         
         # DEBUG:
         real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
-        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
+        #self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
         formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
-        self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
+        #self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
     
         self.exploration_point_index = 0
         self.exploration_point = None
-        self.current_position = real_to_grid_coordinates(0, 0, self.exploration_occupancy_grid)  # Initial position (0, 0) in real world coordinates
+        self.current_position = real_to_grid_coordinates([(0, 0)], self.exploration_occupancy_grid)  # Initial position (0, 0) in real world coordinates
         self.detected_objects = [] # List of tuples (x, y, category)
         self.detected_boxes = [] # List of tuples (x, y, theta)
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
@@ -150,8 +159,8 @@ class ExplorationController(Node):
         # Publisher for the stop command (to motion controller)
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
-        self.state = ExplorationState.OBSERVING
-        #self.state = ExplorationState.MOVING # DEBUG detection
+        #self.state = ExplorationState.OBSERVING
+        self.state = ExplorationState.MOVING # DEBUG detection
 
 
     def spin_for_duration(self, duration):
@@ -209,7 +218,7 @@ class ExplorationController(Node):
             else:  # msg.type == 'BOX'
                 self.detected_boxes.append((msg.x, msg.y, msg.theta))
             publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
-            self.state = ExplorationState.START_MOVING
+            #self.state = ExplorationState.START_MOVING
         else:
             # Ignore previously detected objects/obstacles (state remains the same)
             pass
@@ -357,7 +366,7 @@ class ExplorationController(Node):
         self.get_logger().info(f"Map file '{file_name}' has been written successfully.") #later, remove this
 
     
-    # TO FINISH
+    # TEST (check if boxes dont need a larger threshold)
     def is_new_detection(self, msg):
         # Select the appropriate list based on the detection type
         detected_list = {
