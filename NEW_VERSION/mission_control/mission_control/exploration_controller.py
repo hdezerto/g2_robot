@@ -208,7 +208,7 @@ class ExplorationController(Node):
         # Update the planning grid with the latest lidar occupancy grid and the detected objects/boxes
         update_path_planning_grid(self.path_planning_grid, latest_lidar_occupancy_grid, self.detected_objects + self.detected_boxes)
 
-        get_current_position()  # Get the current position of the robot (from odometry or localization)
+        update_current_position()  # Update the current position of the robot (from odometry or localization)
         if check_collision(self.path_planning_grid, self.grid_path, self.current_position):
             self.get_logger().info('Collision detected. Recomputing path.')
             self.state = ExplorationState.START_MOVING
@@ -230,8 +230,8 @@ class ExplorationController(Node):
         self.write_map_file()
         self.get_logger().info('Exploration completed. Map file saved.')
     
-    
-    def get_current_position(self):
+
+    def update_current_position(self):
         # TO DO
         pass
 
