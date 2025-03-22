@@ -28,24 +28,12 @@ EXPLORATION LOGIC:
 
 
 
-""""
--------------------- TO DO --------------------
-- Check with prof if the camera should also detect obstacles
-
-- Test new odometry node (more efficient)
-- Integrate Jule's planner and motion controller with new approach (path computed if needed at each waypoint).
-- Check detection's accuracy (joystick controlling the robot)
-- Write the remaining functions to publish detections to RViz and write the map file.
-
-"""
-
-
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PolygonStamped
-from mission_control_utils import publish_workspace, dilate_occupied_cells, grid_to_real_coordinates, compute_path_to_point
-from occupancy_grid_map import initialize_occupancy_grid
+from mission_control_utils import publish_workspace, compute_path, is_in_collision
+from occupancy_grid_map import initialize_occupancy_grid, inflate_occupied_cells, grid_to_real_coordinates, update_path_planning_grid
 from nav_msgs.msg import OccupancyGrid
 #from detection.msg import DetectionMsg 
 
@@ -57,17 +45,17 @@ from std_msgs.msg import Bool
 import time # DEBUG
 
 # -------- Tunable parameters --------
-
-EXPANSION_RADIUS = 2  # Radius in cells to dilate occupied cells [cells]
 #EXPLORATION_STEP = 7  # Step size for generating exploration points [cells]
 EXPLORATION_STEP = 15 # DEBUGGING
 POSITION_THRESHOLD = 0.1  # Threshold for considering two detections as the same [m]
 # ------------------------------------
 
+
+# ------------------------------- ExplorationState class -------------------------------
 class ExplorationState(Enum):
     INIT = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
-    NEW_WAYPOINT = auto()
+    START_MOVING = auto()
     MOVING = auto()
     END_EXPLORATION = auto()
 
@@ -79,8 +67,8 @@ class ExplorationController(Node):
         while rclpy.ok():
             if self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
-            elif self.state == ExplorationState.NEW_WAYPOINT:
-                self.new_waypoint()
+            elif self.state == ExplorationState.START_MOVING:
+                self.start_moving()
             elif self.state == ExplorationState.MOVING:
                 rclpy.spin_once(self)
                 #rclpy.spin_once(self, timeout_sec=1) # DEBUG
@@ -96,7 +84,7 @@ class ExplorationController(Node):
         self.state = ExplorationState.INIT
         # Publish the workspace to RViz
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', 10)
-        publish_workspace(self.workspace_publisher, self)
+        publish_workspace(self.workspace_publisher, self.get_clock())
 
         # Subscribe to the /lidar_occupancy_grid topic
         self.lidar_occupancy_grid_subscriber = self.create_subscription(
@@ -105,7 +93,6 @@ class ExplorationController(Node):
             self.lidar_occupancy_grid_callback,
             10
         )
-        self.latest_lidar_occupancy_grid = None
 
         # Subscribe to the /detections topic
         # self.detections_subscriber = self.create_subscription(
@@ -118,11 +105,11 @@ class ExplorationController(Node):
         # Publisher for the exploration grid (only with workspace and computed exploration points)
         self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', 10)
 
-        # Initialize the clean occupancy grid (workspace file and resolution defined in mission_control_utils.py)
+        # Initialize a clean occupancy grid (workspace file and resolution defined in occupancy_grid_map.py)
         self.exploration_occupancy_grid = initialize_occupancy_grid()
 
-        # Dilate the occupied cells to avoid collisions
-        dilate_occupied_cells(self.exploration_occupancy_grid, EXPANSION_RADIUS)
+        # Inflate the occupied cells to avoid collisions
+        inflate_occupied_cells(self.exploration_occupancy_grid)
 
         # Compute exploration points using the clean grid
         self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
@@ -132,33 +119,26 @@ class ExplorationController(Node):
 
         # Publish the exploration occupancy grid
         self.publish_exploration_grid()
+        
+        # DEBUG:
         real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
-
-        # Print the exploration points for debugging
-        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}') # DEBUG
-
-        formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points] # DEBUG
-        self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}') # DEBUG
+        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
+        formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
+        self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
     
-
 
         self.exploration_point_index = 0
         self.exploration_point = None
-        self.waypoints = [] # List of waypoints to reach the exploration point
-        self.detected_objects = []
-        self.detected_boxes = []
-        self.current_position = (0, 0)  # Initialize with the starting position in grid coordinates
-        # Grid obtained by adding the detected objects/boxes to the lidar grid.
-        # Will only be updated before when:
-        # - Next exploration point is selected
-        # - Next waypoint is selected AND the previously computed path is obstructed 
-        # - Object/box is detected
-        self.merged_occupancy_grid = None  
+        self.current_position = None
+        self.detected_objects = [] # List of tuples (x, y, category)
+        self.detected_boxes = [] # List of tuples (x, y, theta)
+        # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
+        self.path_planning_grid = None  
 
-        # Subscribe to the /reached_destination topic
+        # Subscribe to the /goal_reached topic
         self.reached_destination_subscriber = self.create_subscription(
             Bool,
-            '/reached_destination',
+            '/goal_reached',
             self.reached_destination_callback,
             10
         )
@@ -166,57 +146,43 @@ class ExplorationController(Node):
         # Publisher for the path (for RViz and motion controller)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
 
-        # Publisher for the stop command
+        # Publisher for the stop command (to motion controller)
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
-        #self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
-        self.state = ExplorationState.MOVING # DEBUG detection
+        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
+        #self.state = ExplorationState.MOVING # DEBUG detection
+
 
     def get_next_exploration_point(self):
-
-        # Debug. Just print and sleep
-        # self.get_logger().info('Next exploration point')  # DEBUG
-        # time.sleep(2)  # DEBUG
-        # self.state = ExplorationState.START_MOVING
-
+        # Get the next exploration point from the list (if it exists)
         if self.exploration_point_index < len(self.exploration_points):
-            self.exploration_point = self.exploration_points[self.current_point_index]
-            
-            # TO DO (can reuse code inside mission_control_utils.py)
-            self.waypoints = compute_waypoints_to_goal(self.current_position, self.exploration_point, self.latest_lidar_occupancy_grid)
-            
+            self.exploration_point = self.exploration_points[self.current_point_index] # Get grid coordinates of the next exploration point
             self.exploration_point_index += 1
-            self.state = ExplorationState.NEW_WAYPOINT
-        else:
+            self.state = ExplorationState.START_MOVING
+        else: # No more points to explore
+            self.get_logger().info('No more exploration points. Ending exploration.')
             self.state = ExplorationState.END_EXPLORATION
     
 
-    def new_waypoint(self):
-
-        """
-        TO DO:
-        - Get net waypoint from the list of waypoints (if empty, go to the next exploration point)
-        - Update the merged occupancy grid (with the last lidar grid)
-        - If the path is obstructed, recompute the path to the exploration point
-        - Publish the path to the motion controller and RViz
-        - Change state to MOVING
-        """
+    def start_moving(self):
 
         # Debug. Just print and sleep
         # self.get_logger().info('Moving to point')  # DEBUG
         # time.sleep(2)  # DEBUG
         # self.state = ExplorationState.MOVING
 
-        # Compute path to exploration point and move to it
-        #path = compute_path_to_point(self.current_position, self.exploration_point, self.exploration_occupancy_grid)
-        if path:
-            self.publish_path(path)
+        # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
+        self.grid_path, path = compute_path(self.current_position, self.exploration_point, self.path_planning_grid)
+        if path: # Path found
+            self.publish_path(path) # Publish the path to the motion controller and RViz
+            self.get_logger().info('Path published. Moving...')
             self.state = ExplorationState.MOVING
-        else:
-            self.get_logger().info('No path found')
+        else: # No path found
+            self.get_logger().info('No path found. Getting the next exploration point.')
             self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
 
 
+    # TO FINISH
     def detections_callback(self, msg):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         #Handle the detection message
@@ -229,23 +195,29 @@ class ExplorationController(Node):
             #else: # 'OBSTACLE' case
             #    self.detected_obstacles.append((msg.x, msg.y))
             self.publish_detections_to_rviz() # Update RViz with the new detections (labels and positions)
-            self.state = ExplorationState.NEW_WAYPOINT
+            self.state = ExplorationState.START_MOVING
         else:
             # Ignore previously detected objects/obstacles
             pass
 
     
+    # TO FINISH
     def lidar_occupancy_grid_callback(self, msg):
-          self.latest_lidar_occupancy_grid = msg
-          self.get_logger().info('Received new lidar occupancy grid') # DEBUG
+        self.get_logger().info('Received new lidar occupancy grid.') # DEBUG
+        latest_lidar_occupancy_grid = msg 
+        # Update the planning grid with the latest lidar occupancy grid and the detected objects/boxes
+        update_path_planning_grid(self.path_planning_grid, latest_lidar_occupancy_grid, self.detected_objects + self.detected_boxes)
 
+        if check_collision(self.path_planning_grid, self.grid_path, self.current_position):
+            self.get_logger().info('Collision detected. Recomputing path.')
+        
 
     def reached_destination_callback(self, msg):
         if msg.data: # msg.data is True if the destination was reached
-            self.get_logger().info('Destination reached successfully')
+            self.get_logger().info('Destination reached successfully. Going to the next exploration point.')
             self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
         else:
-            self.get_logger().info('Failed to reach destination')
+            self.get_logger().info('Failed to reach destination. Going to the next exploration point.')
             self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
 
 
@@ -268,8 +240,8 @@ class ExplorationController(Node):
         pass
 
     
+    # TO FINISH
     def is_new_detection(self, msg):
-    
         # Select the appropriate list based on the detection type
         detected_list = {
             'OBJECT': self.detected_objects,

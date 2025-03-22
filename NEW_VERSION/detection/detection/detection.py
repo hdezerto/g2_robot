@@ -32,7 +32,7 @@ import time
 
 # ---------- TUNABLE PARAMETERS ----------
 
-N_THRESHOLD = 5  # Process every 5 messages TEST
+N_THRESHOLD = 8  # Process every N_THRESHOLD messages (to reduce processing load) TEST
 MAX_DISTANCE = 0.9 # Maximum distance from the sensor [m] TEST
 MIN_DISTANCE = 0.04 # Minimum distance from the sensor [m] TEST
 
@@ -93,9 +93,6 @@ class PointCloudDetection(Node):
 
         # Extract XYZ coordinates from the point cloud
         points = points_data[:, :3]  # Shape (N, 3)
-
-        # Set distance threshold for filtering
-        max_dist = 0.9 # Maximum distance from the sensor (in meters)
         
         # Compute Euclidean distance of each point from the origin
         distances = np.linalg.norm(points, axis=1)
@@ -124,8 +121,6 @@ class PointCloudDetection(Node):
         # Normalize colors to the range [0, 1] for consistency
         colors = np.stack((red, green, blue), axis=1).astype(np.float32) / 255  
 
-
-        # v ----------------- CAN BE COMMENTED OUT AFTER TESTING ----------------- v
         # Convert RGB values to packed 32-bit float format (used by ROS)
         # | 31-24 | 23-16 | 15-8 | 7-0  |
         # | Alpha |  Red  | Green | Blue |
@@ -150,10 +145,6 @@ class PointCloudDetection(Node):
         # Publish the filtered point cloud
         self.pub.publish(filtered_cloud_msg)
 
-
-        # ^ ----------------------------------------------------------------- ^
-
-        
         # Perform spatial clustering using DBSCAN
         labels = self.dbscan(points, eps=0.05, min_samples=200) # CHECK
         

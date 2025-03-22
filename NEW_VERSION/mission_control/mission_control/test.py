@@ -1,11 +1,24 @@
 
+"""
+
+Node just for testing code. IGNORE IT !
+
+"""
+
+
+
+
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Path
 
+from geometry_msgs.msg import PolygonStamped
 
-from mission_control_utils import compute_path_to_point, dilate_occupied_cells
-from occupancy_grid_map import initialize_occupancy_grid
+from tf2_ros import StaticTransformBroadcaster
+from geometry_msgs.msg import TransformStamped
+
+from mission_control_utils import compute_path, publish_workspace
+from occupancy_grid_map import initialize_occupancy_grid, inflate_occupied_cells
 import time
 
 
@@ -18,6 +31,16 @@ EXPANSION_RADIUS = 2
 class TestComputePathNode(Node):
     def __init__(self):
         super().__init__('test_compute_path_node')
+
+         # Initialize the static transform broadcaster
+        self.static_tf_broadcaster = StaticTransformBroadcaster(self)
+
+        # Broadcast the static transform for the map frame
+        self.broadcast_map_frame()
+
+        # Publish the workspace to RViz
+        self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', 10)
+        publish_workspace(self.workspace_publisher, self.get_clock())
 
         self.grid_publisher = self.create_publisher(OccupancyGrid, 'test_occupancy_grid', 10)
         self.path_publisher = self.create_publisher(Path, 'test_path', 10)
@@ -32,16 +55,33 @@ class TestComputePathNode(Node):
         self.mark_square(20, 10, 0)
         self.mark_square(20, 4, 0)
 
-
         self.mark_square(30, 7, 0)
     
 
         # Dilate the occupancy grid
-        dilate_occupied_cells(self.occupancy_grid, EXPANSION_RADIUS)
+        inflate_occupied_cells(self.occupancy_grid, EXPANSION_RADIUS)
 
         # Define start and goal points (in grid coordinates)
         self.start = (10, 10)
         self.goal = (40, 10)
+    
+    
+    def broadcast_map_frame(self):
+        # Create a static transform for the map frame
+        transform = TransformStamped()
+        transform.header.stamp = self.get_clock().now().to_msg()
+        transform.header.frame_id = 'world'  # Parent frame
+        transform.child_frame_id = 'map'    # Child frame
+        transform.transform.translation.x = 0.0
+        transform.transform.translation.y = 0.0
+        transform.transform.translation.z = 0.0
+        transform.transform.rotation.x = 0.0
+        transform.transform.rotation.y = 0.0
+        transform.transform.rotation.z = 0.0
+        transform.transform.rotation.w = 1.0
+
+        # Broadcast the transform
+        self.static_tf_broadcaster.sendTransform(transform)
 
 
     def mark_square(self, x, y, size):
@@ -63,7 +103,7 @@ class TestComputePathNode(Node):
 
         # Compute the path
         start_time = time.time() # Measure the time to compute the path
-        path = compute_path_to_point(self.start, self.goal, self.occupancy_grid, self.get_clock)
+        _, path = compute_path(self.start, self.goal, self.occupancy_grid, self.get_clock)
         end_time = time.time()
         computation_time = end_time - start_time
 
