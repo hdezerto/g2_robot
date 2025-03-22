@@ -2,16 +2,19 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
-from mission_control_utils import read_workspace
 import numpy as np
 import tf2_ros
 import tf_transformations
 import copy
-
+import csv
 
 
 # -------- Tunable parameters --------
+WORKSPACE_FILE_PATH = 'workspace_2.tsv'  # Path to the workspace file
 RESOLUTION = 0.05  # Grid cell size [m/cell]
+EXPANSION_RADIUS = 2  # Radius in cells to dilate occupied cells [cells]
+
+# Lidar mapper:
 LIDAR_MIN_RANGE = 0.4  # Minimum range to consider a valid measurement [m]
 SCAN_THRESHOLD = 5  # Number of scans to skip before processing 
 # ------------------------------------
@@ -19,6 +22,17 @@ SCAN_THRESHOLD = 5  # Number of scans to skip before processing
 
 
 # ----------------- External functions -----------------
+
+def read_workspace(file_path=WORKSPACE_FILE_PATH):
+    coordinates = []
+    with open(file_path, 'r') as file:
+        reader = csv.reader(file, delimiter='\t')
+        next(reader)  # Skip header
+        for row in reader:
+            x, y = float(row[0]) / 100.0, float(row[1]) / 100.0  # Convert cm to meters
+            coordinates.append((x, y))
+    return coordinates
+
 
 def initialize_occupancy_grid(resolution=RESOLUTION):
     coordinates = read_workspace()
@@ -60,6 +74,83 @@ def initialize_occupancy_grid(resolution=RESOLUTION):
 
     return occupancy_grid
 
+
+def inflate_occupied_cells(occupancy_grid, expansion_radius=EXPANSION_RADIUS):
+    width = occupancy_grid.info.width
+    height = occupancy_grid.info.height
+    data = occupancy_grid.data
+    
+    for y in range(height):
+        for x in range(width):
+            index = y * width + x
+            if data[index] == 100:  # If the cell is occupied
+                # Mark the neighboring cells as dilated
+                for dy in range(-expansion_radius, expansion_radius + 1):
+                    for dx in range(-expansion_radius, expansion_radius + 1):
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < width and 0 <= ny < height:
+                            if data[ny * width + nx] == 0:  # Only inflate free cells
+                                data[ny * width + nx] = 50  # Mark as dilated space
+
+
+def grid_to_real_coordinates(grid_points, occupancy_grid):
+    real_world_points = []
+    origin_x = occupancy_grid.info.origin.position.x
+    origin_y = occupancy_grid.info.origin.position.y
+    resolution = occupancy_grid.info.resolution
+
+    for (x, y) in grid_points:
+        real_x = origin_x + x * resolution
+        real_y = origin_y + y * resolution
+        real_world_points.append((real_x, real_y))
+
+    return real_world_points
+
+
+def real_to_grid_coordinates(real_points, occupancy_grid):
+    grid_points = []
+    origin_x = occupancy_grid.info.origin.position.x
+    origin_y = occupancy_grid.info.origin.position.y
+    resolution = occupancy_grid.info.resolution
+
+    for (real_x, real_y) in real_points:
+        grid_x = int((real_x - origin_x) / resolution)
+        grid_y = int((real_y - origin_y) / resolution)
+        grid_points.append((grid_x, grid_y))
+
+    return grid_points
+
+
+# NOT TESTED
+def update_path_planning_grid(path_planning_grid, lidar_occupancy_grid, obstacles_list):
+    """
+    Updates the path planning grid by combining the latest lidar occupancy grid
+    and the obstacles list
+
+    Args:
+        path_planning_grid (OccupancyGrid): The grid used for path planning.
+        lidar_occupancy_grid (OccupancyGrid): The latest lidar occupancy grid.
+        obstacles_list (list): List of detected objects and boxes, where each
+                               element is a tuple (x, y, [theta/category]).
+    """
+    # Deep copy the lidar occupancy grid to the path planning grid
+    path_planning_grid = copy.deepcopy(lidar_occupancy_grid)
+
+    # Convert detected objects/boxes to grid coordinates
+    grid_points = real_to_grid_coordinates([(obj[0], obj[1]) for obj in obstacles_list], lidar_occupancy_grid)
+
+    # Mark detected obstacles as occupied in the path planning grid
+    width = path_planning_grid.info.width
+    height = path_planning_grid.info.height
+    data = path_planning_grid.data
+
+    for (grid_x, grid_y) in grid_points:
+        if 0 <= grid_x < width and 0 <= grid_y < height:
+            index = grid_y * width + grid_x
+            data[index] = 100  # Mark as occupied
+
+    path_planning_grid.data = data
+    inflate_occupied_cells(path_planning_grid)
 
 
 
@@ -108,6 +199,7 @@ def mark_line_as_occupied(occupancy_grid, x1, y1, x2, y2):
         data[index] = 100  # Mark as occupied space
 
 
+# Flood fill algorithm to mark free cells
 def mark_free_cells(occupancy_grid, start_x, start_y):
     # Convert start coordinates to grid indices
     origin_x = occupancy_grid.info.origin.position.x
@@ -141,11 +233,11 @@ def mark_free_cells(occupancy_grid, start_x, start_y):
 
 
 
-# ----------------- OccupancyGridMap class -----------------
+# ----------------- LidarMapper class -----------------
 
-class OccupancyGridMap(Node):
+class LidarMapper(Node):
     def __init__(self):
-        super().__init__('OccupancyGridMap_node')
+        super().__init__('LidarMapper_node')
         self.map_publisher = self.create_publisher(OccupancyGrid, '/lidar_occupancy_grid', 10)
         self.scan_subscriber = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         
@@ -158,7 +250,7 @@ class OccupancyGridMap(Node):
         self.clean_occupancy_grid = initialize_occupancy_grid()
         # Make a copy of the clean grid for lidar updates
         self.occupancy_grid = OccupancyGrid()
-        self.copy_clean_grid()
+        self.occupancy_grid = copy.deepcopy(self.clean_occupancy_grid)
 
         # Publish the occupancy grid (just for first visualization)
         self.occupancy_grid.header.stamp = self.get_clock().now().to_msg() # Use the current time
@@ -166,12 +258,6 @@ class OccupancyGridMap(Node):
 
         # Add a counter for processing scans
         self.scan_counter = 0
-
-
-    def copy_clean_grid(self):
-        """ Copy the clean occupancy grid to the current occupancy grid """
-        self.occupancy_grid = copy.deepcopy(self.clean_occupancy_grid)
-
 
     # CHECK THIS FUNCTION
     def scan_callback(self, msg):
@@ -266,15 +352,15 @@ class OccupancyGridMap(Node):
 # ----------------- Main function -----------------
 def main(args=None):
     rclpy.init(args=args)
-    mapping_node = OccupancyGridMap()
-    mapping_node.get_logger().info('Mapping node has been created.')
+    lidar_mapper = LidarMapper()
+    lidar_mapper.get_logger().info('Lidar mapping node has been created.')
 
     try:
-        rclpy.spin(mapping_node)
+        rclpy.spin(lidar_mapper)
     except Exception as e:
-        mapping_node.get_logger().error(f'An error occurred: {e}')
+        lidar_mapper.get_logger().error(f'An error occurred: {e}')
     finally:
-        mapping_node.destroy_node()
+        lidar_mapper.destroy_node()
         rclpy.shutdown()
 
 if __name__ == '__main__':

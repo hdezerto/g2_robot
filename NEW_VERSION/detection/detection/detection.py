@@ -28,11 +28,14 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
 from sensor_msgs_py.point_cloud2 import create_cloud # Convert colors to a single float value representing RGB
 import time
 
+from detection.msg import DetectionMsg
+
+
 
 
 # ---------- TUNABLE PARAMETERS ----------
 
-N_THRESHOLD = 5  # Process every 5 messages TEST
+N_THRESHOLD = 8  # Process every N_THRESHOLD messages (to reduce processing load) TEST
 MAX_DISTANCE = 0.9 # Maximum distance from the sensor [m] TEST
 MIN_DISTANCE = 0.04 # Minimum distance from the sensor [m] TEST
 
@@ -72,6 +75,9 @@ class PointCloudDetection(Node):
 
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
 
+
+        self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
+
         self.message_counter = 0
 
 
@@ -93,9 +99,6 @@ class PointCloudDetection(Node):
 
         # Extract XYZ coordinates from the point cloud
         points = points_data[:, :3]  # Shape (N, 3)
-
-        # Set distance threshold for filtering
-        max_dist = 0.9 # Maximum distance from the sensor (in meters)
         
         # Compute Euclidean distance of each point from the origin
         distances = np.linalg.norm(points, axis=1)
@@ -124,8 +127,6 @@ class PointCloudDetection(Node):
         # Normalize colors to the range [0, 1] for consistency
         colors = np.stack((red, green, blue), axis=1).astype(np.float32) / 255  
 
-
-        # v ----------------- CAN BE COMMENTED OUT AFTER TESTING ----------------- v
         # Convert RGB values to packed 32-bit float format (used by ROS)
         # | 31-24 | 23-16 | 15-8 | 7-0  |
         # | Alpha |  Red  | Green | Blue |
@@ -150,10 +151,6 @@ class PointCloudDetection(Node):
         # Publish the filtered point cloud
         self.pub.publish(filtered_cloud_msg)
 
-
-        # ^ ----------------------------------------------------------------- ^
-
-        
         # Perform spatial clustering using DBSCAN
         labels = self.dbscan(points, eps=0.05, min_samples=200) # CHECK
         
@@ -313,15 +310,15 @@ class PointCloudDetection(Node):
     def create_object(self, type, x, z, angle, stamp):
         # Map object type to a label
         if type == 'cube':
-            L = 1
+            category = 1
         elif type == 'sphere':
-            L = 2
+            category = 2
         elif type == 'plushie':
-            L = 3
+            category = 3
         elif type == 'box':
-            L = 'B'
+            category = 4
         else:
-            L = 'Undefined'
+            category = 0  # Undefined category
 
         # Create a PointStamped message for the input coordinates
         point_in = PointStamped()
@@ -351,10 +348,18 @@ class PointCloudDetection(Node):
                 f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
             )
 
-        except TransformException as e:
-            self.get_logger().error(f"Failed to transform coordinates: {e}")     
+            # Publish the detection message
+            detection_msg = DetectionMsg()
+            detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
+            detection_msg.cat = category  # Category (1, 2, 3, etc.)
+            detection_msg.x = x_transformed
+            detection_msg.y = y_transformed
+            detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
 
-        return None
+            self.detection_publisher.publish(detection_msg)
+
+        except TransformException as e:
+            self.get_logger().error(f"Failed to transform coordinates: {e}")
 
 
 
