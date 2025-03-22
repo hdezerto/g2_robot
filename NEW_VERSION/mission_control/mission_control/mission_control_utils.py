@@ -9,6 +9,9 @@ import heapq
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+from geometry_msgs.msg import TransformStamped
+from tf_transformations import quaternion_from_euler
+
 from occupancy_grid_map import read_workspace, grid_to_real_coordinates
 
 
@@ -32,6 +35,59 @@ def compute_path(start, goal, exploration_occupancy_grid, get_clock):
     
     path = create_path_message(path_points, get_clock, exploration_occupancy_grid)
     return path_points, path
+
+
+def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes, clock):
+    """
+    Publishes detected objects and boxes to RViz as TFs with corresponding labels embedded in the child_frame_id.
+
+    Args:
+        tf_broadcaster (TransformBroadcaster): The TransformBroadcaster instance for publishing TFs.
+        detected_objects (list): List of tuples (x, y, category) for detected objects.
+        detected_boxes (list): List of tuples (x, y, theta) for detected boxes.
+        current_time (Time): The current ROS2 time to use for the TFs.
+    """
+    current_time = clock.now().to_msg() # current_time = self.get_clock().now().to_msg()
+    # Publish TFs for detected objects
+    for idx, (x, y, category) in enumerate(detected_objects):
+        transform = TransformStamped()
+        transform.header.stamp = current_time
+        transform.header.frame_id = "map"
+        label = {
+            '1': 'C',  # Cube
+            '2': 'S',  # Sphere
+            '3': 'P'   # Plushie
+        }.get(category, '?')  # Default to '?' if category is unknown
+        transform.child_frame_id = f"obj_{idx}_{label}"  # Include label in the frame ID
+        transform.transform.translation.x = x
+        transform.transform.translation.y = y
+        transform.transform.translation.z = 0.0
+        transform.transform.rotation.x = 0.0
+        transform.transform.rotation.y = 0.0
+        transform.transform.rotation.z = 0.0
+        transform.transform.rotation.w = 1.0
+
+        tf_broadcaster.sendTransform(transform)
+
+    # Publish TFs for detected boxes
+    for idx, (x, y, theta) in enumerate(detected_boxes):
+        transform = TransformStamped()
+        transform.header.stamp = current_time
+        transform.header.frame_id = "map"
+        transform.child_frame_id = f"box_{idx}"
+        transform.transform.translation.x = x
+        transform.transform.translation.y = y
+        transform.transform.translation.z = 0.0
+
+        # Convert theta (angle in degrees) to quaternion
+        quaternion = quaternion_from_euler(0, 0, np.radians(theta))
+        transform.transform.rotation.x = quaternion[0]
+        transform.transform.rotation.y = quaternion[1]
+        transform.transform.rotation.z = quaternion[2]
+        transform.transform.rotation.w = quaternion[3]
+
+        tf_broadcaster.sendTransform(transform)
+
 
 
 # ------------ Internal functions (auxiliary) ------------

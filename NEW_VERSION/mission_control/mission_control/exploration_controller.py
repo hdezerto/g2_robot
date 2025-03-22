@@ -32,8 +32,10 @@ EXPLORATION LOGIC:
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PolygonStamped
-from mission_control_utils import publish_workspace, compute_path, is_in_collision
-from occupancy_grid_map import initialize_occupancy_grid, inflate_occupied_cells, grid_to_real_coordinates, update_path_planning_grid
+from mission_control_utils import publish_workspace, compute_path, publish_detections_to_rviz, is_in_collision
+from occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
+                                grid_to_real_coordinates, real_to_grid_coordinates
+                                )
 from nav_msgs.msg import OccupancyGrid
 #from detection.msg import DetectionMsg 
 
@@ -42,10 +44,14 @@ from enum import Enum, auto
 from nav_msgs.msg import Path
 from std_msgs.msg import Bool
 
+# Maria added
 from visualization_msgs.msg import Marker, MarkerArray
 from detection.msg import DetectionMsg
 import numpy as np
 from geometry_msgs.msg import Quaternion
+
+from tf2_ros import TransformBroadcaster
+
 
 
 import time # DEBUG
@@ -62,7 +68,7 @@ class ExplorationState(Enum):
     INIT = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     START_MOVING = auto()
-    MOVING = auto()
+    MOVING = auto() # Just proccessing callbacks
     END_EXPLORATION = auto()
 
 
@@ -71,7 +77,9 @@ class ExplorationController(Node):
 
     def run(self):
         while rclpy.ok():
-            if self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
+            if self.state == ExplorationState.OBSERVING:
+                self.spin_for_duration(3.0)  # Spin for 3 seconds
+            elif self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
             elif self.state == ExplorationState.START_MOVING:
                 self.start_moving()
@@ -92,13 +100,10 @@ class ExplorationController(Node):
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', 10)
         publish_workspace(self.workspace_publisher, self.get_clock())
 
+        self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
+
         # Subscribe to the /lidar_occupancy_grid topic
-        self.lidar_occupancy_grid_subscriber = self.create_subscription(
-            OccupancyGrid,
-            '/lidar_occupancy_grid',
-            self.lidar_occupancy_grid_callback,
-            10
-        )
+        self.lidar_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/lidar_occupancy_grid', self.lidar_occupancy_grid_callback, 10)
 
         # Subscribe to the /detections topic
         self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5)
@@ -127,22 +132,17 @@ class ExplorationController(Node):
         formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
         self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
     
-
         self.exploration_point_index = 0
         self.exploration_point = None
-        self.current_position = None
+        self.current_position = real_to_grid_coordinates(0, 0, self.exploration_occupancy_grid)  # Initial position (0, 0) in real world coordinates
         self.detected_objects = [] # List of tuples (x, y, category)
         self.detected_boxes = [] # List of tuples (x, y, theta)
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
-        self.path_planning_grid = None  
+        self.path_planning_grid = None
+        self.grid_path = []  # Path in grid coordinates  
 
         # Subscribe to the /goal_reached topic
-        self.reached_destination_subscriber = self.create_subscription(
-            Bool,
-            '/goal_reached',
-            self.reached_destination_callback,
-            10
-        )
+        self.reached_destination_subscriber = self.create_subscription(Bool, '/goal_reached', self.reached_destination_callback, 10)
 
         # Publisher for the path (for RViz and motion controller)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
@@ -150,8 +150,22 @@ class ExplorationController(Node):
         # Publisher for the stop command (to motion controller)
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
-        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
+        self.state = ExplorationState.OBSERVING
         #self.state = ExplorationState.MOVING # DEBUG detection
+
+
+    def spin_for_duration(self, duration):
+        """
+        Process callbacks for a specified duration.
+        """
+        self.get_logger().info(f'Observing for {duration} seconds...')
+        start_time = self.get_clock().now().seconds_nanoseconds()[0] # Start time in seconds
+
+        while self.get_clock().now().seconds_nanoseconds()[0] - start_time < duration:
+            rclpy.spin_once(self)
+
+        self.get_logger().info('Finished observing.')
+        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # Now it can get the next exploration point
 
 
     def get_next_exploration_point(self):
@@ -173,6 +187,7 @@ class ExplorationController(Node):
         # self.state = ExplorationState.MOVING
 
         # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
+        # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
         self.grid_path, path = compute_path(self.current_position, self.exploration_point, self.path_planning_grid)
         if path: # Path found
             self.publish_path(path) # Publish the path to the motion controller and RViz
@@ -193,9 +208,7 @@ class ExplorationController(Node):
                 self.detected_objects.append((msg.x, msg.y, msg.cat))
             else:  # msg.type == 'BOX'
                 self.detected_boxes.append((msg.x, msg.y, msg.theta))
-            #else: # 'OBSTACLE' case
-            #    self.detected_obstacles.append((msg.x, msg.y))
-            self.publish_detections_to_rviz() # Update RViz with the new detections (labels and positions)
+            publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
             self.state = ExplorationState.START_MOVING
         else:
             # Ignore previously detected objects/obstacles (state remains the same)
@@ -214,7 +227,7 @@ class ExplorationController(Node):
             self.get_logger().info('Collision detected. Recomputing path.')
             self.state = ExplorationState.START_MOVING
         else:
-            pass  # No collision, keep moving (state remains the same)
+            pass  # No collision
         
 
     def reached_destination_callback(self, msg):
@@ -232,99 +245,102 @@ class ExplorationController(Node):
         self.get_logger().info('Exploration completed. Map file saved.')
     
 
-    def update_current_position(self):
+    def update_current_grid_position(self):
         # TO DO
         pass
 
     # ------------------- UTILS (specific to ExplorationController) ------------------- 
 
-    def publish_detections_to_rviz(self):
-        # Implementation to publish detections to RViz
-        marker_array = MarkerArray()
+    
+    # MARIA'S VERSION
+    # def publish_detections_to_rviz(marker_publisher, detected_objects, detected_boxes, clock):
+    #     """
+    #     Publishes detected objects and boxes to RViz.
 
-        #add markers for detected objects
-        # Add markers for detected objects
-        for idx, (x, y, category) in enumerate(self.detected_objects):
-            marker = Marker()
-            marker.header.frame_id = "map"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.ns = "detected_objects"
-            marker.id = idx
-            marker.type = Marker.CUBE # Default type
-            marker.action = Marker.ADD
-            marker.pose.position.x = x
-            marker.pose.position.y = y
-            marker.pose.position.z = 0.0  
+    #     Args:
+    #         marker_publisher: The ROS2 publisher for MarkerArray messages.
+    #         detected_objects: List of tuples (x, y, category) for detected objects.
+    #         detected_boxes: List of tuples (x, y, theta) for detected boxes.
+    #         clock: ROS2 clock instance to get the current time.
+    #     """
+    #     marker_array = MarkerArray()
 
-            """do i need orientation? when its not a box?"""
-            
-             # Set scale and color based on category
-            if category == '1':  # Cube
-                marker.scale.x = 0.04
-                marker.scale.y = 0.04
-                marker.scale.z = 0.01
-                marker.color.r = 0.0
-                marker.color.g = 1.0
-                marker.color.b = 0.0
-            elif category == '2':  # Sphere
-                marker.scale.x = 0.04
-                marker.scale.y = 0.04
-                marker.scale.z = 0.01
-                marker.color.r = 1.0
-                marker.color.g = 1.0
-                marker.color.b = 0.0
-            elif category == '3':  # Plushie
-                marker.scale.x = 0.06
-                marker.scale.y = 0.08
-                marker.scale.z = 0.01
-                marker.color.r = 0.0
-                marker.color.g = 1.0
-                marker.color.b = 1.0
+    #     # Add markers for detected objects
+    #     for idx, (x, y, category) in enumerate(detected_objects):
+    #         marker = Marker()
+    #         marker.header.frame_id = "map"
+    #         marker.header.stamp = clock.now().to_msg()
+    #         marker.ns = "detected_objects"
+    #         marker.id = idx
+    #         marker.type = Marker.CUBE  # Default type
+    #         marker.action = Marker.ADD
+    #         marker.pose.position.x = x
+    #         marker.pose.position.y = y
+    #         marker.pose.position.z = 0.0
+    #        """do i need orientation? when its not a box?"""
 
-            marker.color.a = 1.0  # Fully opaque
-            marker.lifetime.sec = 2  # Persist for 2 seconds
-            marker_array.markers.append(marker)   
-        
-        # Add markers for detected boxes
-        for idx, (x, y, theta) in enumerate(self.detected_boxes, start=len(self.detected_objects)):
-            marker = Marker()
-            marker.header.frame_id = "map"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.ns = "detected_boxes"
-            marker.id = idx
-            marker.type = Marker.CUBE
-            marker.action = Marker.ADD
-            marker.pose.position.x = x
-            marker.pose.position.y = y
-            marker.pose.position.z = 0.0  
+    #         # Set scale and color based on category
+    #         if category == '1':  # Cube
+    #             marker.scale.x = 0.04
+    #             marker.scale.y = 0.04
+    #             marker.scale.z = 0.01
+    #             marker.color.r = 0.0
+    #             marker.color.g = 1.0
+    #             marker.color.b = 0.0
+    #         elif category == '2':  # Sphere
+    #             marker.scale.x = 0.04
+    #             marker.scale.y = 0.04
+    #             marker.scale.z = 0.01
+    #             marker.color.r = 1.0
+    #             marker.color.g = 1.0
+    #             marker.color.b = 0.0
+    #         elif category == '3':  # Plushie
+    #             marker.scale.x = 0.06
+    #             marker.scale.y = 0.08
+    #             marker.scale.z = 0.01
+    #             marker.color.r = 0.0
+    #             marker.color.g = 1.0
+    #             marker.color.b = 1.0
 
-            # Convert theta (angle in degrees) to quaternion for orientation
-            angle_rad = np.radians(theta)
-            marker.pose.orientation.z = np.sin(angle_rad / 2.0)
-            marker.pose.orientation.w = np.cos(angle_rad / 2.0)
+    #         marker.color.a = 1.0  # Fully opaque
+    #         marker.lifetime.sec = 2  # Persist for 2 seconds
+    #         marker_array.markers.append(marker)
 
-            # Set scale and color for boxes
-            marker.scale.x = 0.16  # Original width of the box
-            marker.scale.y = 0.24  # Original length of the box
-            marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
-            marker.color.r = 0.0
-            marker.color.g = 1.0
-            marker.color.b = 1.0
-            marker.color.a = 1.0  # Fully opaque
+    #     # Add markers for detected boxes
+    #     for idx, (x, y, theta) in enumerate(detected_boxes, start=len(detected_objects)):
+    #         marker = Marker()
+    #         marker.header.frame_id = "map"
+    #         marker.header.stamp = clock.now().to_msg()
+    #         marker.ns = "detected_boxes"
+    #         marker.id = idx
+    #         marker.type = Marker.CUBE
+    #         marker.action = Marker.ADD
+    #         marker.pose.position.x = x
+    #         marker.pose.position.y = y
+    #         marker.pose.position.z = 0.0
 
-            marker.lifetime.sec = 2  # Persist for 2 seconds
-            marker_array.markers.append(marker)
-        
-            # Set the orientation based on the angle
-            #             q = Quaternion()
-            #             q.z = np.sin(np.radians(angle) / 2.0)
-            #             q.w = np.cos(np.radians(angle) / 2.0)
-            #             marker.pose.orientation = q
+    #         # Convert theta (angle in degrees) to quaternion for orientation
+    #         angle_rad = np.radians(theta)
+    #         marker.pose.orientation.z = np.sin(angle_rad / 2.0)
+    #         marker.pose.orientation.w = np.cos(angle_rad / 2.0)
 
-        # Publish the markers
-        self.marker_publisher.publish(marker_array)
+    #         # Set scale and color for boxes
+    #         marker.scale.x = 0.16  # Original width of the box
+    #         marker.scale.y = 0.24  # Original length of the box
+    #         marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
+    #         marker.color.r = 0.0
+    #         marker.color.g = 1.0
+    #         marker.color.b = 1.0
+    #         marker.color.a = 1.0  # Fully opaque
+
+    #         marker.lifetime.sec = 2  # Persist for 2 seconds
+    #         marker_array.markers.append(marker)
+
+    #     # Publish the markers
+    #     marker_publisher.publish(marker_array)
 
 
+    # CORRECT THIS FUNCTION!
     def write_map_file(self):
 
         file_name = "map_file.txt"
@@ -340,7 +356,6 @@ class ExplorationController(Node):
 
         self.get_logger().info(f"Map file '{file_name}' has been written successfully.") #later, remove this
 
-    
     
     # TO FINISH
     def is_new_detection(self, msg):
