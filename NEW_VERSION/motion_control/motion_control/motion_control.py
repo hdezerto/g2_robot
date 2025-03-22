@@ -13,6 +13,60 @@ import numpy as np
 
 
 class MotionController(Node):
+    """
+    A ROS2 node for controlling the motion of a robot. The MotionController class subscribes to path and stop commands,
+    and publishes motor duty cycles to move the robot along a planned path while avoiding obstacles.
+    Simple proportional control with 3 phases is used to move the robot to each waypoint in the path.
+    Phase 1: Rotate towards the waypoint.
+    Phase 2: Move towards the waypoint.
+    Phase 3: Correct orientation at the final waypoint.
+
+    ATTENTION:
+    - After reaching a waypoint, map should be checked for new obstacles and path should possibly be replanned. (Not implemented in this node)
+    - Currently no local obstacle avoidance is implemented.
+
+    TODO:
+    - Full Turn after reaching a waypoint?
+    - Add lidar check before movement?
+
+    Attributes:
+        path_subscriber (Subscription): Subscriber for the planned path.
+        stop_subscriber (Subscription): Subscriber for stop motion command.
+        motion_publisher (Publisher): Publisher for motor duty cycles.
+        reached_destination_publisher (Publisher): Publisher for notifying when the destination is reached.
+        reached_waypoint_publisher (Publisher): Publisher for notifying when a waypoint is reached.
+        current_path (Path): The current path the robot is following.
+        current_waypoint_index (int): Index of the current waypoint in the path.
+        obstacle_detected (bool): Flag indicating if an obstacle is detected.
+        next_goal (PoseStamped): The next waypoint pose.
+        reached_waypoint (bool): Flag indicating if the current waypoint is reached.
+        stop_robot (bool): Flag indicating if the robot should stop.
+        x_g (float): Goal x-coordinate.
+        y_g (float): Goal y-coordinate.
+        theta_g (float): Goal orientation.
+        reset_rotation (bool): Flag indicating if the rotation should be reset.
+        phase_one (int): Control phase.
+        x_0 (float): Initial x-coordinate.
+        y_0 (float): Initial y-coordinate.
+        goal_margin_translational (float): Translational goal margin.
+        goal_margin_rotational (float): Rotational goal margin.
+        p_rotation (float): Proportional gain for rotation.
+        p_translation (float): Proportional gain for translation.
+        p_rotation_two (float): Proportional gain for rotation in phase two.
+        v_damper (float): Velocity damper.
+        w_damper (float): Angular velocity damper.
+        p (float): Proportional gain for orientation.
+        cycle_damping (float): Damping factor for duty cycles.
+    Methods:
+        path_callback(msg: Path): Callback function for receiving a new path.
+        stop_callback(msg: Bool): Callback function for receiving a stop command.
+        follow_path(): Follows the current path by moving to each waypoint.
+        move_to_waypoint(waypoint, tolerance=0.1): Moves the robot to the specified waypoint.
+        stop_robot(): Stops the robot by setting motor duty cycles to zero.
+        notify_reached_destination(success: bool): Notifies if the destination is reached.
+        get_current_pos(): Gets the current position and orientation of the robot.
+    """
+
     def __init__(self):
         super().__init__("motion_controller")
         self.path_subscriber = self.create_subscription(
@@ -36,6 +90,7 @@ class MotionController(Node):
 
         self.next_goal = PoseStamped()
         self.reached_waypoint = False
+        self.stop_robot = False
 
         # Control Parameter
         # initialize variables
@@ -51,10 +106,11 @@ class MotionController(Node):
         self.goal_margin_translational = 0.05
         self.goal_margin_rotational = math.pi / 15
 
-        self.p_rotation = (
+        self.p_rotation_one = (
             10  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
-        self.p_translation = (
+        self.p_translation_one = 5
+        self.p_translation_two = (
             10  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
         )
         self.p_rotation_two = (
@@ -71,24 +127,23 @@ class MotionController(Node):
         self.current_path = msg
         self.current_waypoint_index = 0
         self.obstacle_detected = False
+        self.stop_robot = False
+        self.reached_waypoint = False
         self.follow_path()
 
     def stop_callback(self, msg):
         if msg.data:
             self.get_logger().info("Stop command received")
-            self.obstacle_detected = True
             self.stop_robot()
 
     def follow_path(self):
         if self.current_path is None:
             return
-        elif self.position_reached:
-            self.get_logger().info("Reached destination")
-            return
 
         while (
             self.current_waypoint_index < len(self.current_path.poses)
             and not self.obstacle_detected
+            and not self.stop_robot
         ):
             waypoint = self.current_path.poses[self.current_waypoint_index]
             self.move_to_waypoint(waypoint)
@@ -102,12 +157,27 @@ class MotionController(Node):
                 )
                 break
 
-        if not self.obstacle_detected:
+        if not self.obstacle_detected and not self.stop_robot:
             self.notify_reached_destination(True)
         else:
             self.notify_reached_destination(False)
 
-    def move_to_waypoint(self, waypoint, tolerance=0.1):
+    def move_to_waypoint(self, waypoint):
+        """
+        Moves the robot to the specified waypoint.
+        This function controls the robot's movement towards a given waypoint by
+        adjusting its velocity and angular velocity. This is then transformed into
+        duty cycles for the motors.
+        The movement is divided into three phases:
+        1. Rotating towards the waypoint.
+        2. Moving towards the waypoint.
+        3. Correcting orientation at the final waypoint.
+        Args:
+            waypoint (PoseStamped): The target waypoint to move to.
+        Returns:
+            None
+        """
+
         # init
         v = 0
         w = 0
@@ -152,18 +222,21 @@ class MotionController(Node):
         elif delta_theta < -math.pi:
             delta_theta = delta_theta + 2 * math.pi
 
+        # Rotating towards the waypoint
         if self.control_phase == 1:
             if abs(delta_theta) < self.goal_margin_rotational:
                 self.control_phase = 2
                 self.get_logger().info("Facing towards the waypoint")
             else:
-                w = self.p_rotation * delta_theta
+                w = self.p_rotation_one * delta_theta
                 v = 0
+                # If robot should turn on the spot - parameter might need to be adjusted
+                # v = self.p_translation_one * (math.cos(delta_theta) * (self.x_0 - current_position[0]) + math.sin(delta_theta) * (self.y_0 - current_position[1]))
         # Moving towards the waypoint
         elif self.control_phase == 2:
             # Check if the robot has reached the waypoint
             if distance < self.goal_margin_translational:
-                # If the robot has reached the final waypoint
+                # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
                     self.get_logger().info("Reached final waypoint")
                     self.control_phase = 3
@@ -175,7 +248,7 @@ class MotionController(Node):
                     self.reached_waypoint = True
             else:
                 # Set velocity
-                v = self.p_translation * (
+                v = self.p_translation_two * (
                     dx * math.cos(self.theta_g) + dy * math.sin(self.theta_g)
                 )
                 dp = math.sin(self.theta_g) * (
@@ -197,7 +270,7 @@ class MotionController(Node):
                 self.get_logger().info("Final Waypoint Reached")
                 self.reached_waypoint = True
             else:
-                w = self.p_rotation * final_dtheta
+                w = self.p_rotation_one * final_dtheta
                 v = 0
 
         self.get_logger().info(f"v: {v}, w: {w}")
@@ -221,66 +294,18 @@ class MotionController(Node):
         self.motion_publisher.publish(motor_msg)
         return
 
-    ###### Integration In Progress ######
-
     def stop_robot(self):
-        twist = Twist()
-        twist.linear.x = 0.0
-        twist.angular.z = 0.0
-        self.cmd_vel_publisher.publish(twist)
+        self.stop_robot = True
+        motor_msg = DutyCycles()
+        motor_msg.duty_cycle_left = 0
+        motor_msg.duty_cycle_right = 0
+        motor_msg.header.stamp = self.get_clock().now().to_msg()
         self.get_logger().info("Robot stopped")
 
     def notify_reached_destination(self, success):
         msg = Bool()
         msg.data = success
         self.reached_destination_publisher.publish(msg)
-
-    def compute_angular_velocity(
-        self,
-        angular_error,
-        previous_angular_error=0.0,
-        integral_angular_error=0.0,
-        k_p=1.0,
-        k_i=0.1,
-        k_d=0.1,
-    ):
-        # PID control for angular velocity
-        derivative = angular_error - previous_angular_error
-        integral_angular_error += angular_error
-
-        angular_velocity = (
-            (k_p * angular_error) + (k_i * integral_angular_error) + (k_d * derivative)
-        )
-
-        # Save the current error for the next iteration
-        self.previous_angular_error = angular_error
-
-        return angular_velocity
-
-    def compute_linear_velocity(
-        self,
-        distance,
-        previous_distance=0.0,
-        integral_distance=0.0,
-        k_p=0.5,
-        k_i=0.1,
-        k_d=0.1,
-    ):
-        # Compute the proportional term
-        proportional = k_p * distance
-
-        # Compute the integral term
-        integral_distance += distance
-        integral = k_i * integral_distance
-
-        # Compute the derivative term
-        derivative = distance - previous_distance
-        derivative_term = k_d * derivative
-
-        # Combine the PID terms
-        linear_velocity = proportional + integral + derivative_term
-
-        return linear_velocity, integral_distance
 
     def get_current_pos(self):
         # Get transform from 'odom' to 'base_link'
@@ -306,6 +331,16 @@ class MotionController(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to get current pose: {e}")
             return None
+
+    def check_lidar(self):
+        # TODO: Implement lidar check
+        # Check if an obstacle is detected
+        if False:
+            self.obstacle_detected = True
+            self.get_logger().info("Obstacle detected")
+            self.stop_robot()
+            return
+        pass
 
 
 def main(args=None):
