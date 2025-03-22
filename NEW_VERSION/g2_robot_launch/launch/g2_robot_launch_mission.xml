@@ -10,7 +10,6 @@
     <!-- Run arm controller -->
     <node pkg="manipulation" exec="arm_controller" name="arm_controller_node" output="screen"/>
 
-    <include file="$(find-pkg-share g2_robot_launch)/launch/planning_launch.xml" />
 
 
 </launch>
