@@ -20,22 +20,22 @@ from .occupancy_grid_map import read_workspace, grid_to_real_coordinates, real_t
 
 # ------------ External functions ------------
 
-def publish_workspace(publisher, get_clock, file_path=None):
+def publish_workspace(publisher, clock, file_path=None):
     if file_path:
         coordinates = read_workspace(file_path)
     else:
         coordinates = read_workspace() # Default file path
     polygon = create_polygon(coordinates)
-    polygon.header.stamp = get_clock.now().to_msg()
+    polygon.header.stamp = clock.now().to_msg()
     publisher.publish(polygon)
 
 
-def compute_path(start, goal, exploration_occupancy_grid, get_clock):
+def compute_path(start, goal, exploration_occupancy_grid, clock):
     path_points = compute_grid_path(start, goal, exploration_occupancy_grid)
     if not path_points:
         return None, None
     
-    path = create_path_message(path_points, get_clock, exploration_occupancy_grid)
+    path = create_path_message(path_points, clock, exploration_occupancy_grid)
     return path_points, path
 
 
@@ -236,7 +236,7 @@ def compute_grid_path(start, goal, grid):
     return False
 
 
-def create_path_message(path_points, get_clock, occupancy_grid):
+def create_path_message(path_points, clock, occupancy_grid):
     path_points = simplify_grid_path(path_points)
     # Convert grid coordinates to real-world coordinates
     path_points = grid_to_real_coordinates(path_points, occupancy_grid)
@@ -245,12 +245,12 @@ def create_path_message(path_points, get_clock, occupancy_grid):
     #path_points = bezier_smooth_path(path_points)
 
     path = Path()
-    path.header.stamp = get_clock().now().to_msg()
+    path.header.stamp = clock.now().to_msg()
     path.header.frame_id = 'map'
 
     for point in path_points:
         pose = PoseStamped()
-        pose.header.stamp = get_clock().now().to_msg()
+        pose.header.stamp = clock.now().to_msg()
         pose.header.frame_id = 'map'
         pose.pose.position.x = point[0]
         pose.pose.position.y = point[1]
