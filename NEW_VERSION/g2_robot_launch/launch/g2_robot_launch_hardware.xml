@@ -17,6 +17,7 @@
     <!--  Run camera to initiate pointcloud  -->
     <include file="$(find-pkg-share robp_launch)/launch/rs_d435i_launch.py"/>
 
+    
 
 
     <!--  Run joystick teleop  -->
@@ -29,8 +30,6 @@
     So DO NOT publishing to /cmd_vel from other nodes to avoid errors. -->
     <node pkg="motion_control" exec="joystick_motor_controller" name="controller_node" output="screen"/>
 
-
-       
 
 
 

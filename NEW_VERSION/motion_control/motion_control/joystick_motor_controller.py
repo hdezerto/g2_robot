@@ -9,7 +9,7 @@ from robp_interfaces.msg import DutyCycles
 MAX_LINEAR_VEL = 0.5  # m/s (adjust for turbo mode if needed)
 MAX_ANGULAR_VEL = 0.5  # rad/s (adjust for turbo mode if needed)
 
-DAMPING_FACTOR = 0.1 # Damping factor for the velocities
+DAMPING_FACTOR = 0.15 # Damping factor for the velocities
 
 # ----------------------------------------------
 

@@ -219,7 +219,7 @@ class ExplorationController(Node):
         # Check if the detection is new and inside the workspace
         # NOTE: objects that lie on the edge of the workspace are considered outside!
         if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):
-            self.stop_robot()
+            # TO DO: ADD LOGIC TO CHECK FOR COLLISION
             if msg.type == 'OBJECT':
                 self.detected_objects.append((msg.x, msg.y, msg.cat))
             else:  # msg.type == 'BOX'

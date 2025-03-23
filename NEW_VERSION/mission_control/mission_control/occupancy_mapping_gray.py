@@ -6,7 +6,7 @@ from rclpy.time import Time  # Used for handling ROS 2 timestamps
 # Importing message types used for communication in ROS 2
 from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
 from nav_msgs.msg import OccupancyGrid, MapMetaData  # OccupancyGrid for map representation, MapMetaData for metadata
-from std_msgs.msg import Header  # Standard header message for timestamping and frame information
+from std_msgs.msg import Header, Bool  # Standard header message for timestamping and frame information
 from geometry_msgs.msg import Pose, TransformStamped  # Pose for position and orientation, TransformStamped for coordinate transformations
 
 # Importing libraries for LiDAR scan conversion
@@ -91,7 +91,7 @@ class LidarMapBuilder(Node):
             LaserScan, '/scan', self.scan_callback, 10)
 
         # Create map_trigger subscriber to trigger the map creation
-        self.trigger_subscriber = self.create_subscription(bool,'/map_trigger',self.map_trigger_callback,10)
+        self.trigger_subscriber = self.create_subscription(Bool,'/map_trigger',self.map_trigger_callback,10)
 
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)

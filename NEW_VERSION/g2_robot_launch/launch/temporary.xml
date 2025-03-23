@@ -8,9 +8,11 @@
     <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
 
 
-    
 
-    
+    <!--  Run Lidar  -->
+    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
+
+
 
 
 
@@ -20,18 +22,8 @@
 
 
 
-    <!--  Run Lidar  -->
-    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
+  
 
-    
-
-
-
-
-    
-    
-    <!--  Run Lidar stabilizer  -->
-    <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/>
 
 
     <include file="$(find-pkg-share g2_robot_launch)/launch/planning_launch.xml" />
