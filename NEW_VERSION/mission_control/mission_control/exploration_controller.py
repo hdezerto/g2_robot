@@ -26,6 +26,7 @@ EXPLORATION LOGIC:
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import PolygonStamped
 from .mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_position,
                                     check_collision)
@@ -95,8 +96,18 @@ class ExplorationController(Node):
         # State to initialize the node
         super().__init__('ExplorationController_node')
         self.state = ExplorationState.INIT
+
+        # Define a shared QoS profile for latched publishers
+        latched_qos = QoSProfile(depth=1)
+        latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
+
+        # Publisher for the workspace (latched publisher)
+        self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
+
+        # Publisher for the exploration grid (latched publisher)
+        self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
+
         # Publish the workspace to RViz
-        self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', 10)
         publish_workspace(self.workspace_publisher, self.get_clock())
 
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
@@ -106,9 +117,6 @@ class ExplorationController(Node):
 
         # Subscribe to the /detections topic
         self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5)
-
-        # Publisher for the exploration grid (only with workspace and computed exploration points)
-        self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', 10)
 
         # Initialize a clean occupancy grid (workspace file and resolution defined in occupancy_grid_map.py)
         self.exploration_occupancy_grid = initialize_occupancy_grid()
@@ -124,6 +132,7 @@ class ExplorationController(Node):
 
         # Publish the exploration occupancy grid
         self.publish_exploration_grid()
+        self.get_logger().info('Exploration grid published.')  # DEBUG
         
         # DEBUG:
         #real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
