@@ -19,6 +19,8 @@ EXPANSION_RADIUS = 2  # Radius in cells to dilate occupied cells [cells]
 
 # Lidar mapper:
 LIDAR_MIN_RANGE = 0.4  # Minimum range to consider a valid measurement [m]
+MIN_ANGLE = -120  # Minimum angle to consider a valid measurement [degrees]
+MAX_ANGLE = 120  # Maximum angle to consider a valid measurement [degrees]
 SCAN_THRESHOLD = 5  # Number of scans to skip before processing 
 # ------------------------------------
 
@@ -294,16 +296,25 @@ class LidarMapper(Node):
             return
 
         # Filter valid range values
-        valid_mask = (ranges >= LIDAR_MIN_RANGE) & (ranges <= msg.range_max) & np.isfinite(ranges)
+        valid_mask = (ranges >= LIDAR_MIN_RANGE) & np.isfinite(ranges)
         valid_ranges = ranges[valid_mask]
 
         # Precompute angles efficiently
         valid_indices = np.where(valid_mask)[0]  # Get valid indices
         angles = angle_min + valid_indices * angle_increment
 
+        # Filter angles within the range [MIN_ANGLE, MAX_ANGLE]
+        angle_mask = (angles >= np.deg2rad(MIN_ANGLE)) & (angles <= np.deg2rad(MAX_ANGLE))
+        valid_ranges = valid_ranges[angle_mask]
+        angles = angles[angle_mask]
+
         # Compute Lidar points in the Lidar frame
         x_lidar = valid_ranges * np.cos(angles)
         y_lidar = valid_ranges * np.sin(angles)
+
+
+
+
 
         # Create a batch of points in homogeneous coordinates
         points = np.vstack((x_lidar, y_lidar, np.zeros_like(x_lidar), np.ones_like(x_lidar)))
@@ -314,6 +325,9 @@ class LidarMapper(Node):
         # Apply the transformation (efficient batch processing)
         points_map = transform_matrix @ points  
 
+        
+        
+        
         # Compute grid indices
         grid_x = ((points_map[0] - origin_x) / resolution).astype(int)
         grid_y = ((points_map[1] - origin_y) / resolution).astype(int)

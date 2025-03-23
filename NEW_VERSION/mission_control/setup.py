@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'exploration_controller = mission_control.exploration_controller:main',
             'collection_controller = mission_control.collection_controller:main',
+            'mapper = mission_control.occupancy_mapping_gray:main',
         ],
     },
 )

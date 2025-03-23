@@ -108,10 +108,8 @@ class LidarMapBuilder(Node):
         self.accumulated_points = []  # List to store accumulated LiDAR points
 
         #workspace viz
-        package_share_directory = get_package_share_directory("path_planning")
-        self.ws_file = os.path.join(
-            package_share_directory, "resource", "workspace_2.tsv"
-        )
+        self.ws_file= os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_1.tsv')
+         
         self.vertices = self.read_tsv(self.ws_file)
 
     def map_trigger_callback(self, msg):
@@ -122,7 +120,6 @@ class LidarMapBuilder(Node):
         occupancy_grid = self.map_builder.to_occupancy_grid(msg.stamp)
         self.grid_publisher.publish(occupancy_grid)
         self.get_logger().info('Published occupancy grid map after trigger.')
-
 
 
     def scan_callback(self, msg):
