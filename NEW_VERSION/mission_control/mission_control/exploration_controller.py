@@ -124,6 +124,7 @@ class ExplorationController(Node):
 
         # Publish the exploration occupancy grid
         self.publish_exploration_grid()
+        self.get_logger().info('Exploration grid published.')  # DEBUG
         
         # DEBUG:
         #real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
@@ -264,8 +265,7 @@ class ExplorationController(Node):
         # Select the appropriate list based on the detection type
         detected_list = {
             'OBJECT': self.detected_objects,
-            'BOX': self.detected_boxes,
-            'OBSTACLE': self.detected_obstacles
+            'BOX': self.detected_boxes
         }[msg.type]  # No need for .get() since the type is always valid
     
         # Check if the detection already exists

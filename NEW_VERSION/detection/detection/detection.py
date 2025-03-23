@@ -76,7 +76,7 @@ class PointCloudDetection(Node):
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
 
 
-        self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
+        #self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
 
         self.message_counter = 0
 
@@ -221,7 +221,7 @@ class PointCloudDetection(Node):
 
             if pure_brown:
                 if object_type == "cube":
-                    self.get_logger().info(f'🟫 Cluster {cluster_label} is a cube!')
+                    self.get_logger().info(f'🟫 Cluster is a cube!')
                     self.create_object('cube', x, z + 0.02, 0.0, msg.header.stamp)
 
             if pure_red or pure_green or pure_blue:
@@ -232,7 +232,7 @@ class PointCloudDetection(Node):
                         emoji = "🟢"  # Green circle emoji
                     elif pure_blue:
                         emoji = "🔵"  # Blue circle emoji
-                    self.get_logger().info(f'{emoji} Cluster {cluster_label} is a sphere!')
+                    self.get_logger().info(f'{emoji} Cluster  is a sphere!')
                     self.create_object('sphere', x, z + 0.02, 0.0, msg.header.stamp)
                 elif object_type == "cube":
                     if pure_red:
@@ -241,17 +241,17 @@ class PointCloudDetection(Node):
                         emoji = "🟩"  # Green square emoji
                     elif pure_blue:
                         emoji = "🟦"  # Blue square emoji
-                    self.get_logger().info(f'{emoji} Cluster {cluster_label} is a cube!')
+                    self.get_logger().info(f'{emoji} Cluster is a cube!')
                     self.create_object('cube', x, z + 0.02, 0.0, msg.header.stamp)
                 elif object_type == "unknown":
                     self.get_logger().info(f'Object not identified :(!')
 
             elif self.is_plushie(cluster_points): # If detected object is a plushie
-                self.get_logger().info(f'🧸 Cluster {cluster_label} is a plushie!')
+                self.get_logger().info(f'🧸 Cluster  is a plushie!')
                 self.create_object('plushie', x, z + 0.01, 0.0, msg.header.stamp)
 
             elif self.is_box(cluster_points):  # If detected object is a box
-                self.get_logger().info(f'📦 Cluster {cluster_label} is a box!')
+                self.get_logger().info(f'📦 Cluster is a box!')
 
                 # Compute the orientation angle of the box
                 angle = self.estimate_box_orientation(cluster_points)
@@ -265,7 +265,7 @@ class PointCloudDetection(Node):
                     self.create_object('box', x, z + 0.08, angle, msg.header.stamp)
 
             else:
-                self.get_logger().info(f'Cluster {cluster_label} is NOT a recognized object.')
+                self.get_logger().info(f'Cluster is NOT a recognized object.')
 
 
             # ------------ TIMER FOR EFFICIENCY CHECK (move where desired) ------------
@@ -348,15 +348,15 @@ class PointCloudDetection(Node):
                 f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
             )
 
-            # Publish the detection message
-            detection_msg = DetectionMsg()
-            detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
-            detection_msg.cat = category  # Category (1, 2, 3, etc.)
-            detection_msg.x = x_transformed
-            detection_msg.y = y_transformed
-            detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
+            # # Publish the detection message
+            # detection_msg = DetectionMsg()
+            # detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
+            # detection_msg.cat = category  # Category (1, 2, 3, etc.)
+            # detection_msg.x = x_transformed
+            # detection_msg.y = y_transformed
+            # detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
 
-            self.detection_publisher.publish(detection_msg)
+            # self.detection_publisher.publish(detection_msg)
 
         except TransformException as e:
             self.get_logger().error(f"Failed to transform coordinates: {e}")
