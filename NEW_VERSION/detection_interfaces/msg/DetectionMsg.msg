@@ -1,4 +1,4 @@
-string type  # Type of detection ("OBJECT", "BOX", "OBSTACLE")
+string type  # Type of detection ("OBJECT", "BOX")
 uint8 cat  # category (1, 2, or 3) 
 float32 x    # X coordinate
 float32 y    # Y coordinate

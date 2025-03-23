@@ -76,6 +76,11 @@ On the **robot**, run the following commands:
 2. Run commands from 4 to 7 in the previous section.
 
 
+If nothibg is being published to the laptop, run on the robot and laptop:
+```sh
+ros2 daemon stop
+```
+
 
 **Note:**
 The FastDDS discovery server makes the nodes communicate through the server using TCP (Transmission Control Protocol), instead of using Simple Discovery Protocol (SDP) over UDP multicast. This isolates each group's robot in the shared KTH-IoT network, preventing cross-talk between groups. Without it, multicast discovery would make laptops detect all robots, causing topic conflicts and data mix-ups. Additionally, with many robots broadcasting discovery messages, network congestion could occur, leading to delays, dropped packets, and instability. The server ensures efficient, reliable communication while reducing network load.

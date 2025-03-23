@@ -38,7 +38,7 @@ from enum import Enum, auto
 from nav_msgs.msg import Path
 from std_msgs.msg import Bool
 
-from tf2_ros import TransformBroadcaster
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
@@ -110,7 +110,7 @@ class ExplorationController(Node):
         # Publish the workspace to RViz
         publish_workspace(self.workspace_publisher, self.get_clock())
 
-        self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
+        self.static_tf_broadcaster  = StaticTransformBroadcaster(self) # For publishing detected objects/boxes to RViz
 
         # Subscribe to the /lidar_occupancy_grid topic
         self.lidar_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/lidar_occupancy_grid', self.lidar_occupancy_grid_callback, 10)
@@ -224,7 +224,7 @@ class ExplorationController(Node):
                 self.detected_objects.append((msg.x, msg.y, msg.cat))
             else:  # msg.type == 'BOX'
                 self.detected_boxes.append((msg.x, msg.y, msg.theta))
-            publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
+            publish_detections_to_rviz(self.static_tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
             #self.state = ExplorationState.START_MOVING
         else:
             # Ignore previously detected objects/obstacles (state remains the same)

@@ -76,7 +76,7 @@ class PointCloudDetection(Node):
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
 
 
-        #self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
+        self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
 
         self.message_counter = 0
 
@@ -307,19 +307,21 @@ class PointCloudDetection(Node):
 
 
 
-    def create_object(self, type, x, z, angle, stamp):
+    def create_object(self, id, x, z, angle, stamp):
         # Map object type to a label
-        if type == 'cube':
+        if id == 'cube':
+            type = 'OBJECT'
             category = 1
-        elif type == 'sphere':
+        elif id == 'sphere':
+            type = 'OBJECT'
             category = 2
-        elif type == 'plushie':
+        elif id == 'plushie':
+            type = 'OBJECT'
             category = 3
-        elif type == 'box':
-            category = 4
-        else:
-            category = 0  # Undefined category
-
+        else: # id == 'box':'
+            type = 'BOX'
+            category = 0 # Undefined cat
+        
         # Create a PointStamped message for the input coordinates
         point_in = PointStamped()
         point_in.header.frame_id = 'camera_depth_optical_frame'  # Input frame
@@ -348,15 +350,15 @@ class PointCloudDetection(Node):
                 f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
             )
 
-            # # Publish the detection message
-            # detection_msg = DetectionMsg()
-            # detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
-            # detection_msg.cat = category  # Category (1, 2, 3, etc.)
-            # detection_msg.x = x_transformed
-            # detection_msg.y = y_transformed
-            # detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
+            # Publish the detection message
+            detection_msg = DetectionMsg()
+            detection_msg.type = type  # "OBJECT" or "BOX"
+            detection_msg.cat = category  # Category (1, 2, 3, etc.)
+            detection_msg.x = x_transformed
+            detection_msg.y = y_transformed
+            detection_msg.theta = angle if type == 'BOX' else 0.0  # Orientation for BOX
 
-            # self.detection_publisher.publish(detection_msg)
+            self.detection_publisher.publish(detection_msg)
 
         except TransformException as e:
             self.get_logger().error(f"Failed to transform coordinates: {e}")

@@ -125,18 +125,20 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         tf_broadcaster (TransformBroadcaster): The TransformBroadcaster instance for publishing TFs.
         detected_objects (list): List of tuples (x, y, category) for detected objects.
         detected_boxes (list): List of tuples (x, y, theta) for detected boxes.
-        current_time (Time): The current ROS2 time to use for the TFs.
+        clock (Clock): The current ROS2 clock instance.
     """
-    current_time = clock.now().to_msg() # current_time = self.get_clock().now().to_msg()
+
+    current_time = clock.now().to_msg()
+
     # Publish TFs for detected objects
     for idx, (x, y, category) in enumerate(detected_objects):
         transform = TransformStamped()
         transform.header.stamp = current_time
         transform.header.frame_id = "map"
         label = {
-            '1': 'C',  # Cube
-            '2': 'S',  # Sphere
-            '3': 'P'   # Plushie
+            1: 'C',  # Cube
+            2: 'S',  # Sphere
+            3: 'P'   # Plushie
         }.get(category, '?')  # Default to '?' if category is unknown
         transform.child_frame_id = f"obj_{idx}_{label}"  # Include label in the frame ID
         transform.transform.translation.x = x
@@ -145,7 +147,7 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         transform.transform.rotation.x = 0.0
         transform.transform.rotation.y = 0.0
         transform.transform.rotation.z = 0.0
-        transform.transform.rotation.w = 1.0 # No rotation
+        transform.transform.rotation.w = 1.0  # No rotation
 
         tf_broadcaster.sendTransform(transform)
 
@@ -167,7 +169,7 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         transform.transform.rotation.w = quaternion[3]
 
         tf_broadcaster.sendTransform(transform)
-
+        
 
 
 # ------------ Internal functions (auxiliary) ------------
