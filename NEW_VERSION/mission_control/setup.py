@@ -16,14 +16,15 @@ setup(
     data_files=data_files,
     install_requires=['setuptools', 'detection'],
     zip_safe=True,
-    maintainer='hugoad',
-    maintainer_email='hugo.afonso.dezerto@gmail.com',
+    maintainer='TODO',
+    maintainer_email='email@example.com',
     description='TODO: Package description',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'exploration_controller = mission_control.exploration_controller:main',
+            'collection_controller = mission_control.collection_controller:main',
         ],
     },
 )

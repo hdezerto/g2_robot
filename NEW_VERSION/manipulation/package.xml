@@ -4,7 +4,7 @@
   <name>manipulation</name>
   <version>0.0.0</version>
   <description>Package containing all necessary scripts for arm manipulation</description>
-  <maintainer email="hugoad@kth.se">Hugo Dezerto</maintainer>
+  <maintainer email="email@example.com">TODO</maintainer>
   <license>MIT</license>
 
   <test_depend>ament_copyright</test_depend>

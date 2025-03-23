@@ -1,3 +1,4 @@
+import rclpy
 from geometry_msgs.msg import PolygonStamped, Point32
 from std_msgs.msg import Header
 import time
@@ -10,9 +11,10 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 from geometry_msgs.msg import TransformStamped
-from tf_transformations import quaternion_from_euler
+from tf_transformations import quaternion_from_euler, euler_from_quaternion
+from tf2_ros import TransformException
 
-from .occupancy_grid_map import read_workspace, grid_to_real_coordinates
+from .occupancy_grid_map import read_workspace, grid_to_real_coordinates, real_to_grid_coordinates
 
 
 
@@ -35,6 +37,84 @@ def compute_path(start, goal, exploration_occupancy_grid, get_clock):
     
     path = create_path_message(path_points, get_clock, exploration_occupancy_grid)
     return path_points, path
+
+
+# NOT TESTED
+def get_current_position(tf_buffer, logger, occupancy_grid):
+    """
+    Gets the robot's current position in both real-world and grid coordinates.
+
+    Args:
+        tf_buffer (Buffer): The TF2 buffer instance for looking up transforms.
+        node (Node): The ROS2 node instance (required for logging).
+        occupancy_grid (OccupancyGrid): The occupancy grid used for converting real-world coordinates to grid coordinates.
+
+    Returns:
+        tuple: A tuple containing:
+            - real_position (tuple): The real-world coordinates (x, y, theta).
+            - grid_position (tuple): The grid coordinates (x, y).
+    """
+    try:
+        # Lookup the latest available transform from 'odom' to 'base_link'
+        transform = tf_buffer.lookup_transform('odom', 'base_link', rclpy.time.Time(0))
+
+        # Extract translation (x, y) and rotation (yaw)
+        x = transform.transform.translation.x
+        y = transform.transform.translation.y
+        q = transform.transform.rotation
+        _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
+
+        # Real-world position
+        real_position = (x, y, yaw)
+
+        # Convert to grid coordinates
+        grid_position = real_to_grid_coordinates([(x, y)], occupancy_grid)[0]
+
+        logger.info(f"Current position (real): {real_position}")
+        logger.info(f"Current position (grid): {grid_position}")
+
+        return real_position, grid_position
+    
+    except TransformException as e:
+            logger.error(f"Failed to get current position: {e}")
+            return None, None
+
+
+# NOT TESTED
+def check_collision(path_planning_grid, grid_path, current_grid_position):
+    """
+    Check if there is a collision along the grid_path starting from the closest point
+    to the current_grid_position.
+
+    Args:
+        path_planning_grid (OccupancyGrid): The occupancy grid used for path planning.
+        grid_path (list of tuples): The planned path in grid coordinates [(x1, y1), (x2, y2), ...].
+        current_grid_position (tuple): The robot's current position in grid coordinates (x, y).
+
+    Returns:
+        bool: True if a collision is detected, False otherwise.
+    """
+    if not grid_path:
+        return False  # No path to check
+
+    # Find the closest point on the grid_path to the current position
+    # This is to account for the fact that the robot might deviate slightly from the path
+    closest_point = min(grid_path, key=lambda point: (point[0] - current_grid_position[0])**2 + (point[1] - current_grid_position[1])**2)
+
+    # Get the index of the closest point in the grid_path
+    start_index = grid_path.index(closest_point)
+
+    # Check for collisions from the closest point onward
+    width = path_planning_grid.info.width
+    for x, y in grid_path[start_index:]:
+        # Convert (x, y) to the corresponding index in the occupancy grid
+        index = y * width + x
+
+        # Check if the cell is not free
+        if path_planning_grid.data[index] != 0:
+            return True  # Collision detected
+
+    return False  # No collision detected
 
 
 def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes, clock):
@@ -65,7 +145,7 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         transform.transform.rotation.x = 0.0
         transform.transform.rotation.y = 0.0
         transform.transform.rotation.z = 0.0
-        transform.transform.rotation.w = 1.0
+        transform.transform.rotation.w = 1.0 # No rotation
 
         tf_broadcaster.sendTransform(transform)
 

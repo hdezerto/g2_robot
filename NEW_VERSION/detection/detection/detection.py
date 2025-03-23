@@ -28,7 +28,7 @@ from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
 from sensor_msgs_py.point_cloud2 import create_cloud # Convert colors to a single float value representing RGB
 import time
 
-#from detection.msg import DetectionMsg
+from detection_interfaces.msg import DetectionMsg
 
 
 
@@ -55,7 +55,7 @@ class PointCloudDetection(Node):
         self.get_logger().info(f"Init PointCloudDetection node")
 
         self.tfBuffer = tf2_ros.Buffer()
-        self.listener = tf2_ros.TransformListener(self.tfBuffer, self)
+        self.listener = tf2_ros.TransformListener(self.tfBuffer, self, spin_thread=True)
 
         qos_profile = QoSProfile(
             depth=1,
@@ -76,7 +76,7 @@ class PointCloudDetection(Node):
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
 
 
-        #self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
+        self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
 
         self.message_counter = 0
 
@@ -348,15 +348,15 @@ class PointCloudDetection(Node):
                 f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
             )
 
-            # # Publish the detection message
-            # detection_msg = DetectionMsg()
-            # detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
-            # detection_msg.cat = category  # Category (1, 2, 3, etc.)
-            # detection_msg.x = x_transformed
-            # detection_msg.y = y_transformed
-            # detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
+            # Publish the detection message
+            detection_msg = DetectionMsg()
+            detection_msg.type = type.upper()  # "OBJECT", "BOX", or "OBSTACLE"
+            detection_msg.cat = category  # Category (1, 2, 3, etc.)
+            detection_msg.x = x_transformed
+            detection_msg.y = y_transformed
+            detection_msg.theta = angle if type == 'box' else 0.0  # Orientation for BOX
 
-            # self.detection_publisher.publish(detection_msg)
+            self.detection_publisher.publish(detection_msg)
 
         except TransformException as e:
             self.get_logger().error(f"Failed to transform coordinates: {e}")

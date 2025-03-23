@@ -16,8 +16,6 @@ EXPLORATION LOGIC:
         - Publish the path to RViz.
     - While moving, when something is published to /detections:
         - If it is a new object/box, add it to the respective list and republish the positions and labels to RViz.
-        # - If it is a new obstacle, add it to the respective list and stop the robot. Recompute the path to the point (now with
-        #  the new obstacle in the occupancy grid map) and move to it if a path is found.
         - If it is a previously detected object/box, ignore it. Alternatively, use it to improve the
           detected object/box position.
 
@@ -26,40 +24,32 @@ EXPLORATION LOGIC:
      
 """
 
-
-
-
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PolygonStamped
-from .mission_control_utils import publish_workspace, compute_path, publish_detections_to_rviz
+from .mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_position,
+                                    check_collision)
 from .occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
-                                grid_to_real_coordinates, real_to_grid_coordinates
-                                )
+                                grid_to_real_coordinates, real_to_grid_coordinates)
 from nav_msgs.msg import OccupancyGrid
-#from detection.msg import DetectionMsg 
-
 
 from enum import Enum, auto
 from nav_msgs.msg import Path
 from std_msgs.msg import Bool
 
-# Maria added
-from visualization_msgs.msg import Marker, MarkerArray
-from detection.msg import DetectionMsg
-import numpy as np
-from geometry_msgs.msg import Quaternion
-
 from tf2_ros import TransformBroadcaster
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
 
-
+from detection_interfaces.msg import DetectionMsg
 
 import time # DEBUG
 
 """
 TO DO:
 - Check the case when a box is also considered as a plushie
-- 
+- Integrate motion controller
+- Integrate lidar mapper
 
 """
 
@@ -92,7 +82,7 @@ class ExplorationController(Node):
                 self.get_next_exploration_point()
             elif self.state == ExplorationState.START_MOVING:
                 self.start_moving()
-            elif self.state == ExplorationState.MOVING:
+            elif self.state == ExplorationState.MOVING: # Just process callbacks
                 rclpy.spin_once(self)
                 #rclpy.spin_once(self, timeout_sec=1) # DEBUG
                 #self.get_logger().info('Inside MOVING')  # DEBUG
@@ -100,7 +90,7 @@ class ExplorationController(Node):
                 self.end_exploration()
                 break
 
-    # ------------------- STATE FUNCTIONS -------------------
+    # ------------------- Initialization -------------------
     def __init__(self):
         # State to initialize the node
         super().__init__('ExplorationController_node')
@@ -136,14 +126,19 @@ class ExplorationController(Node):
         self.publish_exploration_grid()
         
         # DEBUG:
-        real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
+        #real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
         #self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
-        formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
+        #formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
         #self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
-    
+
+        # Initialize TF2 Buffer and TransformListener
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True) # spin_thread=True to run the listener in a separate thread
+        self.current_position = (0, 0)  # Initial position (0, 0) in real world coordinates
+        self.current_grid_position = real_to_grid_coordinates([self.current_position], self.exploration_occupancy_grid)[0]
+
         self.exploration_point_index = 0
         self.exploration_point = None
-        self.current_position = real_to_grid_coordinates([(0, 0)], self.exploration_occupancy_grid)  # Initial position (0, 0) in real world coordinates
         self.detected_objects = [] # List of tuples (x, y, category)
         self.detected_boxes = [] # List of tuples (x, y, theta)
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
@@ -163,9 +158,10 @@ class ExplorationController(Node):
         self.state = ExplorationState.MOVING # DEBUG detection
 
 
+    # ------------------- STATE FUNCTIONS -------------------
     def spin_for_duration(self, duration):
         """
-        Process callbacks for a specified duration.
+        Process callbacks for a specified duration, just for initial observation of the environment (using camera and lidar)
         """
         self.get_logger().info(f'Observing for {duration} seconds...')
         start_time = self.get_clock().now().seconds_nanoseconds()[0] # Start time in seconds
@@ -174,7 +170,7 @@ class ExplorationController(Node):
             rclpy.spin_once(self)
 
         self.get_logger().info('Finished observing.')
-        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # Now it can get the next exploration point
+        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # Now it can get the first exploration point
 
 
     def get_next_exploration_point(self):
@@ -211,7 +207,9 @@ class ExplorationController(Node):
     def detections_callback(self, msg):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         #Handle the detection message
-        if self.is_new_detection(msg):
+        # Check if the detection is new and inside the workspace
+        # NOTE: objects that lie on the edge of the workspace are considered outside!
+        if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):
             self.stop_robot()
             if msg.type == 'OBJECT':
                 self.detected_objects.append((msg.x, msg.y, msg.cat))
@@ -227,12 +225,12 @@ class ExplorationController(Node):
     # TO FINISH
     def lidar_occupancy_grid_callback(self, msg):
         self.get_logger().info('Received new lidar occupancy grid.') # DEBUG
-        latest_lidar_occupancy_grid = msg 
         # Update the planning grid with the latest lidar occupancy grid and the detected objects/boxes
-        update_path_planning_grid(self.path_planning_grid, latest_lidar_occupancy_grid, self.detected_objects + self.detected_boxes)
-
-        update_current_position()  # Update the current position of the robot (from odometry or localization)
-        if check_collision(self.path_planning_grid, self.grid_path, self.current_position):
+        update_path_planning_grid(self.path_planning_grid, msg, self.detected_objects + self.detected_boxes)
+        # Update the current position of the robot (from odometry or localization)
+        self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid) 
+        if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
+            self.stop_robot()
             self.get_logger().info('Collision detected. Recomputing path.')
             self.state = ExplorationState.START_MOVING
         else:
@@ -258,114 +256,9 @@ class ExplorationController(Node):
         # TO DO
         pass
 
+
     # ------------------- UTILS (specific to ExplorationController) ------------------- 
 
-    
-    # MARIA'S VERSION
-    # def publish_detections_to_rviz(marker_publisher, detected_objects, detected_boxes, clock):
-    #     """
-    #     Publishes detected objects and boxes to RViz.
-
-    #     Args:
-    #         marker_publisher: The ROS2 publisher for MarkerArray messages.
-    #         detected_objects: List of tuples (x, y, category) for detected objects.
-    #         detected_boxes: List of tuples (x, y, theta) for detected boxes.
-    #         clock: ROS2 clock instance to get the current time.
-    #     """
-    #     marker_array = MarkerArray()
-
-    #     # Add markers for detected objects
-    #     for idx, (x, y, category) in enumerate(detected_objects):
-    #         marker = Marker()
-    #         marker.header.frame_id = "map"
-    #         marker.header.stamp = clock.now().to_msg()
-    #         marker.ns = "detected_objects"
-    #         marker.id = idx
-    #         marker.type = Marker.CUBE  # Default type
-    #         marker.action = Marker.ADD
-    #         marker.pose.position.x = x
-    #         marker.pose.position.y = y
-    #         marker.pose.position.z = 0.0
-    #        """do i need orientation? when its not a box?"""
-
-    #         # Set scale and color based on category
-    #         if category == '1':  # Cube
-    #             marker.scale.x = 0.04
-    #             marker.scale.y = 0.04
-    #             marker.scale.z = 0.01
-    #             marker.color.r = 0.0
-    #             marker.color.g = 1.0
-    #             marker.color.b = 0.0
-    #         elif category == '2':  # Sphere
-    #             marker.scale.x = 0.04
-    #             marker.scale.y = 0.04
-    #             marker.scale.z = 0.01
-    #             marker.color.r = 1.0
-    #             marker.color.g = 1.0
-    #             marker.color.b = 0.0
-    #         elif category == '3':  # Plushie
-    #             marker.scale.x = 0.06
-    #             marker.scale.y = 0.08
-    #             marker.scale.z = 0.01
-    #             marker.color.r = 0.0
-    #             marker.color.g = 1.0
-    #             marker.color.b = 1.0
-
-    #         marker.color.a = 1.0  # Fully opaque
-    #         marker.lifetime.sec = 2  # Persist for 2 seconds
-    #         marker_array.markers.append(marker)
-
-    #     # Add markers for detected boxes
-    #     for idx, (x, y, theta) in enumerate(detected_boxes, start=len(detected_objects)):
-    #         marker = Marker()
-    #         marker.header.frame_id = "map"
-    #         marker.header.stamp = clock.now().to_msg()
-    #         marker.ns = "detected_boxes"
-    #         marker.id = idx
-    #         marker.type = Marker.CUBE
-    #         marker.action = Marker.ADD
-    #         marker.pose.position.x = x
-    #         marker.pose.position.y = y
-    #         marker.pose.position.z = 0.0
-
-    #         # Convert theta (angle in degrees) to quaternion for orientation
-    #         angle_rad = np.radians(theta)
-    #         marker.pose.orientation.z = np.sin(angle_rad / 2.0)
-    #         marker.pose.orientation.w = np.cos(angle_rad / 2.0)
-
-    #         # Set scale and color for boxes
-    #         marker.scale.x = 0.16  # Original width of the box
-    #         marker.scale.y = 0.24  # Original length of the box
-    #         marker.scale.z = 0.01  # Minimal height (so it looks like a 2D object)
-    #         marker.color.r = 0.0
-    #         marker.color.g = 1.0
-    #         marker.color.b = 1.0
-    #         marker.color.a = 1.0  # Fully opaque
-
-    #         marker.lifetime.sec = 2  # Persist for 2 seconds
-    #         marker_array.markers.append(marker)
-
-    #     # Publish the markers
-    #     marker_publisher.publish(marker_array)
-
-
-    # CORRECT THIS FUNCTION!
-    def write_map_file(self):
-
-        file_name = "map_file.txt"
-
-        with open(file_name, 'w') as file:
-            # lets put the objects in the file:
-            for x, y, category in self.detected_objects:
-                file.write(f"OBJECT {category} in position: {x:.2f} {y:.2f} \n")
-
-            # lets write the boxes in the file:
-            for x, y, theta in self.detected_boxes:
-                file.write(f"BOX in position{x:.2f} {y:.2f} with {theta:.2f}\n")
-
-        self.get_logger().info(f"Map file '{file_name}' has been written successfully.") #later, remove this
-
-    
     # TEST (check if boxes dont need a larger threshold)
     def is_new_detection(self, msg):
         # Select the appropriate list based on the detection type
@@ -381,6 +274,47 @@ class ExplorationController(Node):
                 return False  # Detection already exists
     
         return True  # No match, so it is a new detection
+    
+    
+    # NOT TESTED
+    def is_inside_workspace(self, x, y):
+        """
+        Check if the given coordinates (x, y) are inside the workspace.
+        The workspace is defined as cells in the exploration grid with values 0 (free space) or 15 (exploration points).
+        """
+        # Convert real-world coordinates to grid coordinates
+        grid_x, grid_y = real_to_grid_coordinates([(x, y)], self.exploration_occupancy_grid)[0]
+
+        # Get the grid dimensions
+        width = self.exploration_occupancy_grid.info.width
+        height = self.exploration_occupancy_grid.info.height
+
+        # Check if the grid coordinates are within bounds
+        if 0 <= grid_x < width and 0 <= grid_y < height:
+            # Calculate the index in the grid data
+            index = grid_y * width + grid_x
+            # Check if the cell value is 0 (free space) or 15 (exploration point)
+            return self.exploration_occupancy_grid.data[index] in [0, 15]
+
+        # If out of bounds, return False
+        return False
+
+
+    # NOT TESTED
+    # The map is saved in the directory where the node is run
+    def write_map_file(self):
+        file_name = "map_file.txt"
+    
+        with open(file_name, 'w') as file:
+            # Write the objects to the file
+            for x, y, category in self.detected_objects:
+                file.write(f"{category}\t{x:.2f}\t{y:.2f}\t0\n")  # Angle is 0 for objects
+    
+            # Write the boxes to the file
+            for x, y, theta in self.detected_boxes:
+                file.write(f"B\t{x:.2f}\t{y:.2f}\t{theta:.0f}\n")  # Use theta for the angle
+    
+        self.get_logger().info(f"Map file '{file_name}' has been written successfully.")
 
 
     def stop_robot(self):

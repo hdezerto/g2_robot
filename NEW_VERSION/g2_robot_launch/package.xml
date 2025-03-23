@@ -4,9 +4,9 @@
   <name>g2_robot_launch</name>
   <version>0.0.0</version>
   <description>Launch file for g2_robot packages</description>
-  <author email="hugoad@kth.se">Hugo Dezerto</author>
+  <author email="email@example.com">TODO</author>
   <!-- more authors can be added here -->
-  <maintainer email="hugoad@kth.se">Hugo Dezerto</maintainer>
+  <maintainer email="email@example.com">TODO</maintainer>
   <license>MIT</license>
 
 
