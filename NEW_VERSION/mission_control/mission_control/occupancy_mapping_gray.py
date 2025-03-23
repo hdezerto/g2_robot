@@ -7,6 +7,7 @@ from rclpy.time import Time  # Used for handling ROS 2 timestamps
 from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
 from nav_msgs.msg import OccupancyGrid, MapMetaData  # OccupancyGrid for map representation, MapMetaData for metadata
 from std_msgs.msg import Header, Bool  # Standard header message for timestamping and frame information
+from std_msgs.msg import Header,Bool  # Standard header message for timestamping and frame information
 from geometry_msgs.msg import Pose, TransformStamped  # Pose for position and orientation, TransformStamped for coordinate transformations
 
 # Importing libraries for LiDAR scan conversion
@@ -29,6 +30,10 @@ import cv2
 import os  
 
 import csv
+
+
+from shapely.geometry import Point, Polygon  # Install via `pip install shapely`
+
 
 class MapBuilder:
     def __init__(self, resolution=0.1, size=500, folder="maps"):
@@ -92,6 +97,7 @@ class LidarMapBuilder(Node):
 
         # Create map_trigger subscriber to trigger the map creation
         self.trigger_subscriber = self.create_subscription(Bool,'/map_trigger',self.map_trigger_callback,10)
+        self.trigger_subscriber = self.create_subscription(Bool,'/map_trigger',self.map_trigger_callback,10)
 
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
@@ -108,8 +114,10 @@ class LidarMapBuilder(Node):
         self.accumulated_points = []  # List to store accumulated LiDAR points
 
         #workspace viz
-        self.ws_file= os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_1.tsv')
-         
+        package_share_directory = get_package_share_directory("path_planning")
+        self.ws_file = os.path.join(
+            package_share_directory, "resource", "workspace_2.tsv"
+        )
         self.vertices = self.read_tsv(self.ws_file)
 
     def map_trigger_callback(self, msg):
@@ -121,89 +129,61 @@ class LidarMapBuilder(Node):
         self.grid_publisher.publish(occupancy_grid)
         self.get_logger().info('Published occupancy grid map after trigger.')
 
+    def is_point_inside_workspace(self, x, y):
+        """Check if a point (x, y) is inside the workspace polygon"""
+        if not self.vertices:  # If no workspace boundary is defined, accept all points
+            return True
+
+        polygon = Polygon(self.vertices)  # Create a polygon from workspace boundary
+        point = Point(x, y)
+        return polygon.contains(point)  # Returns True if inside, False otherwise
+
 
     def scan_callback(self, msg):
-        
         self.scan_count += 1  
-
-        # Only process every Nth scan
         if self.scan_count % self.nth_scan != 0:
             return  
-        
+
         stamp = msg.header.stamp
         ranges = np.array(msg.ranges)
         angles = np.linspace(msg.angle_min, msg.angle_max, len(ranges))
-        # Convert angles to degrees for easier filtering
-        # Convert angles to degrees for easier filtering
-        angles_degrees = np.degrees(angles)
-
-        # Create a mask for points behind the robot
-        behind_robot = (angles_degrees < -120) | (angles_degrees > 120)
         
-        ranges[behind_robot & (ranges < self.d_filter)] = np.inf
+        # Convert to Cartesian coordinates
+        x_coords = ranges * np.cos(angles)
+        y_coords = ranges * np.sin(angles)
 
-
-        if len(ranges) == 0:
-            self.get_logger().warn("All scan points filtered out!")
-            return  # Exit early if no valid points remain
-
-        # Modify the original msg with the filtered values
-        msg.ranges = ranges.tolist()
-        #msg.angle_min = np.min(angles)  # Update min angle
-        #msg.angle_max = np.max(angles)  # Update max angle
-
-
-        # Define frames and get the transform
-        to_frame_rel = 'map'
-        from_frame_rel = msg.header.frame_id
-        time = Time.from_msg(stamp)
-
-        # Transform scan data to correct odometry drift
+        # Transform LiDAR points to world frame
         try:
-            transform = self.tf_buffer.lookup_transform(
-                to_frame_rel, 
-                from_frame_rel,
-                time,
-                timeout=rclpy.duration.Duration(seconds=0.5)
-            )
-
-            # Convert LaserScan to PointCloud2
+            transform = self.tf_buffer.lookup_transform("map", msg.header.frame_id, Time.from_msg(stamp))
             cloud = self.proj.projectLaser(msg)
-              # Transform the point cloud
             transformed_cloud = do_transform_cloud(cloud, transform)
-            
+
             transformed_points = np.array([
                 [p[0], p[1]] for p in pc2.read_points(transformed_cloud, field_names=("x", "y"), skip_nans=True)
             ], dtype=np.float32)
 
-            transformed_filtered_points = transformed_points
+            # **Filter points inside workspace**
+            filtered_points = [
+                (x, y) for x, y in transformed_points if self.is_point_inside_workspace(x, y)
+            ]
 
-            # Aggregate and publish every Nth transformed scan as a PointCloud2
-            
-            point_cloud_points = pc2.read_points(transformed_cloud, field_names=("x", "y","z"), skip_nans=True)
-            for point in point_cloud_points:
-                self.accumulated_points.append([point[0], point[1], point[2]])
+            if not filtered_points:
+                self.get_logger().warn("No points inside the workspace!")
+                return
 
-
-            # Add every Nth transformed scan to the accumulated point cloud
-            
-            #self.accumulated_points.extend(transformed_points)
-
-            self.publish_accumulated_pointcloud(msg.header)
-
-            # Update the map using the accumulated point cloud
-            self.map_builder.add_scan(transformed_filtered_points)
+            # Update the map with filtered points
+            self.map_builder.add_scan(filtered_points)
 
         except Exception as e:
             self.get_logger().error(f"Transform error: {str(e)}")
 
-        #Publish the occupancy grid map every scan_freq scans
-        if self.scan_count % self.scan_freq == 0:  # Publish every scan frequency count
+        # Publish occupancy grid at regular intervals
+        if self.scan_count % self.scan_freq == 0:
             occupancy_grid = self.map_builder.to_occupancy_grid(stamp)
             self.publisher.publish(occupancy_grid)
             self.get_logger().info("Published occupancy grid map.")
 
-        if self.scan_count >= self.scan_freq:  # Save every scan frequency count
+        if self.scan_count >= self.scan_freq:
             self.map_builder.save_map()
             self.scan_count = 0  
 
