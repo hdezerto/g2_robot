@@ -78,30 +78,6 @@ class Odometry(Node):
         self._tf_broadcaster = TransformBroadcaster(self)
 
         # Create a QoS profile with a queue size of 1
-        # qos_profile = QoSProfile(
-        #     depth=1,
-        #     durability=QoSDurabilityPolicy.VOLATILE,
-        #     history=QoSHistoryPolicy.KEEP_LAST
-        # )
-
-        self.create_subscription(Encoders, "/motor/encoders", self.encoder_callback, 5)
-
-"""
-CHECK:
-
-- The path might be too long and cause memory issues.
-
-"""
-
-class Odometry(Node):
-
-    def __init__(self):
-        super().__init__("odometry_node")
-
-        # Initialize the transform broadcaster
-        self._tf_broadcaster = TransformBroadcaster(self)
-
-        # Create a QoS profile with a queue size of 1
         qos_profile = QoSProfile(
             depth=1,
             durability=QoSDurabilityPolicy.VOLATILE,
@@ -111,7 +87,7 @@ class Odometry(Node):
         self.create_subscription(Encoders, "/motor/encoders", self.encoder_callback, 5)
         
         # Initialize the path publisher
-        self._path_pub = self.create_publisher(Path, "path", 10)
+        #self._path_pub = self.create_publisher(Path, "path", 10)
         # Store the path here
         #self._path = Path()
 
@@ -221,6 +197,7 @@ class Odometry(Node):
         t.transform.rotation.w = q[3]
 
         self._tf_broadcaster.sendTransform(t)
+
 
     def publish_path(self, stamp, x, y, q):
         """Appends the 2D pose to the path and publishes it."""

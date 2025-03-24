@@ -1,27 +1,10 @@
 #!/usr/bin/env python
 
 """ ---------------- OUTDATED !!! ----------------
-EXPLORATION LOGIC   :
+EXPLORATION LOGIC:
 
-1. Initialization:
-    - Publish the workspace to RViz (just once).
-    - Subscribe to the /detections topic, which will be used to receive the positions of detected 
-    objects/boxes/obstacles from the 3D camera.
-    - Define the exploration points in the workspace and the order in which they should be visited.  
 
-2. Exploration:
-    - Pick the next exploration point:
-        - Add the detected objects/boxes/obstacles to the occupancy grid map.
-        - With the updated occupancy grid map, compute a path to the point and move to it if a path is found.
-        - Publish the path to RViz.
-    - While moving, when something is published to /detections:
-        - If it is a new object/box, add it to the respective list and republish the positions and labels to RViz.
-        - If it is a previously detected object/box, ignore it. Alternatively, use it to improve the
-          detected object/box position.
 
-4. End exploration (when no more exploration points remain):
-    - Write the map file with the detected objects/boxes.
-     
 """
 
 import rclpy
