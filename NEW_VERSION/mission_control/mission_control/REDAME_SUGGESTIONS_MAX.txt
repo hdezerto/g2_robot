@@ -4,7 +4,7 @@ Discussion points for exploration mission :
     - that means no inflation done here either
     - I know mapping exploration points is for debugs, lets just publish shapes to rviz if that is needed
     - Calculating exploration points could also be done differently. I.e. wait for first map and then do it.
-      When recieving an new map also check if any points lie obstacle+plus buffer. (i.e. if grid cell bellonging to points is not 0). If yes delete point. 
+      When recieving an new map also check if any points lie on obstacle+plus buffer. (i.e. if grid cell bellonging to points is not 0). If yes delete point. 
     - It should not be responsible for publishing the workspace, that should be done by the mapping node that need to read it anyhow
     - This also goes for updating the list.
     - If necessary to ask for latest map, it should be done through a service. i.e. publish map trigger (as discussed before)
