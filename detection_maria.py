@@ -23,35 +23,35 @@ from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point, Pose, Quaternion, Vector3
 from sklearn.decomposition import PCA
 
+from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
+
 from sensor_msgs_py.point_cloud2 import create_cloud # Convert colors to a single float value representing RGB
 import time
 
-class ExamineImage(Node):
+class PointCloudDetection(Node):
 
     def __init__(self):
-        super().__init__('examine_image')
+        super().__init__('PointCloudDetection_node')
 
         self.mat = None
 
-        self.get_logger().info(f"Init detection")
+        self.get_logger().info(f"Init PointCloudDetection node")
 
         self.tfBuffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tfBuffer, self)
+
+        qos_profile = QoSProfile(
+            depth=1,
+            history=HistoryPolicy.KEEP_LAST,
+            reliability=ReliabilityPolicy.BEST_EFFORT
+        )
 
         self.sub2 = self.create_subscription(
             PointCloud2,
             '/camera/camera/depth/color/points',
             self.cloud_callback,
-            100) # Cloud point is in camera_depth_optical_frame
-        
-        # HUGO: TEST THIS VERSION
-    
-        # self.sub2 = self.create_subscription(
-        #     PointCloud2,
-        #     '/camera/camera/depth/color/points', # Cloud point is in camera_depth_optical_frame
-        #     self.cloud_callback,
-        #     1) # Queue size 1 to consider only the latest message
-
+            qos_profile
+        )
 
         self.pub = self.create_publisher(PointCloud2, '/depth_points_filtered', 100)
 
@@ -68,8 +68,9 @@ class ExamineImage(Node):
 
         self.cluster_publisher = self.create_publisher(PointCloud2, '/clusters', 10)
 
-        self.marker_publisher = self.create_publisher(MarkerArray, '/map_objects', 10)
-        self.timer = self.create_timer(2.0, self.publish_map_objects)  # Update every 2 seconds
+        #self.marker_publisher = self.create_publisher(MarkerArray, '/map_objects', 10)
+        
+        #self.timer = self.create_timer(2.0, self.publish_map_objects)  # Update every 2 seconds
 
         # Add a counter to track the number of messages received
         self.message_counter = 0
@@ -104,7 +105,7 @@ class ExamineImage(Node):
 
         # Increment the message counter
         self.message_counter += 1
-        # Only process every 5 messages
+        # Only process every 5 messages. Fequency of /camera/camera/depth/color/points is around 15 point clouds per second
         if self.message_counter % 2 != 0:
             return
         # Reset the counter to avoid overflow
@@ -126,8 +127,8 @@ class ExamineImage(Node):
 
         # Create a boolean mask to filter points:
         # - Points within max_dist from the sensor
-        # - Points above the floor (-0.05 < y < 0.09) (y-axis points downwards)
-        mask = (distances < max_dist) & (points[:, 1] < 0.09) & (-0.05 < points[:, 1]) # TEST: maybe more floor can be removed by decreasing the y value
+        # - Points above the floor (0.01 < y < 0.085) (y-axis points downwards)
+        mask = (distances < max_dist) & (points[:, 1] < 0.085) & (0.01 < points[:, 1]) # TEST: maybe more floor can be removed by decreasing the y value
         
         # Apply the mask to filter points before processing colors
         points = points[mask]
@@ -763,7 +764,7 @@ class ExamineImage(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    examine_image = ExamineImage()
+    examine_image = PointCloudDetection()
 
     try:
         rclpy.spin(examine_image)
