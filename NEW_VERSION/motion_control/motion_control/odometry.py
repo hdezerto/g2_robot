@@ -111,7 +111,7 @@ class Odometry(Node):
         self.create_subscription(Encoders, "/motor/encoders", self.encoder_callback, 5)
         
         # Initialize the path publisher
-        #self._path_pub = self.create_publisher(Path, "path", 10)
+        self._path_pub = self.create_publisher(Path, "path", 10)
         # Store the path here
         #self._path = Path()
 
@@ -130,7 +130,7 @@ class Odometry(Node):
         # Robot parameters
         self.ticks_per_rev = 48 * 64  # Encoder ticks per wheel revolution
         self.wheel_radius = 0.04921  # Wheel radius [m]
-        self.base = 0.295  # Distance between wheels [m]
+        self.base = 0.315 # Distance between wheels [m]
 
         # Precompute constants (to improve performance)
         self._ticks_to_radians = 2 * np.pi / self.ticks_per_rev
@@ -201,7 +201,7 @@ class Odometry(Node):
         stamp = msg.header.stamp
 
         self.broadcast_transform(stamp, self._x, self._y, q)
-        #self.publish_path(stamp, self._x, self._y, q)
+        # self.publish_path(stamp, self._x, self._y, q)
 
     def broadcast_transform(self, stamp, x, y, q):
         """Broadcasts a 3D transform with z, roll, and pitch all zero."""
@@ -245,7 +245,7 @@ class Odometry(Node):
         # if len(self._path.poses) > self.MAX_PATH_LENGTH:
         #     self._path.poses.pop(0)
 
-        self._path_pub.publish(self._path)
+        # self._path_pub.publish(self._path)
 
 
 def main():

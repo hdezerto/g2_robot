@@ -5,6 +5,7 @@ import time
 
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
+from tf_transformations import quaternion_from_euler
 import heapq
 
 import numpy as np
@@ -258,6 +259,17 @@ def create_path_message(path_points, clock, occupancy_grid):
         pose.pose.orientation.w = 1.0 # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation 
         path.poses.append(pose)
 
+    # Set the orientation of the last waypoint to match the direction of the path
+    waypoint_no = len(path.poses)
+    dx = path.poses[waypoint_no - 1].pose.position.x - path.poses[waypoint_no - 2].pose.position.x
+    dy = path.poses[waypoint_no - 1].pose.position.y - path.poses[waypoint_no - 2].pose.position.y
+    theta = np.arctan2(dy, dx)
+    q = quaternion_from_euler(0, 0, theta)
+    path.poses[waypoint_no - 1].pose.orientation.x = q[0]
+    path.poses[waypoint_no - 1].pose.orientation.y = q[1]
+    path.poses[waypoint_no - 1].pose.orientation.z = q[2]
+    path.poses[waypoint_no - 1].pose.orientation.w = q[3]
+    
     return path
 
 
