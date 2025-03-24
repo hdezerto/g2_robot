@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<launch>
+
+
+    <!-- To disable printing of the output of the node to the terminal, remove the output="screen" attribute  -->
+    <!-- The name defined for the node here will overwrite the name defined in the node itself  -->
+    
+    <!--  Run detection  -->
+    <node pkg="detection" exec="detection" name="detection_node" output="screen"/>
+
+
+    <!--  Run mission_explorer  -->
+    <node pkg="mission_control" exec="exploration_controller" name="exploration_controller_node" output="screen"/>
+
+    
+
+    
+
+</launch>

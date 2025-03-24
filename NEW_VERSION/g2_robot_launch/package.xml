@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>g2_robot_launch</name>
+  <version>0.0.0</version>
+  <description>Launch file for g2_robot packages</description>
+  <author email="email@example.com">TODO</author>
+  <!-- more authors can be added here -->
+  <maintainer email="email@example.com">TODO</maintainer>
+  <license>MIT</license>
+
+
+  <!-- CHECK dependencies  -->
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <!-- ROS packages dependencies -->
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>rviz2</depend>
+  <depend>teleop_twist_joy</depend>
+  <exec_depend>ros2launch</exec_depend>
+
+  <!-- robbp_robot packages dependencies -->
+  <depend>robp_launch</depend>
+  
+  <!-- Custom-built packages dependencies -->
+  <depend>odometry</depend>
+  <depend>detection</depend>
+  <depend>arm_servos_pubs_subs</depend>
+  <!-- add the new custom built packages HERE -->
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
