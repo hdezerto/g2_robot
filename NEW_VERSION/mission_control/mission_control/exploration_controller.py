@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-""" ---------------- OUTDATED !!! ----------------
+""" 
 EXPLORATION LOGIC:
 
 
@@ -24,6 +24,7 @@ from std_msgs.msg import Bool
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+import tf2_ros
 
 from detection_interfaces.msg import DetectionMsg
 
@@ -36,6 +37,9 @@ TO DO:
 - Integrate lidar mapper
 
 """
+
+
+#self.get_logger().info('HERE DEBUG!!!')  # DEBUG
 
 
 # -------- Tunable parameters --------
@@ -118,14 +122,25 @@ class ExplorationController(Node):
         self.get_logger().info('Exploration grid published.')  # DEBUG
         
         # DEBUG:
-        #real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
-        #self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
-        #formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
-        #self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
+        real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
+        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
+        formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
+        self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
+
+
 
         # Initialize TF2 Buffer and TransformListener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True) # spin_thread=True to run the listener in a separate thread
+
+
+        # Add a delay to allow the TransformListener to populate the buffer
+        self.get_logger().info('Waiting for TF buffer to populate...')
+        time.sleep(1)  # Wait for 1 second
+
+
+
+
         self.current_position = (0, 0)  # Initial position (0, 0) in real world coordinates
         self.current_grid_position = real_to_grid_coordinates([self.current_position], self.exploration_occupancy_grid)[0]
 
@@ -134,11 +149,12 @@ class ExplorationController(Node):
         self.detected_objects = [] # List of tuples (x, y, category)
         self.detected_boxes = [] # List of tuples (x, y, theta)
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
-        self.path_planning_grid = None
+        self.path_planning_grid = initialize_occupancy_grid()
+        inflate_occupied_cells(self.path_planning_grid)
         self.grid_path = []  # Path in grid coordinates  
 
         # Subscribe to the /goal_reached topic
-        self.reached_destination_subscriber = self.create_subscription(Bool, '/goal_reached', self.reached_destination_callback, 10)
+        self.reached_destination_subscriber = self.create_subscription(Bool, '/reached_destination', self.reached_destination_callback, 10)
 
         # Publisher for the path (for RViz and motion controller)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
@@ -147,7 +163,8 @@ class ExplorationController(Node):
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
         #self.state = ExplorationState.OBSERVING
-        self.state = ExplorationState.MOVING # DEBUG detection
+        #self.state = ExplorationState.MOVING # DEBUG detection
+        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG
 
 
     # ------------------- STATE FUNCTIONS -------------------
@@ -156,11 +173,11 @@ class ExplorationController(Node):
         Process callbacks for a specified duration, just for initial observation of the environment (using camera and lidar)
         """
         self.get_logger().info(f'Observing for {duration} seconds...')
-        start_time = self.get_clock().now().seconds_nanoseconds()[0] # Start time in seconds
-
-        while self.get_clock().now().seconds_nanoseconds()[0] - start_time < duration:
+        start_time = self.get_clock().now().nanoseconds() / 1e9  # Start time in seconds
+    
+        while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
             rclpy.spin_once(self)
-
+    
         self.get_logger().info('Finished observing.')
         self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # Now it can get the first exploration point
 
@@ -168,7 +185,7 @@ class ExplorationController(Node):
     def get_next_exploration_point(self):
         # Get the next exploration point from the list (if it exists)
         if self.exploration_point_index < len(self.exploration_points):
-            self.exploration_point = self.exploration_points[self.current_point_index] # Get grid coordinates of the next exploration point
+            self.exploration_point = self.exploration_points[self.exploration_point_index] # Get grid coordinates of the next exploration point
             self.exploration_point_index += 1
             self.state = ExplorationState.START_MOVING
         else: # No more points to explore
@@ -177,15 +194,17 @@ class ExplorationController(Node):
     
 
     def start_moving(self):
-
-        # Debug. Just print and sleep
-        # self.get_logger().info('Moving to point')  # DEBUG
-        # time.sleep(2)  # DEBUG
-        # self.state = ExplorationState.MOVING
-
+        # Update the current position of the robot
+        
+        self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
+        if self.current_position is None:
+            self.get_logger().info('Failed to get current position!') # DEBUG
+        
         # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
         # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
-        self.grid_path, path = compute_path(self.current_position, self.exploration_point, self.path_planning_grid)
+        self.get_logger().info(f'Exploration point: {self.exploration_point}')  # DEBUG
+        self.grid_path, path = compute_path(self.current_grid_position, self.exploration_point, self.path_planning_grid, self.get_clock())
+        
         if path: # Path found
             self.publish_path(path) # Publish the path to the motion controller and RViz
             self.get_logger().info('Path published. Moving...')
@@ -198,7 +217,6 @@ class ExplorationController(Node):
     # TO FINISH
     def detections_callback(self, msg):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
-        #Handle the detection message
         # Check if the detection is new and inside the workspace
         # NOTE: objects that lie on the edge of the workspace are considered outside!
         if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):
@@ -242,11 +260,7 @@ class ExplorationController(Node):
         # Write the map file with detected objects/boxes
         self.write_map_file()
         self.get_logger().info('Exploration completed. Map file saved.')
-    
 
-    def update_current_grid_position(self):
-        # TO DO
-        pass
 
 
     # ------------------- UTILS (specific to ExplorationController) ------------------- 

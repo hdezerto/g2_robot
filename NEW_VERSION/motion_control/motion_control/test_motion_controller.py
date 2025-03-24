@@ -27,14 +27,20 @@ from std_msgs.msg import Header
 
 import csv
 
+from ament_index_python.packages import get_package_share_directory
+import os
+
+
 EXPANSION_RADIUS = 2
 RESOLUTION = 0.05 
 
+# Get the shared directory of the mission_control package
+package_share_directory = get_package_share_directory('mission_control')
 
+# Construct the path to workspace_1.tsv
+WORKSPACE_FILE_PATH = os.path.join(package_share_directory, 'workspaces', 'workspace_1.tsv')
 
 # -----------------------  AUXILIARY FUNCTIONS -----------------------
-
-WORKSPACE_FILE_PATH = '/home/hugoad/dd2419_ws/src/g2_robot/NEW_VERSION/mission_control/workspaces/workspace_1.tsv' # Debug for test node
 
 
 
@@ -329,6 +335,21 @@ def grid_to_real_coordinates(grid_points, occupancy_grid):
     return real_world_points
 
 
+def real_to_grid_coordinates(real_points, occupancy_grid):
+    grid_points = []
+    origin_x = occupancy_grid.info.origin.position.x
+    origin_y = occupancy_grid.info.origin.position.y
+    resolution = occupancy_grid.info.resolution
+
+    for (real_x, real_y) in real_points:
+        grid_x = int((real_x - origin_x) / resolution)
+        grid_y = int((real_y - origin_y) / resolution)
+        grid_points.append((grid_x, grid_y))
+
+    return grid_points
+
+
+
 
 #  ------------ TEST PATH PLANNING ------------
 
@@ -352,7 +373,7 @@ class TestComputePathNode(Node):
         publish_workspace(self.workspace_publisher, self.get_clock())
 
         self.grid_publisher = self.create_publisher(OccupancyGrid, 'test_occupancy_grid', 10)
-        self.path_publisher = self.create_publisher(Path, 'test_path', 10)
+        self.path_publisher = self.create_publisher(Path, 'planned_path', 10)
 
         self.timer = self.create_timer(3.0, self.timer_callback)
 
@@ -360,19 +381,17 @@ class TestComputePathNode(Node):
         self.occupancy_grid = initialize_occupancy_grid()
 
         # ----- Add some obstacles -----
-        self.mark_square(20, 13, 0)
-        self.mark_square(20, 10, 0)
-        self.mark_square(20, 4, 0)
-
-        self.mark_square(30, 7, 0)
+        (x_grid, y_grid) = real_to_grid_coordinates([(0.5, 0)], self.occupancy_grid)[0]
+        self.mark_square(x_grid, y_grid, 0)
+    
     
 
         # Dilate the occupancy grid
         inflate_occupied_cells(self.occupancy_grid, EXPANSION_RADIUS)
 
         # Define start and goal points (in grid coordinates)
-        self.start = (10, 10)
-        self.goal = (40, 10)
+        self.start = real_to_grid_coordinates([(0, 0)], self.occupancy_grid)[0]
+        self.goal = real_to_grid_coordinates([(1, 0)], self.occupancy_grid)[0]
     
     
     def broadcast_map_frame(self):
