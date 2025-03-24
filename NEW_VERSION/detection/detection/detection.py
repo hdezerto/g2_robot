@@ -185,13 +185,13 @@ class PointCloudDetection(Node):
             green_mask = (hsv_colors[:, 0] >= lower_green1[0]) & (hsv_colors[:, 0] <= upper_green1[0]) | \
                         ((hsv_colors[:, 0] >= lower_green2[0]) & (hsv_colors[:, 0] <= upper_green2[0]))
             blue_mask = (hsv_colors[:, 0] >= lower_blue[0]) & (hsv_colors[:, 0] <= upper_blue[0])
-            brown_mask = (hsv_colors[:, 0] >= lower_brown[0]) & (hsv_colors[:, 0] <= upper_brown[0])
+            #brown_mask = (hsv_colors[:, 0] >= lower_brown[0]) & (hsv_colors[:, 0] <= upper_brown[0])
 
             # Apply masks for the current cluster
             red_points = cluster_points[red_mask]
             green_points = cluster_points[green_mask]
             blue_points = cluster_points[blue_mask]
-            brown_points = cluster_points[brown_mask]
+            #brown_points = cluster_points[brown_mask]
 
             # Calculate the total number of points in the cluster
             total_points = len(cluster_points)
@@ -200,7 +200,7 @@ class PointCloudDetection(Node):
             red_ratio = len(red_points) / total_points
             green_ratio = len(green_points) / total_points
             blue_ratio = len(blue_points) / total_points
-            brown_ratio = len(brown_points) / total_points
+            #brown_ratio = len(brown_points) / total_points
 
             pure_red = pure_green = pure_blue = pure_brown = False
             
@@ -211,18 +211,18 @@ class PointCloudDetection(Node):
                 pure_green = True
             elif blue_ratio > 0.01 and red_ratio == 0.0 and green_ratio == 0.0:
                 pure_blue = True
-            elif brown_ratio > 0.01 and red_ratio == 0.0 and green_ratio == 0.0 and blue_ratio == 0.0:
-                pure_brown = True
+            #elif brown_ratio > 0.01 and red_ratio == 0.0 and green_ratio == 0.0 and blue_ratio == 0.0:
+            #    pure_brown = True
             
             x, y, z = np.mean(cluster_points, axis=0) # Calculate the centroid of the cluster
 
             # Classify based on floor contact points for the current cluster
             object_type = self.classify_based_on_floor_contact(cluster_points)
 
-            if pure_brown:
-                if object_type == "cube":
-                    self.get_logger().info(f'🟫 Cluster is a cube!')
-                    self.create_object('cube', x, z + 0.02, 0.0, msg.header.stamp)
+            # if pure_brown:
+            #     if object_type == "cube":
+            #         self.get_logger().info(f'🟫 Cluster is a cube!')
+            #         self.create_object('cube', x, z + 0.02, 0.0, msg.header.stamp)
 
             if pure_red or pure_green or pure_blue:
                 if object_type == "sphere":
