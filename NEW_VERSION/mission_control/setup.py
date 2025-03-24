@@ -26,6 +26,7 @@ setup(
             'exploration_controller = mission_control.exploration_controller:main',
             'collection_controller = mission_control.collection_controller:main',
             'mapper = mission_control.occupancy_mapping_gray:main',
+            'simple_mapper = mission_control.simple_mapping:main',
         ],
     },
 )

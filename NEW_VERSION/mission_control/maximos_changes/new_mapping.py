@@ -17,6 +17,7 @@ import csv
 import os  
  
 from shapely.geometry import Point, Polygon  
+from detection_interfaces.msg import DetectionMsg
 
 #internal imports
 from mission_control_utils import create_polygon
@@ -75,16 +76,22 @@ class MapBuilder:
         return mx, my
 
     def add_scan(self, scan_data):
-        """ Processes new LiDAR scan data into the occupancy grid. """
+        """ Processes new LiDAR scan data, updates the occupancy grid, and applies dilation. """
+        if not scan_data:
+            return
+
+        map_points = []  # Store map indices for dilation
+
         for x, y in scan_data:
             mx, my = self.world_to_map(x, y)
             if 0 <= mx < self.size_x and 0 <= my < self.size_y:
                 # Increase confidence, capped at MAX_CONFIDENCE
                 self.confidence_map[my, mx] = min(self.confidence_map[my, mx] + CONFIDENCE_STEP, MAX_CONFIDENCE)
-                
-                # Convert confidence to occupancy: Higher confidence = higher occupancy probability
-                # For example: confidence of 100 -> map value = 100 (fully occupied), confidence of 50 -> map value = 50 (partially occupied)
-                self.map[my, mx] = int(self.confidence_map[my, mx])  # Directly using confidence as occupancy
+                self.map[my, mx] = int(self.confidence_map[my, mx])  # Directly use confidence as occupancy
+                map_points.append((x, y))  # Store world coordinates for dilation
+
+        # Apply dilation to the entire scan
+        self.apply_dilation(map_points)
 
     def save_map(self, filename="map.pgm"):
         """ Saves the map as a grayscale PGM file. """
@@ -113,7 +120,7 @@ class MapBuilder:
         
         # Convert confidence to occupancy: If confidence is > 0, set map value to 100 (occupied)
         # If it's still -1, keep as unknown
-        #ros_map = [100 if value > 0 else value for value in ros_map]
+        ros_map = [100 if value > 0 else value for value in ros_map]
         
         grid.data = ros_map
         return grid
@@ -122,6 +129,45 @@ class MapBuilder:
         """ Converts the occupancy map in range [-1, 100] to grayscale [0, 255]. """
         # Rescale occupancy values to be in the range [0, 255] (ignore -1 for unknown cells)
         return np.clip((occupancy_map + 1) * (255 / 101), 0, 255).astype(np.uint8)
+
+    
+    def apply_dilation(self, points, reverse=False):
+        """ Applies dilation or reverse dilation to the given set of points in the occupancy map. """
+        if not points:
+            return
+
+        # Create a binary mask of the same size as the map
+        mask = np.zeros_like(self.map, dtype=np.uint8)
+
+        # Set the provided points as occupied in the mask
+        for x, y in points:
+            mx, my = self.world_to_map(x, y)
+            if 0 <= mx < self.size_x and 0 <= my < self.size_y:
+                mask[my, mx] = 255  # Mark occupied pixels
+
+        # Define the dilation/erosion kernel (based on dilation or reverse dilation)
+        kernel_size = int(EXPANSION_RADIUS / self.resolution) * 2 + 1
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+        # Apply either dilation or reverse dilation (erosion) based on the reverse flag
+        if reverse:
+            # Erode (reverse dilation) the mask to shrink the effect
+            processed_mask = cv2.erode(mask, kernel, iterations=1)
+        else:
+            # Dilate the mask to expand the effect
+            processed_mask = cv2.dilate(mask, kernel, iterations=1)
+
+        # Use NumPy boolean indexing for map updates based on the processed mask
+        if reverse:
+            # Reverse dilation: shrink affected cells back to unknown
+            dilated_cells = processed_mask > 0
+            self.map[dilated_cells] = np.where(self.map[dilated_cells] == 50, -1, self.map[dilated_cells])  # Reset to unknown
+            self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] == -1, 0, self.confidence_map[dilated_cells])  # Reset confidence to 0
+        else:
+            # Regular dilation: expand affected cells to 50% occupancy
+            dilated_cells = processed_mask > 0
+            self.map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.map[dilated_cells])  # Mark dilated areas with 50% occupancy
+            self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.confidence_map[dilated_cells])  # Set confidence to 50
 
 
 class LidarMapBuilder(Node):
@@ -136,11 +182,16 @@ class LidarMapBuilder(Node):
         # Define a shared QoS profile for latched publishers
         latched_qos = QoSProfile(depth=1)
         latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
-
+         #Subs to necesary topics
         self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.trigger_subscriber = self.create_subscription(Bool, '/map_trigger', self.map_trigger_callback, 10)
+        self.trigger_subscriber = self.create_subscription(DetectionMsg, '/add_object', self.add_obj_callback, 10)
+        self.trigger_subscriber = self.create_subscription(DetectionMsg, '/remove_object', self.remove_obj_callback, 10)
+
+        # TF buffer for transformations
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
+        self.workspace_publisher = self.creata_publisher(Polygon, '/workspace_pub',10)
         
         # Publisher for the workspace (latched publisher)
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
@@ -163,10 +214,51 @@ class LidarMapBuilder(Node):
             max_y = max(p[1] for p in self.vertices)
             self.map_builder.initialize_map(min_x, max_x, min_y, max_y)
 
+    def add_obj_callback(self, msg):
+        """ Adds a point to the occupancy map and applies dilation. """
+        x, y = msg.x, msg.y  # Get the x, y coordinates of the object
+
+        # Convert the world coordinates to map coordinates
+        mx, my = self.map_builder.world_to_map(x, y)
+
+        # Ensure the point is within the map bounds
+        if 0 <= mx < self.map_builder.size_x and 0 <= my < self.map_builder.size_y:
+            # Increase the confidence of the cell to simulate adding the object
+            self.map_builder.confidence_map[my, mx] = min(self.map_builder.confidence_map[my, mx] + CONFIDENCE_STEP, MAX_CONFIDENCE)
+            self.map_builder.map[my, mx] = int(self.map_builder.confidence_map[my, mx])  # Set occupancy level
+
+            # Apply dilation on the newly added point
+            self.map_builder.apply_dilation([(x, y)])
+            self.map_make_pub(self,msg.stamp)
+
+    def remove_obj_callback(self, msg):
+        """ Removes a point from the occupancy map and applies reverse dilation. """
+        x, y = msg.x, msg.y  # Get the x, y coordinates of the object
+
+        # Convert the world coordinates to map coordinates
+        mx, my = self.map_builder.world_to_map(x, y)
+
+        # Ensure the point is within the map bounds
+        if 0 <= mx < self.map_builder.size_x and 0 <= my < self.map_builder.size_y:
+            # If the confidence is greater than 0, reduce the confidence value
+            if self.map_builder.confidence_map[my, mx] > 0:
+                self.map_builder.confidence_map[my, mx] = max(self.map_builder.confidence_map[my, mx] - CONFIDENCE_STEP, 0)
+                self.map_builder.map[my, mx] = int(self.map_builder.confidence_map[my, mx])
+
+            # Apply reverse dilation only if the cell is at 50% occupancy
+            if self.map_builder.map[my, mx] == 50:
+                self.map_builder.apply_reverse_dilation([(x, y)],reverse=True)  # Reverse dilation on the removed point
+            self.map_make_pub(self,msg.stamp)
+            
     def map_trigger_callback(self, msg):
         """ Publishes the map when triggered by an external signal. """
         self.get_logger().info('Received map trigger message.')
-        occupancy_grid = self.map_builder.to_occupancy_grid(msg.stamp)
+        self.map_make_pub(self,msg.stamp)
+    
+    def map_make_pub(self,stamp):
+        """ Publishes the map when triggered by an external signal. """
+        self.get_logger().info('Generate and publish map.')
+        occupancy_grid = self.map_builder.to_occupancy_grid(stamp)
         self.publisher.publish(occupancy_grid)
 
     def is_point_inside_workspace(self, x, y):
