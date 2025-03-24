@@ -248,7 +248,7 @@ class LidarMapper(Node):
         
         # Initialize tf2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
 
         # Initialize the clean occupancy grid with the workspace file
         # This grid will not be modified, only copied to reset the map when needed (due to noise), avoiding to repeat computations

@@ -17,7 +17,6 @@ from tf2_ros import TransformException
 from .occupancy_grid_map import read_workspace, grid_to_real_coordinates, real_to_grid_coordinates
 
 
-
 # ------------ External functions ------------
 
 def publish_workspace(publisher, clock, file_path=None):
