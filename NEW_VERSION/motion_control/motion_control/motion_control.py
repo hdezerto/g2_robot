@@ -70,7 +70,7 @@ class MotionController(Node):
     def __init__(self):
         super().__init__("motion_controller")
         self.path_subscriber = self.create_subscription(
-            Path, "/test_path", self.path_callback, 10
+            Path, "/planned_path", self.path_callback, 10
         )
         self.stop_subscriber = self.create_subscription(
             Bool, "/stop_motion", self.stop_callback, 10
@@ -165,6 +165,7 @@ class MotionController(Node):
             self.notify_reached_destination(True)
         else:
             self.notify_reached_destination(False)
+        self.get_logger().info("Path execution finished")
 
     def move_to_waypoint(self, waypoint):
         """
@@ -195,6 +196,7 @@ class MotionController(Node):
             self.y_g = waypoint.pose.position.y
             q = waypoint.pose.orientation
             _, _, self.theta_final = euler_from_quaternion([q.x, q.y, q.z, q.w])
+        
 
         # Get the robot's current pose
         current_pose = self.get_current_pos()

@@ -32,6 +32,7 @@ def publish_workspace(publisher, clock, file_path=None):
 
 def compute_path(start, goal, exploration_occupancy_grid, clock):
     path_points = compute_grid_path(start, goal, exploration_occupancy_grid)
+
     if not path_points:
         return None, None
     
@@ -56,7 +57,7 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
     """
     try:
         # Lookup the latest available transform from 'odom' to 'base_link'
-        transform = tf_buffer.lookup_transform('odom', 'base_link', rclpy.time.Time(0))
+        transform = tf_buffer.lookup_transform('odom', 'base_link', rclpy.time.Time(seconds=0), timeout=rclpy.duration.Duration(seconds=1.0))
 
         # Extract translation (x, y) and rotation (yaw)
         x = transform.transform.translation.x
@@ -78,6 +79,7 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
     except TransformException as e:
             logger.error(f"Failed to get current position: {e}")
             return None, None
+
 
 
 # NOT TESTED
