@@ -5,11 +5,11 @@
     <!-- To disable printing of the output of the node to the terminal, remove the output="screen" attribute  -->
 
     <!--  Run the custom frames launch file  -->
-    <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_launch_hardware.xml" />
+    <!-- <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_launch_hardware.xml" /> -->
 
     <!--  Run RViz  -->
     <!--  ADD   args="-d $(find-pkg-share g2_robot)/rviz/g2_robot.rviz"    to load the g2_robot.rviz file  -->
-    <node pkg="rviz2" exec="rviz2" name="rviz"/>
+    <!-- <node pkg="rviz2" exec="rviz2" name="rviz"/> -->
 
     <!--  Run Path Follower  -->
     <!-- <node pkg="odometry" exec="path_follower" name="path_follower" output="screen"/> -->
@@ -22,8 +22,7 @@
 
     <node pkg="path_planning" exec="collection" name="collection" output="screen"/>
 
-
-
+    <node pkg="odometry" exec="automatic_controller" name="automatic_controller" output="screen"/>
 
 
 </launch>

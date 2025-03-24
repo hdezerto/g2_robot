@@ -1,5 +1,12 @@
     
 
+
+
+    <!--  Run detection  -->
+    <node pkg="detection" exec="detection" name="detection_node" output="screen"/>
+    
+    
+    
     <!--  Run Lidar stabilizer  -->
     <node pkg="odometry" exec="lidar_cloud" name="lidar_cloud" output="screen"/>
 

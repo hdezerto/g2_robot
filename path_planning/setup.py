@@ -28,6 +28,7 @@ setup(
             "path_planning = path_planning.path_planning:main",
             "collection = path_planning.collection:main",
             "improved_point_publisher = path_planning.improved_point_publisher:main",
+            "explorer = path_planning.explorer:main",
         ],
     },
 )

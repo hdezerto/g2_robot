@@ -50,10 +50,16 @@ class PathPlanningNode(Node):
         self.create_subscription(OccupancyGrid, "map_update", self.map_update, 10)
         self.create_subscription(Pose, "new_object_pos", self.path_to_object, 10)
         self.create_subscription(Pose, "new_box_pos", self.path_to_box, 10)
+        self.create_subscription(Pose, "path/new_explore_pos", self.explore_path, 10)
+        self.create_subscription(Pose, "new_detection_pos", self.detection_path, 10)
 
         self.path_publisher = self.create_publisher(Path, "/path/planned_path", 10)
-        self.backup_publisher = self.create_publisher(TransformStamped, "/path/goal", 10)
-
+        self.path_publisher_expl = self.create_publisher(
+            Path, "/path/exploration_path", 10
+        )
+        self.backup_publisher = self.create_publisher(
+            TransformStamped, "/path/goal", 10
+        )
 
     def path_to_object(self, msg: Pose):
         print("TODO")
@@ -62,7 +68,7 @@ class PathPlanningNode(Node):
             current_pos = self.get_current_position()
         self.object_position = msg
         self.goal_point = (msg.position.x, msg.position.y)
-        
+
         if not self.use_bu:
             self.goal_map = (
                 int(msg.position.x / self.map_resolution),
@@ -71,18 +77,13 @@ class PathPlanningNode(Node):
             self.goal_positions = self.get_goal_positions(0.2)
             self.find_path(self.goal_positions, 0.2)
         else:
-            self.backup_planning((msg.position.x, msg.position.y), 0.2)
+            self.backup_planning((msg.position.x, msg.position.y), 0.14)
 
     def path_to_box(self, msg: Pose):
         print("TODO")
         current_pos = None
         while not current_pos:
             current_pos = self.get_current_position()
-        # self.start_map = (
-        #     int(current_pos[0] / self.map_resolution),
-        #     int(current_pos[1] / self.map_resolution),
-        # )
-        # self.start_point = current_pos
         self.box_position = msg
         self.goal_point = (msg.position.x, msg.position.y)
         # self.goal = (0, 0)  # TOTOfgoa
@@ -117,7 +118,7 @@ class PathPlanningNode(Node):
 
     def find_path(self, goals, radius):
         print("TODO")
-        smallest_f = float('inf')
+        smallest_f = float("inf")
         goal_path = None
         direction = ""
         # find path to goal states
@@ -264,12 +265,44 @@ class PathPlanningNode(Node):
             (self.start_point[0] - goal_position[0]) ** 2
             + (self.start_point[1] - goal_position[1]) ** 2
         )
-        factor_dist_to_obj = 1 - distance_to_object / distance
-        self.goal = (
-            self.start_point[0] + (goal_position[0] - self.start_point[0]) * factor_dist_to_obj,
-            self.start_point[0] + (goal_position[1] - self.start_point[1]) * factor_dist_to_obj,
+        print(f"Start Position: {self.start_point}")
+        theta = math.atan2(
+            goal_position[1] - self.start_point[1],
+            goal_position[0] - self.start_point[0],
         )
+        factor_dist_to_obj = 1 - distance_to_object / distance
+        cos_angle = math.acos((goal_position[0] - self.start_point[0]) / distance)
+        self.goal = (
+            self.start_point[0] + math.cos(cos_angle) * (distance - distance_to_object),
+            # self.start_point[0] + (goal_position[0] - self.start_point[0]) * factor_dist_to_obj,
+            # self.start_point[1] + (goal_position[1] - self.start_point[1]) * factor_dist_to_obj,
+            self.start_point[1] + math.sin(cos_angle) * (distance - distance_to_object),
+            theta,
+        )
+        print(f"Object Position: {goal_position}")
         self.backup_publish(self.goal)
+
+    def publish_path_bu(self, goal_point):
+        path_msg = Path()
+        path_msg.header.frame_id = "map"
+        path_msg.header.stamp = self.get_clock().now().to_msg()
+
+        start_pose = PoseStamped()
+        start_pose.header.frame_id = "map"
+        start_pose.header.stamp = self.get_clock().now().to_msg()
+        start_pose.pose.position.x = float(self.start_point[0])
+        start_pose.pose.position.y = float(self.start_point[1])
+        path_msg.poses.append(start_pose)
+
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = "map"
+        goal_pose.header.stamp = self.get_clock().now().to_msg()
+        goal_pose.pose.position.x = float(goal_point[0])
+        goal_pose.pose.position.y = float(goal_point[1])
+
+        path_msg.poses.append(goal_pose)
+
+        self.path_publisher.publish(path_msg)
 
     def backup_publish(self, point):
         goal_transform = TransformStamped()
@@ -280,23 +313,91 @@ class PathPlanningNode(Node):
         # assign random point to transform
         goal_transform.transform.translation.x = point[0]
         goal_transform.transform.translation.y = point[1]
+        qx, qy, qz, qw = quaternion_from_euler(0, 0, point[2])
+        goal_transform.transform.rotation.z = qz
+        goal_transform.transform.rotation.w = qw
 
         self.backup_publisher.publish(goal_transform)
         self.publish_path_bu(point)
-        self.get_logger().info(f"Published goal position: {point}")
 
-    def publish_path_bu(self, goal_point):
+    def explore_path(self, msg: Pose):
+        self.goal_point = (msg.position.x, msg.position.y)
+        self.exploration = True
+        if not self.use_bu:
+            self.goal_map = (
+                int(msg.position.x / self.map_resolution),
+                int(msg.position.y / self.map_resolution),
+            )
+            self.goal_positions = self.get_goal_positions(0.2)
+            self.find_path(self.goal_positions, 0.2)
+        else:
+            self.exploration_planning((msg.position.x, msg.position.y))
+
+    def exploration_planning(self, point):
+        goal_transform_1 = PoseStamped()
+        goal_transform_1.header.frame_id = "map"
+        goal_transform_1.header.stamp = self.get_clock().now().to_msg()
+        goal_transform_1.pose.position.x = point[0]
+        goal_transform_1.pose.position.y = point[1]
+
+        goal_transform_2 = PoseStamped()
+        goal_transform_2.header.frame_id = "map"
+        goal_transform_2.header.stamp = self.get_clock().now().to_msg()
+        goal_transform_2.pose.position.x = point[0]
+        goal_transform_2.pose.position.y = point[1]
+        qx, qy, qz, qw = quaternion_from_euler(0, 0, 2 * math.pi / 3)
+        goal_transform_2.pose.orientation.z = qz
+        goal_transform_2.pose.orientation.w = qw
+
+        goal_transform_3 = PoseStamped()
+        goal_transform_3.header.frame_id = "map"
+        goal_transform_3.header.stamp = self.get_clock().now().to_msg()
+        goal_transform_3.pose.position.x = point[0]
+        goal_transform_3.pose.position.y = point[1]
+        qx, qy, qz, qw = quaternion_from_euler(0, 0, 4 * math.pi / 3)
+        goal_transform_3.pose.orientation.z = qz
+        goal_transform_3.pose.orientation.w = qw
+
         path_msg = Path()
         path_msg.header.frame_id = "map"
-        start_pose = PoseStamped()
-        start_pose.pose.position.x = self.start_point[0]
-        start_pose.pose.position.y = self.start_point[1]
-        path_msg.poses.append(start_pose)
-        goal_pose = PoseStamped()
-        goal_pose.pose.position.x = goal_point[0]
-        goal_pose.pose.position.y = goal_point[1]
-        path_msg.poses.append(goal_pose)
-        self.path_publisher.publish(path_msg)
+        path_msg.poses.extend([goal_transform_1, goal_transform_2, goal_transform_3])
+        print(356)
+        ## --- IF NOT WORKING, COMMENT OUT THE FIRST LINE AND UNCOMMENT THE SECOND LINE --- ##
+        # self.path_publisher_expl.publish(path_msg)
+        self.backup_publish((float(point[0]), float(point[1]), 0.0))
+
+    def detection_path(self, msg: Pose):
+        self.goal_point = (msg.position.x, msg.position.y)
+        if not self.use_bu:
+            self.goal_map = (
+                int(msg.position.x / self.map_resolution),
+                int(msg.position.y / self.map_resolution),
+            )
+            self.goal_positions = self.get_goal_positions(0.2)
+            self.find_path(self.goal_positions, 0.2)
+        else:
+            self.detection_planning((msg.position.x, msg.position.y), 0.2)
+
+    def detection_planning(self, point):
+        distance = math.sqrt(
+            (self.start_point[0] - point[0]) ** 2
+            + (self.start_point[1] - point[1]) ** 2
+        )
+        if self.start_point[0] == 0.0:
+            self.get_logger().info("Startpoint is zero")
+        factor_dist_to_obj = 1 - radius / distance
+        theta = math.atan2(
+            point[1] - self.start_point[1],
+            point[0] - self.start_point[0],
+        )
+        cos_angle = math.acos((point[0] - self.start_point[0]) / distance)
+        new_distance = max(0.2, distance / 2)
+        self.goal = (
+            self.start_point[0] + math.cos(cos_angle) * (new_distance),
+            self.start_point[0] + math.sin(cos_angle) * (new_distance),
+            theta,
+        )
+        self.backup_publish(self.goal)
 
 
 def main():

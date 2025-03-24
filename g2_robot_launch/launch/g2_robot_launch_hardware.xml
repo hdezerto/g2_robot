@@ -7,9 +7,7 @@
     <!--  Run the custom frames launch file  -->
     <include file="$(find-pkg-share g2_robot_launch)/launch/g2_robot_frames_launch.xml" />
 
-    <!--  Run odometry node  -->
-    <!--  output="screen" will print the output of the node to the terminal  -->
-    <node pkg="odometry" exec="odometry" name="odometry_node" output="screen"/>
+
 
     <!--  Run motor peripherals and motors  -->
     <include file="$(find-pkg-share robp_launch)/launch/phidgets_launch.py"/>
@@ -22,19 +20,21 @@
 
      <!--  Run joystick teleop  -->
     <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
-    <arg name="joy_config" value="xbox"/>
+        <arg name="joy_config" value="xbox"/>
     </include>
 
     <!--  Run joystick controller  -->
     <node pkg="odometry" exec="controller" name="controller_node" output="screen"/>
 
-    <!--  Run micro_ros_agent node  for the arm -->
-    <node pkg="micro_ros_agent" exec="micro_ros_agent" name="micro_ros_agent_node" output="screen">
-        <param name="arguments" value="serial --dev /dev/hiwonder_arm -v6"/>
-    </node>
+    <!-- Run micro_ros_agent for the arm -->
+    <node pkg="micro_ros_agent" exec="micro_ros_agent" name="micro_ros_agent_node" output="screen"
+        args="serial --dev /dev/ttyUSB1 -v6"/>
 
-    <!--  Arm camera  -->
+    <!--  Run the arm camera  -->
     <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
+    
+
+
 
 
 </launch>

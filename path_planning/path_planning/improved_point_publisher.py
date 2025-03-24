@@ -15,6 +15,8 @@ import tf2_ros
 from geometry_msgs.msg import TransformStamped, PoseStamped
 from nav_msgs.msg import Path
 
+from std_msgs.msg import Bool, String
+
 import tf2_geometry_msgs
 
 
@@ -34,7 +36,7 @@ class PointPublisherNode(Node):
         self.listener = TransformListener(self.buffer, self, spin_thread=False)
         self.publisher = self.create_publisher(TransformStamped, "/path/nextpos", 10)
         self.finish_publisher = self.create_publisher(
-            TransformStamped, "/path/goal_reached", 10
+            String, "/path/goal_reached", 10
         )
         self.tf_broadcaster = TransformBroadcaster(self)
 
@@ -44,6 +46,9 @@ class PointPublisherNode(Node):
 
         self.path_listener = self.create_subscription(
             Path, "/path/planned_path", self.new_path, 10
+        )
+        self.exploration_listener = self.create_subscription(
+            Path, "/path/exploration_path", self.new_path, 10
         )
 
         self.position_reached = True
@@ -68,7 +73,7 @@ class PointPublisherNode(Node):
             return
         "got here"
         if self.use_backup:
-            print("backup")
+            # print("backup")
             self.go_to_point_bu()
             return
 
@@ -136,7 +141,7 @@ class PointPublisherNode(Node):
 
     def go_to_point_bu(self):
         self.do_broadcast()
-
+        self.get_logger().info("142")
         # init
         goal_transform = self.goal_position_bu
         time = self.goal_position_bu.header.stamp
@@ -150,8 +155,6 @@ class PointPublisherNode(Node):
         )
 
         rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=2)
-
-
         # Check if the future completed successfully
         if not (compared_transform.done()):  # and compared_transform.result()
             self.get_logger().error(
@@ -180,17 +183,18 @@ class PointPublisherNode(Node):
                     f"Position {[goal_transform.transform.translation.x, goal_transform.transform.translation.y, goal_transform.transform.rotation.z]} has been reached!"
                 )
                 print(type(self.goal_position))
-                self.finish_publisher.publish(self.goal_position)
+                reached_msg = String()
+                reached_msg.data = "reached"
+                self.finish_publisher.publish(reached_msg)
             else:
                 self.publisher.publish(goal_transform)
-
             return
         except Exception as ex:
             # Log any errors (this will only log broadcasting issues now)
             self.get_logger().error(f"Error: {ex}")
             return
 
-    def get_new_point(self):
+    # def get_new_point(self):
         """
         generate new point
 
@@ -239,7 +243,7 @@ class PointPublisherNode(Node):
         next_goal.header.stamp = self.get_clock().now().to_msg()
         next_goal.header.frame_id = "map"
         next_goal.child_frame_id = "goal_position"
-        next_goal = self.goal_position
+        self.goal_position = next_goal
 
         return next_goal
 
@@ -262,7 +266,7 @@ class PointPublisherNode(Node):
         poses = msg.poses
         self.goals = poses
         self.position_reached = False
-        self.pop_goals()
+        nothing = self.pop_goals()
 
     def do_broadcast(self):
         # rclpy.spin_once(self)
@@ -270,11 +274,11 @@ class PointPublisherNode(Node):
             self.goal_position_bu.header.stamp = self.get_clock().now().to_msg()
             goal_transform = self.goal_position_bu
             self.tf_broadcaster.sendTransform(goal_transform)
-            self.get_logger().info(
-                f"Broadcasting goal position at time: {goal_transform.header.stamp}"
-            )
+            # self.get_logger().info(
+            #     f"Broadcasting goal position at time: {goal_transform.header.stamp}"
+            # )
             # rclpy.spin_once(self)
-            print("broadcast")
+            # print("broadcast")
         else:
             goal_transform = self.goal_position
             self.goal_position.header.stamp = self.get_clock().now().to_msg()
