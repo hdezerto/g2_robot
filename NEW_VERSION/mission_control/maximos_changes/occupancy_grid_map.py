@@ -2,6 +2,10 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import OccupancyGrid
+#integration to Hugo's code
+from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud 
+import sensor_msgs_py.point_cloud2 as pc2  
+
 import numpy as np
 import tf2_ros
 import tf_transformations
@@ -265,6 +269,7 @@ class LidarMapper(Node):
         self.scan_counter = 0
 
     # CHECK THIS FUNCTION
+    '''Test callback function by hugo'''
     def scan_callback(self, msg):
         # Increment the scan counter
         self.scan_counter += 1
@@ -348,9 +353,10 @@ class LidarMapper(Node):
         self.occupancy_grid.data = data.flatten().tolist()
         self.occupancy_grid.header.stamp = msg.header.stamp
         self.map_publisher.publish(self.occupancy_grid)
-
+        self.get_logger().info(f'Occupancy grid published at {msg.header.stamp.sec}.{msg.header.stamp.nanosec}')
 
     # CHECK THIS FUNCTION
+    #it is fine that you do this but it will not be as efficient as using the tf2_sensor_msgs library, unless written in C++
     def transform_to_matrix(self, transform):
         """ Convert a TransformStamped message to a 4x4 transformation matrix """
         translation = np.array([transform.translation.x, transform.translation.y, transform.translation.z])
@@ -364,6 +370,68 @@ class LidarMapper(Node):
         
         return transform_matrix  # Return full 4×4 matrix
 
+    '''Working scan callback from the previous version'''
+    def prev_scan_callback(self, msg):
+        """ Processes incoming LiDAR scans and updates the occupancy grid. """
+        self.scan_count += 1
+        if self.scan_count % SCAN_THRESHOLD != 0:
+            return  # Skip processing for every Nth scan
+        
+        stamp = msg.header.stamp
+        ranges = np.array(msg.ranges)  # Get the range data from the scan message
+        angles = np.linspace(msg.angle_min, msg.angle_max, len(ranges))  # Calculate the angles
+        
+        # Create a mask for points behind the robot and filter them out
+        angles_degrees = np.degrees(angles)
+        behind_robot = (angles_degrees < -120) | (angles_degrees > 120)
+        ranges[behind_robot & (ranges < self.d_filter)] = np.inf  # Set filtered points to infinity
+
+        # If there are no valid points, return early
+        if len(ranges) == 0:
+            self.get_logger().warn("All scan points filtered out!")
+            return
+        
+        # Modify the LaserScan message with the filtered ranges
+        msg.ranges = ranges.tolist()
+
+         # Get the TF transform for correcting odometry drift
+        to_frame_rel = 'map'
+        from_frame_rel = msg.header.frame_id
+        time = rclpy.Time.from_msg(stamp)
+
+        try:
+            # Lookup transform to 'map' frame
+            transform = self.tf_buffer.lookup_transform(
+                to_frame_rel, 
+                from_frame_rel,
+                time,
+                timeout=rclpy.duration.Duration(seconds=0.5)
+            )
+
+            # Convert the LaserScan message to PointCloud2
+            cloud = self.proj.projectLaser(msg)
+            # Transform the point cloud to the 'map' frame
+            transformed_cloud = do_transform_cloud(cloud, transform)
+  
+            # Extract (x, y) points
+            transformed_points = [
+                (p[0], p[1]) for p in pc2.read_points(transformed_cloud, field_names=("x", "y"), skip_nans=True)
+            ]
+
+            # Filter points to keep only those inside the workspace
+            filtered_points = [(x, y) for x, y in transformed_points if self.is_point_inside_workspace(x, y)]
+            self.map_builder.add_scan(filtered_points)
+
+        except Exception as e:
+            self.get_logger().error(f"Transform error: {str(e)}")
+
+        if self.scan_count % SCAN_THRESHOLD == 0:
+            occupancy_grid = self.map_builder.to_occupancy_grid(msg.header.stamp)
+            self.publisher.publish(occupancy_grid)
+
+        if self.scan_count >= SCAN_THRESHOLD:
+            self.map_builder.save_map()
+            self.scan_count = 0
 
 
 # ----------------- Main function -----------------

@@ -28,7 +28,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import PolygonStamped
-from .mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_position,
+from ..mission_control.mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_position,
                                     check_collision)
 from .occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
                                 grid_to_real_coordinates, real_to_grid_coordinates)
@@ -52,6 +52,10 @@ TO DO:
 - Integrate motion controller
 - Integrate lidar mapper
 
+
+
+So only mapping related functions can be real_to_grid_coordinates, grid_to_real_coordinates s that collision checking can be done in the expolration node.
+The other functions can be mission planning utils, i.e. check collition get position etc.
 """
 
 
@@ -91,6 +95,7 @@ class ExplorationController(Node):
                 self.end_exploration()
                 break
 
+
     # ------------------- Initialization -------------------
     def __init__(self):
         # State to initialize the node
@@ -112,7 +117,7 @@ class ExplorationController(Node):
 
         self.static_tf_broadcaster  = StaticTransformBroadcaster(self) # For publishing detected objects/boxes to RViz
 
-        # Subscribe to the /lidar_occupancy_grid topic
+        # Subscribe to the /lidar_occupancy_grid topic changed topic to use multimap 
         self.lidar_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/lidar_occupancy_grid', self.lidar_occupancy_grid_callback, 10)
 
         # Subscribe to the /detections topic
