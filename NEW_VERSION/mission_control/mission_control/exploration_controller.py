@@ -36,6 +36,8 @@ TO DO:
 - Integrate motion controller
 - Integrate lidar mapper
 
+Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
+
 """
 
 
