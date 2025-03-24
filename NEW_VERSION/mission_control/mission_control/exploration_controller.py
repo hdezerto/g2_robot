@@ -52,6 +52,10 @@ TO DO:
 - Integrate motion controller
 - Integrate lidar mapper
 
+
+
+So only mapping related functions can be real_to_grid_coordinates, grid_to_real_coordinates s that collision checking can be done in the expolration node.
+The other functions can be mission planning utils, i.e. check collition get position etc.
 """
 
 
@@ -91,6 +95,7 @@ class ExplorationController(Node):
                 self.end_exploration()
                 break
 
+
     # ------------------- Initialization -------------------
     def __init__(self):
         # State to initialize the node
@@ -112,7 +117,7 @@ class ExplorationController(Node):
 
         self.static_tf_broadcaster  = StaticTransformBroadcaster(self) # For publishing detected objects/boxes to RViz
 
-        # Subscribe to the /lidar_occupancy_grid topic
+        # Subscribe to the /lidar_occupancy_grid topic changed topic to use multimap 
         self.lidar_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/lidar_occupancy_grid', self.lidar_occupancy_grid_callback, 10)
 
         # Subscribe to the /detections topic
