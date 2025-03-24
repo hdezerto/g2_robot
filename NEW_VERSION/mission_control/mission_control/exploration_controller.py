@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-"""
-EXPLORATION LOGIC:
+""" ---------------- OUTDATED !!! ----------------
+EXPLORATION LOGIC   :
 
 1. Initialization:
     - Publish the workspace to RViz (just once).

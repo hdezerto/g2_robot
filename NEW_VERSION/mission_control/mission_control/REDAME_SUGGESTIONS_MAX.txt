@@ -1,0 +1,14 @@
+Discussion points for exploration mission :
+- Controller too bloated, making it hard to integrate actions and debug if necessary by someone who is not Hugo :
+  -For example it should not be making calls updating the map (it should be done by the lidar mapper). It should simply read the map.
+    - that means no inflation done here either
+    - I know mapping exploration points is for debugs, lets just publish shapes to rviz if that is needed
+    - Calculating exploration points could also be done differently. I.e. wait for first map and then do it.
+      When recieving an new map also check if any points lie on obstacle+plus buffer. (i.e. if grid cell bellonging to points is not 0). If yes delete point. 
+    - It should not be responsible for publishing the workspace, that should be done by the mapping node that need to read it anyhow
+    - This also goes for updating the list.
+    - If necessary to ask for latest map, it should be done through a service. i.e. publish map trigger (as discussed before)
+-Another point: Computing a path simply requires the obstacle map and the start and end point. 
+The occupancy grid does not need to have its own grid with points on it. 
+Just needs to store the latest grid published from the mapping node and use it when computing a path.
+suggestion: no initialisation needed other than path_planning_grid = OccupancyGrid(), and don't start path planning untill first map is published
