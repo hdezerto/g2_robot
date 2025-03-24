@@ -70,7 +70,7 @@ class MotionController(Node):
     def __init__(self):
         super().__init__("motion_controller")
         self.path_subscriber = self.create_subscription(
-            Path, "/planned_path", self.path_callback, 10
+            Path, "/test_path", self.path_callback, 10
         )
         self.stop_subscriber = self.create_subscription(
             Bool, "/stop_motion", self.stop_callback, 10
@@ -84,6 +84,8 @@ class MotionController(Node):
         self.reached_waypoint_publisher = self.create_publisher(
             Bool, "/reached_waypoint", 10
         )
+        self.buffer = Buffer()
+        self.listener = TransformListener(self.buffer, self, spin_thread=False)
         self.current_path = None
         self.current_waypoint_index = 0
         self.obstacle_detected = False
@@ -103,15 +105,15 @@ class MotionController(Node):
         self.y_0 = 0.0
 
         # Parameters (changing allowed)
-        self.goal_margin_translational = 0.05
-        self.goal_margin_rotational = math.pi / 15
+        self.goal_margin_translational = 0.02
+        self.goal_margin_rotational = math.pi / 32
 
         self.p_rotation_one = (
             10  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
         self.p_translation_one = 5
         self.p_translation_two = (
-            10  # 0 !< p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
+            25 #  p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
         )
         self.p_rotation_two = (
             10  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
@@ -119,6 +121,8 @@ class MotionController(Node):
         self.v_damper = 1
         self.w_damper = 1
         self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
+
+        self.accuracy_check = 0
 
         self.cycle_damping = 0.1
 
@@ -151,11 +155,11 @@ class MotionController(Node):
                 self.current_waypoint_index += 1
                 self.reached_waypoint = False
                 self.reached_waypoint_publisher.publish(Bool(data=True))
-            else:
-                self.get_logger().info(
-                    "Failed to reach waypoint, stopping path execution"
-                )
-                break
+            # else:
+            #     self.get_logger().info(
+            #         "Failed to reach waypoint, stopping path execution"
+            #     )
+            #     break
 
         if not self.obstacle_detected and not self.stop_robot:
             self.notify_reached_destination(True)
@@ -238,15 +242,19 @@ class MotionController(Node):
             if distance < self.goal_margin_translational:
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
-                    self.get_logger().info("Reached final waypoint")
-                    self.control_phase = 3
-                    self.get_logger().info(
-                        "Reached final waypoint. Now correcting orientation"
-                    )
+                    if self.accuracy_check > 50:
+                        self.get_logger().info("Reached final waypoint")
+                        self.control_phase = 3
+                        self.get_logger().info(
+                            "Reached final waypoint. Now correcting orientation"
+                        )
+                    else:
+                        self.accuracy_check += 1
                 else:
                     self.get_logger().info("Reached waypoint")
                     self.reached_waypoint = True
             else:
+                self.accuracy_check = 0
                 # Set velocity
                 v = self.p_translation_two * (
                     dx * math.cos(self.theta_g) + dy * math.sin(self.theta_g)
@@ -273,7 +281,7 @@ class MotionController(Node):
                 w = self.p_rotation_one * final_dtheta
                 v = 0
 
-        self.get_logger().info(f"v: {v}, w: {w}")
+        self.get_logger().info(f"v: {v}, w: {w}, distance: {distance}")
 
         # Damping
         v = v * self.v_damper

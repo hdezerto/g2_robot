@@ -117,8 +117,8 @@ def create_path_message(path_points, get_clock, occupancy_grid):
     
     # Set the orientation of the last waypoint to match the direction of the path
     waypoint_no = len(path.poses)
-    dx = path.poses[waypoint_no - 1].position.x - path.poses[waypoint_no - 2].position.x
-    dy = path.poses[waypoint_no - 1].position.y - path.poses[waypoint_no - 2].position.y
+    dx = path.poses[waypoint_no - 1].pose.position.x - path.poses[waypoint_no - 2].pose.position.x
+    dy = path.poses[waypoint_no - 1].pose.position.y - path.poses[waypoint_no - 2].pose.position.y
     theta = np.arctan2(dy, dx)
     q = quaternion_from_euler(0, 0, theta)
     path.poses[waypoint_no - 1].pose.orientation.x = q[0]

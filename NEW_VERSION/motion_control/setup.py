@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'odometry = motion_control.odometry:main',
             'joystick_motor_controller = motion_control.joystick_motor_controller:main',
+            'motion_control = motion_control.motion_control:main',
         ],
     },
 )
