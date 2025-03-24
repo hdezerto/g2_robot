@@ -6,109 +6,130 @@
 #include <pcl_conversions/pcl_conversions.h>  // For converting PCL to ROS PointCloud
 #include <pcl/registration/icp.h>             // ICP (Iterative Closest Point) registration
 
+#include "tf2_ros/static_transform_broadcaster.h"
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <tf2/LinearMath/Quaternion.h>
+
 // ICPProcessor class inherits from rclcpp::Node, which represents a ROS 2 node.
 class ICPProcessor : public rclcpp::Node {
 public:
-    // Constructor for the ICPProcessor class
     ICPProcessor() : Node("icp_processor") {
-        // Create a subscription to the topic "/nth_simple_pointcloud" for receiving point clouds
         subscription_nth_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/nth_simple_pointcloud", 10,  // Queue size of 10
+            "/nth_simple_pointcloud", 10,
             [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-                // Callback for when a new point cloud is received, processes it with ICP
                 pointcloud_callback(msg, "/nth_corrected_pointcloud", prev_nth_cloud_);
             }
         );
-        // Publisher to send the corrected point cloud to "/nth_corrected_pointcloud"
         publisher_nth_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/nth_corrected_pointcloud", 10);
 
-        // Create a second subscription for the "/uncorrected_accumulated_pointcloud"
         subscription_accum_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/uncorrected_accumulated_pointcloud", 10,  // Queue size of 10
+            "/uncorrected_accumulated_pointcloud", 10,
             [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-                // Callback for accumulated point cloud
                 pointcloud_callback(msg, "/corrected_accumulated_pointcloud", prev_accum_cloud_);
             }
         );
-        // Publisher to send the corrected accumulated point cloud to "/corrected_accumulated_pointcloud"
         publisher_accum_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/corrected_accumulated_pointcloud", 10);
+    
+        tf_broadcaster_ = std::make_shared<tf2_ros::StaticTransformBroadcaster>(*this);
     }
 
 private:
-    // Declare subscriptions and publishers for handling point cloud data
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_nth_;   // Subscription for nth point cloud
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_nth_;         // Publisher for nth corrected point cloud
-    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_nth_cloud_ {nullptr};  // Pointer to the previous nth cloud (for ICP)
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_nth_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_nth_;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_nth_cloud_ {nullptr};
 
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_accum_;  // Subscription for accumulated point cloud
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_accum_;        // Publisher for corrected accumulated point cloud
-    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_accum_cloud_ {nullptr};  // Pointer to the previous accumulated cloud (for ICP)
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_accum_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_accum_;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_accum_cloud_ {nullptr};
 
-    // This method performs the ICP algorithm to align the received point cloud with the previous one
+    const float MAX_TRANSLATION = 0.2;    // Maximum translation threshold (meters)
+    const float MAX_ROTATION = 0.2;    // Maximum rotation threshold (radians) ~ 10 degrees
+
     void pointcloud_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg, const std::string &output_topic, pcl::PointCloud<pcl::PointXYZ>::Ptr &prev_cloud) {
-        // Convert the received ROS message (PointCloud2) to a PCL PointCloud
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::fromROSMsg(*msg, *cloud);
 
-        // If this is the first cloud, store it and skip the ICP process
         if (!prev_cloud) {
             prev_cloud = cloud;
             RCLCPP_INFO(this->get_logger(), "Stored first cloud for topic %s, skipping ICP on first pass.", output_topic.c_str());
             return;
         }
 
-        // Initialize the ICP object (Iterative Closest Point)
         pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-        icp.setInputSource(cloud);     // The new cloud that we want to align
-        icp.setInputTarget(prev_cloud); // The previous cloud to align against
+        icp.setInputSource(cloud);
+        icp.setInputTarget(prev_cloud);
+        icp.setMaxCorrespondenceDistance(0.075);
+        icp.setMaximumIterations(45);
+        icp.setTransformationEpsilon(1e-8);
+        icp.setEuclideanFitnessEpsilon(1e-5);
 
-        // Set ICP parameters (tuning ICP performance and precision)
-        icp.setMaxCorrespondenceDistance(0.05);  // Max distance between correspondences (points)
-        icp.setMaximumIterations(50);            // Max iterations before stopping
-        icp.setTransformationEpsilon(1e-8);      // Convergence criteria (change in transformation)
-        icp.setEuclideanFitnessEpsilon(1e-5);    // Stop if the fitness score is below this threshold
-
-        // Create a container to hold the aligned cloud
         pcl::PointCloud<pcl::PointXYZ> aligned;
-        icp.align(aligned);  // Run the ICP algorithm
+        icp.align(aligned);
 
-        // If ICP converged (i.e., alignment was successful)
         if (icp.hasConverged()) {
-            // Convert the aligned PCL cloud back to a ROS PointCloud2 message
-            sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(aligned, output);
-            output.header = msg->header;  // Preserve original message header (timestamps, frame_id)
-            output.header.frame_id = msg->header.frame_id;  // Ensure frame_id is passed correctly
+            Eigen::Matrix4f transformation = icp.getFinalTransformation();
+            Eigen::Vector3f translation = transformation.block<3,1>(0,3);
+            Eigen::Matrix3f rotation_matrix = transformation.block<3,3>(0,0);
+            Eigen::Vector3f euler_angles = rotation_matrix.eulerAngles(2, 1, 0);  // Yaw (Z), Pitch (Y), Roll (X)
 
-            // Publish the aligned cloud to the appropriate topic
-            if (output_topic == "/nth_corrected_pointcloud") {
-                publisher_nth_->publish(output);  // Publish for nth point cloud
-            } else {
-                publisher_accum_->publish(output);  // Publish for accumulated point cloud
+            float translation_magnitude = translation.norm();
+            float rotation_magnitude = euler_angles.norm();  // Approximate total rotation in radians
+
+            if (translation_magnitude > MAX_TRANSLATION || rotation_magnitude > MAX_ROTATION) {
+                RCLCPP_WARN(this->get_logger(), "ICP transformation exceeds limits! Skipping this transform.");
+                RCLCPP_WARN(this->get_logger(), "Translation: %f m, Rotation: %f degrees", translation_magnitude, rotation_magnitude * 57.2958);
+                prev_cloud=cloud;
+                return;  // Do not publish if the transformation is too large
             }
 
-            // Log a message indicating the cloud was successfully corrected and published
+            geometry_msgs::msg::TransformStamped transform_stamped;
+            transform_stamped.header.stamp = msg->header.stamp;
+            transform_stamped.header.frame_id = "map";
+            transform_stamped.child_frame_id = "odom";
+            transform_stamped.transform.translation.x = translation.x();
+            transform_stamped.transform.translation.y = translation.y();
+            transform_stamped.transform.translation.z = translation.z();
+
+            tf2::Quaternion q;
+            q.setRPY(euler_angles.x(), euler_angles.y(), euler_angles.z());
+            transform_stamped.transform.rotation.x = q.x();
+            transform_stamped.transform.rotation.y = q.y();
+            transform_stamped.transform.rotation.z = q.z();
+            transform_stamped.transform.rotation.w = q.w();
+
+            tf_broadcaster_->sendTransform(transform_stamped);
+
+            RCLCPP_INFO(this->get_logger(), "Published ICP transformation:");
+            RCLCPP_INFO(this->get_logger(), "Translation: x = %f, y = %f, z = %f", translation.x(), translation.y(), translation.z());
+            RCLCPP_INFO(this->get_logger(), "Rotation (RPY): roll = %f, pitch = %f, yaw = %f", euler_angles.x(), euler_angles.y(), euler_angles.z());
+
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(aligned, output);
+            output.header = msg->header;
+            output.header.frame_id = msg->header.frame_id;
+
+            prev_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(aligned);
+
+            if (output_topic == "/nth_corrected_pointcloud") {
+                publisher_nth_->publish(output);
+            } else {
+                publisher_accum_->publish(output);
+            }
+
             RCLCPP_INFO(this->get_logger(), "Published corrected point cloud to %s.", output_topic.c_str());
         } else {
-            // Log a warning if ICP failed to converge
             RCLCPP_WARN(this->get_logger(), "ICP failed to converge on topic %s.", output_topic.c_str());
         }
 
-        // Update the previous cloud for the next iteration
-        prev_cloud = cloud;
+        
     }
+
+    std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
 };
 
-// Main entry point for the program
 int main(int argc, char** argv) {
-    // Initialize ROS2
     rclcpp::init(argc, argv);
-
-    // Create and spin the ICPProcessor node (processes callbacks and handles point cloud corrections)
     rclcpp::spin(std::make_shared<ICPProcessor>());
-
-    // Shutdown ROS2 when finished
     rclcpp::shutdown();
-
     return 0;
 }

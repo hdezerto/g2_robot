@@ -6,7 +6,10 @@ from rclpy.time import Time  # Used for handling ROS 2 timestamps
 # Importing message types used for communication in ROS 2
 from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
 from nav_msgs.msg import OccupancyGrid, MapMetaData  # OccupancyGrid for map representation, MapMetaData for metadata
+<<<<<<< HEAD:detection/detection/occupancy_mapping_gray.py
+=======
 from std_msgs.msg import Header, Bool  # Standard header message for timestamping and frame information
+>>>>>>> 198a5d912543ddd85beaf57ff7fea00fc1b7a0ed:NEW_VERSION/mission_control/maximos_changes/occupancy_mapping_gray.py
 from std_msgs.msg import Header,Bool  # Standard header message for timestamping and frame information
 from geometry_msgs.msg import Pose, TransformStamped  # Pose for position and orientation, TransformStamped for coordinate transformations
 
@@ -97,7 +100,10 @@ class LidarMapBuilder(Node):
 
         # Create map_trigger subscriber to trigger the map creation
         self.trigger_subscriber = self.create_subscription(Bool,'/map_trigger',self.map_trigger_callback,10)
+<<<<<<< HEAD:detection/detection/occupancy_mapping_gray.py
+=======
         self.trigger_subscriber = self.create_subscription(Bool,'/map_trigger',self.map_trigger_callback,10)
+>>>>>>> 198a5d912543ddd85beaf57ff7fea00fc1b7a0ed:NEW_VERSION/mission_control/maximos_changes/occupancy_mapping_gray.py
 
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)

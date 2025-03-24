@@ -6,7 +6,7 @@ from rclpy.time import Time  # Used for handling ROS 2 timestamps
 # Importing message types used for communication in ROS 2
 from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
 from nav_msgs.msg import OccupancyGrid, MapMetaData  # OccupancyGrid for map representation, MapMetaData for metadata
-from std_msgs.msg import Header  # Standard header message for timestamping and frame information
+from std_msgs.msg import Header,Bool  # Standard header message for timestamping and frame information
 from geometry_msgs.msg import Pose, TransformStamped  # Pose for position and orientation, TransformStamped for coordinate transformations
 
 # Importing libraries for LiDAR scan conversion
@@ -19,7 +19,6 @@ from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud  # Applies transf
 
 #Importing library for handling marker
 from visualization_msgs.msg import Marker 
-
 
 # Importing NumPy for numerical computations and array handling
 import numpy as np  
@@ -55,7 +54,7 @@ class MapBuilder:
                 self.map[my, mx] = int(205 - (self.confidence_map[my, mx] * 2.05))  # Scale 100 → 0, 0 → 205
 
 
-    def save_map(self, filename="map.pgm"):
+    def save_map(self, filename="map_new.pgm"):
         """ Save map as a PGM file """
         filepath = os.path.join(self.folder, filename)
         cv2.imwrite(filepath, self.map)
@@ -96,7 +95,10 @@ class LidarProcessor(Node):
         self.grid_publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
 
         self.marker_subscriber = self.create_subscription(Marker, '/visualization_marker', self.marker_callback, 10)
-        
+
+        # Create map_trigger subscriber to trigger the map creation
+        self.trigger_subscriber = self.create_subscription(Bool,'/map_trigger',self.map_trigger_callback,10)
+
         # TF Buffer and Listener for correcting odometry drift
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -104,11 +106,23 @@ class LidarProcessor(Node):
         self.map_builder = MapBuilder()
         self.proj = LaserProjection()
         self.scan_count = 0
-        self.nth_scan = 5
+        self.nth_scan = 4
         self.accumulated_points = []
-        self.scan_freq = 50
+        self.scan_freq = 12
         self.d_filter= 0.4
+        self.ld_filter = 6
     
+    def map_trigger_callback(self, msg):
+        """ Callback function that is called when a message is received on '/map_trigger' """
+        self.get_logger().info('Received map trigger message.')
+
+        # Directly call the map builder to create the occupancy grid map using the message timestamp
+        occupancy_grid = self.map_builder.to_occupancy_grid(msg.stamp)
+        self.grid_publisher.publish(occupancy_grid)
+        self.get_logger().info('Published occupancy grid map after trigger.')
+
+
+
     def scan_callback(self, msg):
 
         self.scan_count += 1
@@ -123,6 +137,10 @@ class LidarProcessor(Node):
         angles_degrees = np.degrees(angles)
         behind_robot = (angles_degrees < -120) | (angles_degrees > 120)
         ranges[behind_robot & (ranges < self.d_filter)] = np.inf  # Set filtered points to infinity
+
+        # Apply distance-based filtering
+        bad_points= ranges > self.ld_filter  # Only keep points within the maximum range
+        ranges[bad_points]= np.inf
 
         # If there are no valid points, return early
         if len(ranges) == 0:
