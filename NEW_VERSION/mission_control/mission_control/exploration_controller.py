@@ -33,7 +33,7 @@ import time # DEBUG
 """
 TO DO:
 - Check the case when a box is also considered as a plushie
-- Integrate motion controller
+- Fix locked states for the motion controller when the robot moves on the floor
 - Integrate lidar mapper
 
 Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
