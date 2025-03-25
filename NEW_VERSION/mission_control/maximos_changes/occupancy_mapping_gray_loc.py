@@ -107,8 +107,13 @@ class LidarMapBuilder(Node):
     def __init__(self):
         super().__init__('lidar_map_builder')
 
+        #Subs to necesary topics
         self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.trigger_subscriber = self.create_subscription(Bool, '/map_trigger', self.map_trigger_callback, 10)
+        self.trigger_subscriber = self.create_subscription(Point, '/add_object', self.add_obj_callback, 10)
+        self.trigger_subscriber = self.create_subscription(Point, '/remove_object', self.remove_obj_callback, 10)
+
+        #Pubs to necesary topics
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
 
@@ -129,6 +134,50 @@ class LidarMapBuilder(Node):
             min_y = min(p[1] for p in self.vertices)
             max_y = max(p[1] for p in self.vertices)
             self.map_builder.initialize_map(min_x, max_x, min_y, max_y)
+
+    def add_obj_callback(self, msg):
+        """ Adds an object as an occupied cell in the occupancy map and dilates surrounding cells. """
+        x, y = msg.x, msg.y
+
+        # Check if the point is inside the workspace
+        if not self.is_point_inside_workspace(x, y):
+            self.get_logger().warn(f"Point ({x}, {y}) is outside the workspace. Ignoring.")
+            return
+
+        mx, my = self.map_builder.world_to_map(x, y)
+
+        # Mark object as fully occupied
+        self.map_builder.map[my, mx] = 100  
+        self.map_builder.confidence_map[my, mx] = MAX_CONFIDENCE  
+
+        # Expand occupancy using OpenCV dilation
+        kernel_size = int(EXPANSION_RADIUS / self.map_builder.resolution) * 2 + 1  
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        self.map_builder.map = cv2.dilate(self.map_builder.map, kernel, iterations=1)
+        self.map_builder.map[self.map_builder.map > 50] = 50  # Set dilated areas to 50% occupancy
+
+        # Publish updated map
+        occupancy_grid = self.map_builder.to_occupancy_grid(self.get_clock().now().to_msg())
+        self.occupancy_publisher.publish(occupancy_grid)
+
+    def remove_obj_callback(self, msg):
+        """ Removes an object by resetting the occupancy value of a cell. """
+        x, y = msg.x, msg.y
+
+        # Check if the point is inside the workspace
+        if not self.is_point_inside_workspace(x, y):
+            self.get_logger().warn(f"Point ({x}, {y}) is outside the workspace. Ignoring.")
+            return
+
+        mx, my = self.map_builder.world_to_map(x, y)
+
+        # Reset cell to unknown
+        self.map_builder.map[my, mx] = -1  
+        self.map_builder.confidence_map[my, mx] = 0  
+
+        # Publish updated map
+        occupancy_grid = self.map_builder.to_occupancy_grid(self.get_clock().now().to_msg())
+        self.occupancy_publisher.publish(occupancy_grid)
 
     def map_trigger_callback(self, msg):
         """ Publishes the map when triggered by an external signal. """

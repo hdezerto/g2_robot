@@ -4,7 +4,7 @@ from rclpy.node import Node
 from rclpy.time import Time  
 from sensor_msgs.msg import LaserScan, PointCloud2  
 from nav_msgs.msg import OccupancyGrid, MapMetaData  
-from std_msgs.msg import Header, Bool  
+from std_msgs.msg import Header, Bool
 from geometry_msgs.msg import Pose ,PolygonStamped
 from laser_geometry import LaserProjection  
 import sensor_msgs_py.point_cloud2 as pc2  
@@ -16,22 +16,22 @@ import cv2
 import csv 
 import os  
  
-from shapely.geometry import Point, Polygon  
 from detection_interfaces.msg import DetectionMsg
+from shapely import Point,Polygon as ShapelyPolygon
 
 #internal imports
-from mission_control_utils import create_polygon
+from .mission_control_utils import create_polygon
 
 # -------- Tunable Parameters --------
-WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_1.tsv')  # Path to the workspace file
+WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_2.tsv')  # Path to the workspace file
 RESOLUTION = 0.05  # Grid cell size in meters per cell
-EXPANSION_RADIUS = 2  # Number of cells to expand occupied areas (for better visualization)
+EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
 SCAN_THRESHOLD = 5  # Number of scans to skip before processing new data
 SCAN_FREQUENCY = 10  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.40  # Minimum distance filter for LiDAR points to avoid noise
 MAX_CONFIDENCE = 100  # Maximum confidence value
-CONFIDENCE_STEP = 25  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
+CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
 # ------------------------------------
 
@@ -55,18 +55,20 @@ class MapBuilder:
         # Initialize default map size, dynamically updated later
         self.size_x = 500  
         self.size_y = 500
+        self.origin_x = 0
+        self.origin_y = 0
         self.map = None  # Main occupancy map
         self.confidence_map = None  # Confidence levels per cell
 
     def initialize_map(self, min_x, max_x, min_y, max_y):
         """ Initializes the occupancy grid based on the workspace size. """
-        self.size_x = int((max_x - min_x) / self.resolution) + 10  # Add buffer
-        self.size_y = int((max_y - min_y) / self.resolution) + 10
+        self.size_x = int((max_x - min_x) / self.resolution)+1# Add buffer
+        self.size_y = int((max_y - min_y) / self.resolution)+1
         self.origin_x = min_x
         self.origin_y = min_y
 
         # Initialize maps: Occupancy is unknown (-1), confidence starts at 0
-        self.map = -1 * np.ones((self.size_y, self.size_x), dtype=np.int8)  # Using -1 for unknown cells
+        self.map = 0 * np.ones((self.size_y, self.size_x), dtype=np.int8)  # Using -1 for unknown cells
         self.confidence_map = np.zeros((self.size_y, self.size_x), dtype=np.uint8)  # Confidence map [0-100]
 
     def world_to_map(self, x, y):
@@ -74,6 +76,12 @@ class MapBuilder:
         mx = int((x - self.origin_x) / self.resolution)
         my = int((y - self.origin_y) / self.resolution)
         return mx, my
+    
+    def map_to_world(self, mx, my):
+        """ Converts real-world coordinates (meters) to map indices. """
+        x = mx*self.resolution + self.origin_x
+        y = my*self.resolution + self.origin_y
+        return x, y
 
     def add_scan(self, scan_data):
         """ Processes new LiDAR scan data, updates the occupancy grid, and applies dilation. """
@@ -120,7 +128,7 @@ class MapBuilder:
         
         # Convert confidence to occupancy: If confidence is > 0, set map value to 100 (occupied)
         # If it's still -1, keep as unknown
-        ros_map = [100 if value > 0 else value for value in ros_map]
+        #ros_map = [100 if value > 0 else value for value in ros_map]
         
         grid.data = ros_map
         return grid
@@ -145,9 +153,9 @@ class MapBuilder:
             if 0 <= mx < self.size_x and 0 <= my < self.size_y:
                 mask[my, mx] = 255  # Mark occupied pixels
 
-        # Define the dilation/erosion kernel (based on dilation or reverse dilation)
-        kernel_size = int(EXPANSION_RADIUS / self.resolution) * 2 + 1
-        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+        # Define the dilation kernel (3x3 kernel for expanding by 1 cell)
+        kernel = np.ones((3, 3), np.uint8)
 
         # Apply either dilation or reverse dilation (erosion) based on the reverse flag
         if reverse:
@@ -191,10 +199,11 @@ class LidarMapBuilder(Node):
         # TF buffer for transformations
         self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
-        self.workspace_publisher = self.creata_publisher(Polygon, '/workspace_pub',10)
         
         # Publisher for the workspace (latched publisher)
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
+
+
 
         self.map_builder = MapBuilder()
         self.scan_count = 0  # Counter for scan frequency control
@@ -204,15 +213,11 @@ class LidarMapBuilder(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.proj = LaserProjection()
         self.accumulated_points = []
-
+        
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
-        if self.vertices:
-            min_x = min(p[0] for p in self.vertices)
-            max_x = max(p[0] for p in self.vertices)
-            min_y = min(p[1] for p in self.vertices)
-            max_y = max(p[1] for p in self.vertices)
-            self.map_builder.initialize_map(min_x, max_x, min_y, max_y)
+        self.publish_workspace()
+
 
     def add_obj_callback(self, msg):
         """ Adds a point to the occupancy map and applies dilation. """
@@ -229,7 +234,7 @@ class LidarMapBuilder(Node):
 
             # Apply dilation on the newly added point
             self.map_builder.apply_dilation([(x, y)])
-            self.map_make_pub(self,msg.stamp)
+            self.map_make_pub(msg.stamp)
 
     def remove_obj_callback(self, msg):
         """ Removes a point from the occupancy map and applies reverse dilation. """
@@ -248,7 +253,7 @@ class LidarMapBuilder(Node):
             # Apply reverse dilation only if the cell is at 50% occupancy
             if self.map_builder.map[my, mx] == 50:
                 self.map_builder.apply_reverse_dilation([(x, y)],reverse=True)  # Reverse dilation on the removed point
-            self.map_make_pub(self,msg.stamp)
+            self.map_make_pub(msg.stamp)
             
     def map_trigger_callback(self, msg):
         """ Publishes the map when triggered by an external signal. """
@@ -265,10 +270,9 @@ class LidarMapBuilder(Node):
         """ Checks if a point is within the defined workspace. """
         if not self.vertices:
             return True  # No workspace limits
-        polygon = Polygon(self.vertices)
+        polygon = ShapelyPolygon(self.vertices)
         return polygon.contains(Point(x, y))
 
-    '''Working scan callback from the previous version'''
     def scan_callback(self, msg):
         """ Processes incoming LiDAR scans and updates the occupancy grid. """
         self.scan_count += 1
@@ -282,7 +286,7 @@ class LidarMapBuilder(Node):
         # Create a mask for points behind the robot and filter them out
         angles_degrees = np.degrees(angles)
         behind_robot = (angles_degrees < -120) | (angles_degrees > 120)
-        ranges[behind_robot & (ranges < self.d_filter)] = np.inf  # Set filtered points to infinity
+        ranges[behind_robot & (ranges < DISTANCE_FILTER)] = np.inf  # Set filtered points to infinity
 
         # If there are no valid points, return early
         if len(ranges) == 0:
@@ -295,7 +299,7 @@ class LidarMapBuilder(Node):
          # Get the TF transform for correcting odometry drift
         to_frame_rel = 'map'
         from_frame_rel = msg.header.frame_id
-        time = rclpy.Time.from_msg(stamp)
+        time = Time.from_msg(stamp)
 
         try:
             # Lookup transform to 'map' frame
@@ -350,13 +354,19 @@ class LidarMapBuilder(Node):
             for row in reader:
                 x, y = float(row[0]) / 100, float(row[1]) / 100
                 vertices.append((x, y))
+            if vertices:
+                min_x = min(p[0] for p in vertices)
+                max_x = max(p[0] for p in vertices)
+                min_y = min(p[1] for p in vertices)
+                max_y = max(p[1] for p in vertices)
+            self.map_builder.initialize_map(min_x, max_x, min_y, max_y)
             self.update_workspace_boundary(vertices)
             self.get_logger().info(f"Added workspace boundary with {len(vertices)} vertices")
-        self.publish_workspace()
+        
         return vertices
         
     def update_workspace_boundary(self, vertices):
-        """ Mark the grid cells along the boundary of the workspace """
+        """ Mark the grid cells along the boundary of the workspace and outside"""
         for i in range(len(vertices)):
             # Get two consecutive points to form an edge
             p1 = vertices[i]
@@ -368,19 +378,31 @@ class LidarMapBuilder(Node):
 
             # Mark the cells along the edge (this is a simplified line segment marking)
             self.draw_line_on_map(mx1, my1, mx2, my2)
-    
+
+
     def draw_line_on_map(self, x1, y1, x2, y2):
-        """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid """
+        """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid, ensure everything else is 0 """
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         sx = 1 if x1 < x2 else -1
         sy = 1 if y1 < y2 else -1
         err = dx - dy
 
+
         while True:
             # Mark the current point as occupied
-            self.map_builder.map[y1, x1] = 0  # Occupied
+            self.map_builder.map[y1, x1] = 100  # Occupied
+            
+            try:
+                self.map_builder.map[y1+1, x1+1] = 50  # Dial
+            except:
+                self.map_builder.map[y1-1, x1-1] = 50  # Dial
+
             self.map_builder.confidence_map[y1, x1] = 100  # Max confidence
+            try:
+                self.map_builder.confidence_map[y1+1, x1+1] = 50  # Dial
+            except:
+                self.map_builder.confidence_map[y1-1, x1-1] = 50  # Dial
 
             if x1 == x2 and y1 == y2:
                 break
@@ -391,6 +413,7 @@ class LidarMapBuilder(Node):
             if e2 < dx:
                 err += dx
                 y1 += sy
+        
 
     def publish_workspace(self, file_path=None):
         if len(self.vertices)!=0:
@@ -399,7 +422,31 @@ class LidarMapBuilder(Node):
             coordinates = self.read_tsv(self.WORKSPACE_FILE_PATH)
         polygon = create_polygon(coordinates)
         polygon.header.stamp = self.get_clock().now().to_msg()
-        self.pointcloud_publisher(polygon)
+        self.workspace_publisher.publish(polygon)
+
+        #iterate through map and remove free points outside of boundary
+        # Create a meshgrid for all combinations of x, y
+        X, Y = np.meshgrid(np.linspace(0, self.map_builder.size_x - 1, self.map_builder.size_x), 
+                           np.linspace(0, self.map_builder.size_y - 1, self.map_builder.size_y))
+
+        # Flatten the meshgrid to 1D arrays
+        X_flat = X.flatten()
+        Y_flat = Y.flatten()
+
+        # Create an empty mask with the same shape as the map
+        mask = np.zeros((self.map_builder.size_y, self.map_builder.size_x), dtype=bool)
+
+        # Iterate over all indices and check if they are inside the boundary
+        for x, y in zip(X_flat, Y_flat):
+            # Convert map index to world coordinates
+            real_x, real_y = self.map_builder.map_to_world(x, y)
+
+            # Check if the world coordinates are inside the boundary
+            if not(self.is_point_inside_workspace(real_x, real_y)):
+                mask[int(y), int(x)] = True  # Mark the corresponding cell as valid
+        
+        self.map_builder.map[mask]=100
+        self.map_builder.confidence_map[mask]=100
 
 def main():
     rclpy.init()
