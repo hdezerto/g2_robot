@@ -74,9 +74,6 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
         # Convert to grid coordinates
         grid_position = real_to_grid_coordinates([(x, y)], occupancy_grid)[0]
 
-        logger.info(f"Current position (real): {real_position}")
-        logger.info(f"Current position (grid): {grid_position}")
-
         return real_position, grid_position
     
     except TransformException as e:
@@ -206,7 +203,6 @@ def compute_grid_path(start, goal, grid):
     gscore = {start: 0} # Cost from start to current cell
     fscore = {start: heuristic(start, goal)} # Estimated cost from start to goal through current cell (using heuristic)
     oheap = [] # Priority queue to store the cells to visit
-   
 
     heapq.heappush(oheap, (fscore[start], start)) # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
 

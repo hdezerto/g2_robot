@@ -196,8 +196,15 @@ class ExplorationController(Node):
         self.get_logger().info(f'Start: {self.current_grid_position} | Goal: {self.exploration_point}')  # DEBUG
         # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
         # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
-        self.grid_path, path = compute_path(self.current_grid_position, self.exploration_point, self.path_planning_grid, self.get_clock())
-        
+        start = (self.current_grid_position, self.current_position)
+        goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
+        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
+
+        # --------- JUST TO SEE THE GRID PATH ---------
+        self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
+
+        # --------------------------------------
 
         if path: # Path found
             self.publish_path(path) # Publish the path to the motion controller and RViz
@@ -254,6 +261,18 @@ class ExplorationController(Node):
         # Write the map file with detected objects/boxes
         self.write_map_file()
         self.get_logger().info('Exploration completed. Map file saved.')
+
+
+
+    # ---------------- DEBUGGING FUNCTIONS ----------------    
+    def mark_grid_path(self, occupancy_grid, grid_path):
+        data = occupancy_grid.data
+        width = occupancy_grid.info.width        
+        for (x, y) in grid_path:
+            index = y * width + x
+            data[index] = 70  # Mark the path points for debugging        
+        
+        self.publish_exploration_grid()  # Publish the updated grid
 
 
 
@@ -361,11 +380,11 @@ class ExplorationController(Node):
     
             # Alternate the order of adding points for zigzag pattern
             if leftmost and rightmost:
-                if line_count % 2 == 0:  # Even rows: leftmost first, then rightmost
+                if line_count % 2 != 0:  # Odd rows: leftmost first, then rightmost
                     exploration_points.append(leftmost)
                     if rightmost != leftmost:
                         exploration_points.append(rightmost)
-                else:  # Odd rows: rightmost first, then leftmost
+                else:  # Even rows: rightmost first, then leftmost
                     exploration_points.append(rightmost)
                     if rightmost != leftmost:
                         exploration_points.append(leftmost)
@@ -373,7 +392,7 @@ class ExplorationController(Node):
         return exploration_points
 
 
-    # OLD version with all intermediate points
+    #  # OLD version with all intermediate points
     # def compute_exploration_points(self, occupancy_grid, step):
     #     exploration_points = []
     #     width = occupancy_grid.info.width
