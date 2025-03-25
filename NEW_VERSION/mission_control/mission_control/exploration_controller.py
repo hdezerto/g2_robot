@@ -74,6 +74,7 @@ class ExplorationController(Node):
                 self.start_moving()
             elif self.state == ExplorationState.MOVING: # Just process callbacks
                 rclpy.spin_once(self)
+                #rclpy.spin_once(self, timeout_sec=1) # DEBUG
                 #self.get_logger().info('Inside MOVING')  # DEBUG
             elif self.state == ExplorationState.END_EXPLORATION:
                 self.end_exploration()
@@ -178,9 +179,6 @@ class ExplorationController(Node):
         if self.exploration_point_index < len(self.exploration_points):
             self.exploration_point = self.exploration_points[self.exploration_point_index] # Get grid coordinates of the next exploration point
             self.exploration_point_index += 1
-
-            # time.sleep(1)  # DEBUG
-            
             self.state = ExplorationState.START_MOVING
         else: # No more points to explore
             self.get_logger().info('No more exploration points. Ending exploration.')
@@ -195,23 +193,12 @@ class ExplorationController(Node):
             self.get_logger().info('Failed to get current position!') # DEBUG
         self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
         
+        self.get_logger().info(f'Start: {self.current_grid_position} | Goal: {self.exploration_point}')  # DEBUG
         # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
         # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
-        start = (self.current_grid_position, self.current_position)
-        goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
-        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
-        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
-
-
-        # --------- JUST FOR DEBUGGING ---------
-
-        self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
-
-
-        # --------------------------------------
-
-
+        self.grid_path, path = compute_path(self.current_grid_position, self.exploration_point, self.path_planning_grid, self.get_clock())
         
+
         if path: # Path found
             self.publish_path(path) # Publish the path to the motion controller and RViz
             self.get_logger().info('Path published. Moving...')
@@ -270,23 +257,6 @@ class ExplorationController(Node):
 
 
 
-    # ---------------- DEBUGGING FUNCTIONS ----------------
-
-    def mark_grid_path(self, occupancy_grid, grid_path):
-        data = occupancy_grid.data
-        width = occupancy_grid.info.width
-
-        for (x, y) in grid_path:
-            index = y * width + x
-            data[index] = 70  # Mark the path points for debugging
-        
-        self.publish_exploration_grid()  # Publish the updated grid
-
-
-    
-    
-
-    
     # ------------------- UTILS (specific to ExplorationController) ------------------- 
 
     # TEST (check if boxes dont need a larger threshold)
@@ -369,7 +339,7 @@ class ExplorationController(Node):
     def publish_path(self, path):
         # Publish the path to the motion controller and RViz
         self.path_publisher.publish(path)
-
+   
 
     def compute_exploration_points(self, occupancy_grid, step):
         exploration_points = []
@@ -377,20 +347,52 @@ class ExplorationController(Node):
         height = occupancy_grid.info.height
         data = occupancy_grid.data
         line_count = -1 # -1 to ignore the line y=0 (no free cells with workspace2)
-
-        for y in range(0, height, step): # Zigzag pattern in the y direction
-            line_points = []
+    
+        for y in range(0, height, step):  # Iterate over rows with the given step
+            leftmost = None
+            rightmost = None
             line_count += 1
             for x in range(0, width, step):
                 index = y * width + x
                 if data[index] == 0:  # Assuming 0 represents free space
-                    line_points.append((x, y))
-            if line_count % 2 == 0:
-                line_points.reverse()  # This makes inverse every even line
-            exploration_points.extend(line_points)
-
+                    if leftmost is None:
+                        leftmost = (x, y)  # First free cell in the row
+                    rightmost = (x, y)  # Update to the last free cell in the row
+    
+            # Alternate the order of adding points for zigzag pattern
+            if leftmost and rightmost:
+                if line_count % 2 == 0:  # Even rows: leftmost first, then rightmost
+                    exploration_points.append(leftmost)
+                    if rightmost != leftmost:
+                        exploration_points.append(rightmost)
+                else:  # Odd rows: rightmost first, then leftmost
+                    exploration_points.append(rightmost)
+                    if rightmost != leftmost:
+                        exploration_points.append(leftmost)
+    
         return exploration_points
 
+
+    # OLD version with all intermediate points
+    # def compute_exploration_points(self, occupancy_grid, step):
+    #     exploration_points = []
+    #     width = occupancy_grid.info.width
+    #     height = occupancy_grid.info.height
+    #     data = occupancy_grid.data
+    #     line_count = -1 # -1 to ignore the line y=0 (no free cells with workspace2)
+
+    #     for y in range(0, height, step): # Zigzag pattern in the y direction
+    #         line_points = []
+    #         line_count += 1
+    #         for x in range(0, width, step):
+    #             index = y * width + x
+    #             if data[index] == 0:  # Assuming 0 represents free space
+    #                 line_points.append((x, y))
+    #         if line_count % 2 == 0:
+    #             line_points.reverse()  # This makes inverse every even line
+    #         exploration_points.extend(line_points)
+
+    #     return exploration_points
 
     
 
