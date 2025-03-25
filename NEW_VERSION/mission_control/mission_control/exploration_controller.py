@@ -24,9 +24,9 @@ from std_msgs.msg import Bool
 from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-import tf2_ros
 
 from detection_interfaces.msg import DetectionMsg
+import os # To get the current directory
 
 import time # DEBUG
 
@@ -67,7 +67,7 @@ class ExplorationController(Node):
     def run(self):
         while rclpy.ok():
             if self.state == ExplorationState.OBSERVING:
-                self.spin_for_duration(3.0)  # Spin for 3 seconds
+                self.observing(3.0)  # Observe (spin) for 3 seconds
             elif self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
             elif self.state == ExplorationState.START_MOVING:
@@ -89,23 +89,20 @@ class ExplorationController(Node):
         # Define a shared QoS profile for latched publishers
         latched_qos = QoSProfile(depth=1)
         latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
-
         # Publisher for the workspace (latched publisher)
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
-
         # Publisher for the exploration grid (latched publisher)
         self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
-
         # Publish the workspace to RViz
         publish_workspace(self.workspace_publisher, self.get_clock())
 
         self.static_tf_broadcaster  = StaticTransformBroadcaster(self) # For publishing detected objects/boxes to RViz
 
-        # Subscribe to the /lidar_occupancy_grid topic
-        self.lidar_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/lidar_occupancy_grid', self.lidar_occupancy_grid_callback, 10)
+        # Subscribe to the /mapper_occupancy_grid topic
+        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
 
         # Subscribe to the /detections topic
-        self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5)
+        self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5) # CHECK if 5 is not too much here
 
         # Initialize a clean occupancy grid (workspace file and resolution defined in occupancy_grid_map.py)
         self.exploration_occupancy_grid = initialize_occupancy_grid()
@@ -129,19 +126,12 @@ class ExplorationController(Node):
         formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
         self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
 
-
-
         # Initialize TF2 Buffer and TransformListener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True) # spin_thread=True to run the listener in a separate thread
-
-
         # Add a delay to allow the TransformListener to populate the buffer
         self.get_logger().info('Waiting for TF buffer to populate...')
         time.sleep(1)  # Wait for 1 second
-
-
-
 
         self.current_position = (0, 0)  # Initial position (0, 0) in real world coordinates
         self.current_grid_position = real_to_grid_coordinates([self.current_position], self.exploration_occupancy_grid)[0]
@@ -166,11 +156,11 @@ class ExplorationController(Node):
 
         #self.state = ExplorationState.OBSERVING
         #self.state = ExplorationState.MOVING # DEBUG detection
-        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG
+        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
 
 
     # ------------------- STATE FUNCTIONS -------------------
-    def spin_for_duration(self, duration):
+    def observing(self, duration):
         """
         Process callbacks for a specified duration, just for initial observation of the environment (using camera and lidar)
         """
@@ -201,10 +191,11 @@ class ExplorationController(Node):
         self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
         if self.current_position is None:
             self.get_logger().info('Failed to get current position!') # DEBUG
+        self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
         
+        self.get_logger().info(f'Start: {self.current_grid_position} | Goal: {self.exploration_point}')  # DEBUG
         # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
         # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
-        self.get_logger().info(f'Exploration point: {self.exploration_point}')  # DEBUG
         self.grid_path, path = compute_path(self.current_grid_position, self.exploration_point, self.path_planning_grid, self.get_clock())
         
         if path: # Path found
@@ -221,7 +212,7 @@ class ExplorationController(Node):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Check if the detection is new and inside the workspace
         # NOTE: objects that lie on the edge of the workspace are considered outside!
-        if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):
+        if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):           
             # TO DO: ADD LOGIC TO CHECK FOR COLLISION
             if msg.type == 'OBJECT':
                 self.detected_objects.append((msg.x, msg.y, msg.cat))
@@ -235,8 +226,8 @@ class ExplorationController(Node):
 
     
     # TO FINISH
-    def lidar_occupancy_grid_callback(self, msg):
-        self.get_logger().info('Received new lidar occupancy grid.') # DEBUG
+    def mapper_occupancy_grid_callback(self, msg):
+        self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
         # Update the planning grid with the latest lidar occupancy grid and the detected objects/boxes
         update_path_planning_grid(self.path_planning_grid, msg, self.detected_objects + self.detected_boxes)
         # Update the current position of the robot (from odometry or localization)
@@ -273,8 +264,8 @@ class ExplorationController(Node):
         detected_list = {
             'OBJECT': self.detected_objects,
             'BOX': self.detected_boxes
-        }[msg.type]  # No need for .get() since the type is always valid
-    
+        }[msg.type]
+
         # Check if the detection already exists
         for detection in detected_list:
             if ((detection[0] - msg.x) ** 2 + (detection[1] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
@@ -307,10 +298,10 @@ class ExplorationController(Node):
         return False
 
 
-    # NOT TESTED
     # The map is saved in the directory where the node is run
     def write_map_file(self):
         file_name = "map_file.txt"
+        current_directory = os.getcwd()  # Get the current working directory
     
         with open(file_name, 'w') as file:
             # Write the objects to the file
@@ -321,7 +312,7 @@ class ExplorationController(Node):
             for x, y, theta in self.detected_boxes:
                 file.write(f"B\t{x:.2f}\t{y:.2f}\t{theta:.0f}\n")  # Use theta for the angle
     
-        self.get_logger().info(f"Map file '{file_name}' has been written successfully.")
+        self.get_logger().info(f"Map file '{file_name}' has been written successfully to '{current_directory}'.")
 
 
     def stop_robot(self):
