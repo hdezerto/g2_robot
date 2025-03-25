@@ -129,6 +129,7 @@ class MotionController(Node):
     def path_callback(self, msg: Path):
         self.get_logger().info("Received new path")
         self.current_path = msg
+        self.current_path.poses.pop(0)
         self.current_waypoint_index = 0
         self.obstacle_detected = False
         self.stop_robot = False
@@ -244,7 +245,7 @@ class MotionController(Node):
             if distance < self.goal_margin_translational:
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
-                    if self.accuracy_check > 50:
+                    if self.accuracy_check > 5:
                         self.get_logger().info("Reached final waypoint")
                         self.control_phase = 3
                         self.get_logger().info(
@@ -360,10 +361,8 @@ def main(args=None):
         motion_controller = MotionController()
         motion_controller.get_logger().info("MotionController node has started.")
 
-        # Use a MultiThreadedExecutor to enable the use of multiple callbacks in parallel
-        executor = MultiThreadedExecutor()
-        executor.add_node(motion_controller)
-        executor.spin()
+
+        rclpy.spin(motion_controller)
     except KeyboardInterrupt:
         motion_controller.get_logger().info("MotionController node is shutting down.")
     finally:

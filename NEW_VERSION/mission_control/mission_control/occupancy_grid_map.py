@@ -13,7 +13,7 @@ import os
 
 
 # -------- Tunable parameters --------
-WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_1.tsv') # Path to the workspace file
+WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_3.tsv') # Path to the workspace file
 RESOLUTION = 0.05  # Grid cell size [m/cell]
 EXPANSION_RADIUS = 2  # Radius in cells to dilate occupied cells [cells]
 

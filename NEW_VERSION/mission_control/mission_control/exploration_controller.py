@@ -74,7 +74,6 @@ class ExplorationController(Node):
                 self.start_moving()
             elif self.state == ExplorationState.MOVING: # Just process callbacks
                 rclpy.spin_once(self)
-                #rclpy.spin_once(self, timeout_sec=1) # DEBUG
                 #self.get_logger().info('Inside MOVING')  # DEBUG
             elif self.state == ExplorationState.END_EXPLORATION:
                 self.end_exploration()
@@ -179,6 +178,9 @@ class ExplorationController(Node):
         if self.exploration_point_index < len(self.exploration_points):
             self.exploration_point = self.exploration_points[self.exploration_point_index] # Get grid coordinates of the next exploration point
             self.exploration_point_index += 1
+
+            # time.sleep(1)  # DEBUG
+            
             self.state = ExplorationState.START_MOVING
         else: # No more points to explore
             self.get_logger().info('No more exploration points. Ending exploration.')
@@ -193,10 +195,22 @@ class ExplorationController(Node):
             self.get_logger().info('Failed to get current position!') # DEBUG
         self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
         
-        self.get_logger().info(f'Start: {self.current_grid_position} | Goal: {self.exploration_point}')  # DEBUG
         # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
         # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
-        self.grid_path, path = compute_path(self.current_grid_position, self.exploration_point, self.path_planning_grid, self.get_clock())
+        start = (self.current_grid_position, self.current_position)
+        goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
+        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
+
+
+        # --------- JUST FOR DEBUGGING ---------
+
+        self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
+
+
+        # --------------------------------------
+
+
         
         if path: # Path found
             self.publish_path(path) # Publish the path to the motion controller and RViz
@@ -256,6 +270,23 @@ class ExplorationController(Node):
 
 
 
+    # ---------------- DEBUGGING FUNCTIONS ----------------
+
+    def mark_grid_path(self, occupancy_grid, grid_path):
+        data = occupancy_grid.data
+        width = occupancy_grid.info.width
+
+        for (x, y) in grid_path:
+            index = y * width + x
+            data[index] = 70  # Mark the path points for debugging
+        
+        self.publish_exploration_grid()  # Publish the updated grid
+
+
+    
+    
+
+    
     # ------------------- UTILS (specific to ExplorationController) ------------------- 
 
     # TEST (check if boxes dont need a larger threshold)

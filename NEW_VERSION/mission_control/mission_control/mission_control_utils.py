@@ -30,17 +30,20 @@ def publish_workspace(publisher, clock, file_path=None):
     publisher.publish(polygon)
 
 
+
 def compute_path(start, goal, exploration_occupancy_grid, clock):
-    path_points = compute_grid_path(start, goal, exploration_occupancy_grid)
+    start_cell, start_real = start
+    goal_cell, goal_real = goal
+
+    path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid)
 
     if not path_points:
         return None, None
     
-    path = create_path_message(path_points, clock, exploration_occupancy_grid)
+    path = create_path_message(path_points, start_real, goal_real, clock, exploration_occupancy_grid)
     return path_points, path
 
 
-# NOT TESTED
 def get_current_position(tf_buffer, logger, occupancy_grid):
     """
     Gets the robot's current position in both real-world and grid coordinates.
@@ -56,8 +59,8 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
             - grid_position (tuple): The grid coordinates (x, y).
     """
     try:
-        # Lookup the latest available transform from 'odom' to 'base_link'
-        transform = tf_buffer.lookup_transform('odom', 'base_link', rclpy.time.Time(seconds=0), timeout=rclpy.duration.Duration(seconds=1.0))
+        # Lookup the latest available transform from 'map' to 'base_link'
+        transform = tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time(seconds=0), timeout=rclpy.duration.Duration(seconds=1.0))
 
         # Extract translation (x, y) and rotation (yaw)
         x = transform.transform.translation.x
@@ -240,10 +243,18 @@ def compute_grid_path(start, goal, grid):
     return False
 
 
-def create_path_message(path_points, clock, occupancy_grid):
-    path_points = simplify_grid_path(path_points)
-    # Convert grid coordinates to real-world coordinates
-    path_points = grid_to_real_coordinates(path_points, occupancy_grid)
+
+def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
+    grid_path_points = simplify_grid_path(grid_path_points) # Simplify the path by removing redundant points
+
+    grid_path_points = grid_path_points[1:-1] # Remove the start and goal points from the path (the exact ones will be added later)
+
+    # Convert path grid coordinates to real-world coordinates
+    real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
+
+    # Add start_real and goal_real as the first and last points
+    real_path_points.insert(0, start_real)
+    real_path_points.append(goal_real)
 
     # Smooth the path using cubic interpolation
     #path_points = bezier_smooth_path(path_points)
@@ -252,7 +263,7 @@ def create_path_message(path_points, clock, occupancy_grid):
     path.header.stamp = clock.now().to_msg()
     path.header.frame_id = 'map'
 
-    for point in path_points:
+    for point in real_path_points:
         pose = PoseStamped()
         pose.header.stamp = clock.now().to_msg()
         pose.header.frame_id = 'map'
