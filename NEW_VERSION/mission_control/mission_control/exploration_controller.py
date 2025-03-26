@@ -35,6 +35,8 @@ TO DO:
 - Check the case when a box is also considered as a plushie
 - Fix locked states for the motion controller when the robot moves on the floor
 - Integrate lidar mapper
+ -HUGE DRIFT
+
 
 Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
 
@@ -44,10 +46,11 @@ Check if the timer to populate the buffer is the best approach to avoid the tran
 #self.get_logger().info('HERE DEBUG!!!')  # DEBUG
 
 
+
 # -------- Tunable parameters --------
 #EXPLORATION_STEP = 7  # Step size for generating exploration points [cells]
 EXPLORATION_STEP = 15 # DEBUGGING
-POSITION_THRESHOLD = 0.1  # Threshold for considering two detections as the same [m]
+POSITION_THRESHOLD = 0.13  # Threshold for considering two detections as the same [m]
 # ------------------------------------
 
 
@@ -155,8 +158,8 @@ class ExplorationController(Node):
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
         #self.state = ExplorationState.OBSERVING
-        #self.state = ExplorationState.MOVING # DEBUG detection
-        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
+        self.state = ExplorationState.MOVING # DEBUG detection
+        #self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
 
 
     # ------------------- STATE FUNCTIONS -------------------
@@ -220,7 +223,8 @@ class ExplorationController(Node):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Check if the detection is new and inside the workspace
         # NOTE: objects that lie on the edge of the workspace are considered outside!
-        if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):           
+
+        if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):         
             # TO DO: ADD LOGIC TO CHECK FOR COLLISION
             if msg.type == 'OBJECT':
                 self.detected_objects.append((msg.x, msg.y, msg.cat))
@@ -311,8 +315,8 @@ class ExplorationController(Node):
         if 0 <= grid_x < width and 0 <= grid_y < height:
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
-            # Check if the cell value is 0 (free space) or 15 (exploration point)
-            return self.exploration_occupancy_grid.data[index] in [0, 15]
+            # Check if the cell value is 0 (free space), 15 (exploration point) or 50 (inflated cells of the workspace border)
+            return self.exploration_occupancy_grid.data[index] in [0, 15, 50]
 
         # If out of bounds, return False
         return False

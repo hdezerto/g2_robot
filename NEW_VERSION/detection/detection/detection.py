@@ -79,6 +79,7 @@ class PointCloudDetection(Node):
         self.detection_publisher = self.create_publisher(DetectionMsg, '/detections', 10)  # Publisher for detections in exploration
 
         self.message_counter = 0
+        self.detected_boxes = []
 
 
 
@@ -165,7 +166,6 @@ class PointCloudDetection(Node):
         lower_green1, upper_green1 = np.array([81, 100, 44]), np.array([84, 255, 105])
         lower_green2, upper_green2 = np.array([73, 210, 90]), np.array([74, 240, 120])
         lower_blue, upper_blue = np.array([99, 254, 75]), np.array([99, 255, 80])
-        #lower_brown, upper_brown =np.array([15, 68, 137]), np.array([17, 76, 134])
 
         # Iterate over each cluster
         for cluster_label in unique_labels:
@@ -211,7 +211,9 @@ class PointCloudDetection(Node):
             
             x, y, z = np.mean(cluster_points, axis=0) # Calculate the centroid of the cluster
 
-            if self.is_near_box(x, y, z):
+            x_map, y_map, _ = self.transform_to_map(x, z, msg.header.stamp)
+
+            if self.is_near_box(x_map, y_map):
                 self.get_logger().info(f'Cluster is near a box!')
                 continue
 
@@ -228,9 +230,6 @@ class PointCloudDetection(Node):
                 elif object_type == "unknown":
                     self.get_logger().info(f'Object not identified :(!')
 
-            elif self.is_plushie(cluster_points): 
-                self.get_logger().info(f'🧸 Cluster  is a plushie!')
-                self.create_object('plushie', x, z + 0.01, 0.0, msg.header.stamp)
 
             elif self.is_box(cluster_points):  # If detected object is a box
                 self.get_logger().info(f'📦 Cluster is a box!')
@@ -241,14 +240,16 @@ class PointCloudDetection(Node):
                 # Store box with angle information
                 if angle == 0.0:
                     self.create_object('box', x, z + 0.08, angle, msg.header.stamp)
-                    self.detected_boxes.append((x, y, z +0.08))  
 
                 elif angle == 90.0:
                     self.create_object('box', x, z + 0.12, angle, msg.header.stamp)
-                    self.detected_boxes.append((x, y, z +0.12))  
+
                 else:
                     self.create_object('box', x, z + 0.08, angle, msg.header.stamp)
-                    self.detected_boxes.append((x, y, z +0.08))  
+
+            elif self.is_plushie(cluster_points): 
+                self.get_logger().info(f'🧸 Cluster  is a plushie!')
+                self.create_object('plushie', x, z + 0.01, 0.0, msg.header.stamp)
 
             else:
                 self.get_logger().info(f'Cluster is NOT a recognized object.')
@@ -256,16 +257,16 @@ class PointCloudDetection(Node):
 
             # ------------ TIMER FOR EFFICIENCY CHECK (move where desired) ------------
             end_time = time.time()
-            self.get_logger().info(f"Processing time: {end_time - start_time:.4f} seconds")
+            #self.get_logger().info(f"Processing time: {end_time - start_time:.4f} seconds")
             # ------------------------------------------------------------------------
 
 
     # v ------------------ FUNCTIONS BELOW ------------------ v
-    def is_near_box(self, x, y, z, radius=0.20):
-        if not self.detected_boxes: #when I still havent detected any box
-            return False
-        for box_x, box_y, box_z in self.detected_boxes:
-            distance = np.sqrt((x - box_x) ** 2 + (y - box_y) ** 2 + (z - box_z) ** 2)
+    def is_near_box(self, x, y, radius=0.30):
+        self.get_logger().info(f"Count boxes: {len(self.detected_boxes)}")
+        for box_x, box_y  in self.detected_boxes:
+            distance = np.sqrt((x - box_x) ** 2 + (y - box_y) ** 2)
+            self.get_logger().info(f"Distance to box at ({box_x}, {box_y}): {distance:.3f}")
             if distance <= radius:
                 return True
         return False
@@ -299,23 +300,7 @@ class PointCloudDetection(Node):
         
         return dim_match
 
-
-
-    def create_object(self, id, x, z, angle, stamp):
-        # Map object type to a label
-        if id == 'cube':
-            type = 'OBJECT'
-            category = 1
-        elif id == 'sphere':
-            type = 'OBJECT'
-            category = 2
-        elif id == 'plushie':
-            type = 'OBJECT'
-            category = 3
-        else: # id == 'box':'
-            type = 'BOX'
-            category = 0 # Undefined cat
-        
+    def transform_to_map(self, x, z, stamp):
         # Create a PointStamped message for the input coordinates
         point_in = PointStamped()
         point_in.header.frame_id = 'camera_depth_optical_frame'  # Input frame
@@ -339,67 +324,83 @@ class PointCloudDetection(Node):
             y_transformed = point_out.point.y
             z_transformed = point_out.point.z
 
-            # Print the transformed coordinates
-            self.get_logger().info(
-                f"Object: {type} | X: {x_transformed:.3f}m, Y: {y_transformed:.3f}m, Z: {z_transformed:.3f}m"
-            )
-
-            # Publish the detection message
-            detection_msg = DetectionMsg()
-            detection_msg.type = type  # "OBJECT" or "BOX"
-            detection_msg.cat = category  # Category (1, 2, 3, etc.)
-            detection_msg.x = x_transformed
-            detection_msg.y = y_transformed
-            detection_msg.theta = angle if type == 'BOX' else 0.0  # Orientation for BOX
-
-            self.detection_publisher.publish(detection_msg)
+            return x_transformed, y_transformed, z_transformed
 
         except TransformException as e:
             self.get_logger().error(f"Failed to transform coordinates: {e}")
+            return None, None, None
 
+
+
+
+    def create_object(self, id, x, z, angle, stamp):
+
+        x_map, y_map, _ = self.transform_to_map(x, z, stamp)
+
+        if x_map is None or y_map is None:
+            return
+
+        # Map object type to a label
+        if id == 'cube':
+            type = 'OBJECT'
+            category = 1
+        elif id == 'sphere':
+            type = 'OBJECT'
+            category = 2
+        elif id == 'plushie':
+            type = 'OBJECT'
+            category = 3
+        else: # id == 'box':'
+            type = 'BOX'
+            category = 0 # Undefined cat
+            self.detected_boxes.append((x_map, y_map))  # Store the detected box coordinates     
+                   
+        # Publish the detection message
+        detection_msg = DetectionMsg()
+        detection_msg.type = type  # "OBJECT" or "BOX"
+        detection_msg.cat = category  # Category (1, 2, 3, etc.)
+        detection_msg.x = x_map
+        detection_msg.y = y_map
+        detection_msg.theta = angle if type == 'BOX' else 0.0  # Orientation for BOX
+
+        self.get_logger().info(f"Object: {type} | X: {x_map:.3f}m, Y: {y_map:.3f}")
+
+        self.detection_publisher.publish(detection_msg)
+
+        
 
 
     def classify_based_on_floor_contact(self, cluster_points, middle_layer_range=0.02, top_layer_range=0.005):
-  
-        # Extract Y-coordinates (height values)
-        heights = cluster_points[:, 1]
+            cluster_points = np.array(cluster_points)        # Dynamically calculate the middle layer of the cluster
+            # The middle layer is defined as points within a small range around the median height of the cluster
+            median_height = np.median(cluster_points[:, 1])  # Median height of the cluster
+            middle_layer_points = cluster_points[
+                (cluster_points[:, 1] >= median_height - middle_layer_range) &
+                (cluster_points[:, 1] <= median_height + middle_layer_range)
+            ]
+            num_middle_layer_points = len(middle_layer_points)        # Dynamically calculate the highest layer of the cluster
+            min_height = np.min(cluster_points[:, 1])  # Maximum height of the cluster
+            highest_layer_points = cluster_points[
+                (cluster_points[:, 1] >= min_height) &
+                (cluster_points[:, 1] <= min_height + top_layer_range)
+            ]
 
-        # Compute median height efficiently
-        median_height = np.median(heights)
+            num_highest_layer_points = len(highest_layer_points)        # Calculate the ratio of middle layer points to highest layer points
+            if num_highest_layer_points == 0:
+                return "unknown"  # Avoid division by zero 
+            
 
-        # Compute the lowest height in the cluster
-        min_height = np.min(heights)
 
-        # Boolean masks for filtering layers
-        middle_mask = (heights >= median_height - middle_layer_range) & (heights <= median_height + middle_layer_range)
-        top_mask = (heights >= min_height) & (heights <= min_height + top_layer_range)
+            ratio = num_middle_layer_points / num_highest_layer_points      
+            #self.get_logger().info(f"ratio: {ratio}")        # Classification based on the ratio
 
-        # Count the number of points in each layer
-        num_middle_layer_points = np.count_nonzero(middle_mask)
-        num_highest_layer_points = np.count_nonzero(top_mask)
 
-        """
-        # Log the results for testing ratios
-        self.get_logger().info(
-            f"Middle Layer: {num_middle_layer_points}, "
-            f"Highest Layer: {num_highest_layer_points}, "
-            f"Ratio: {ratio:.2f}"
-        )
-         """
-        # Avoid division by zero
-        if num_highest_layer_points == 0:
-            return "unknown"
-
-        # Calculate ratio
-        ratio = num_middle_layer_points / num_highest_layer_points
-
-        # Classification based on the ratio
-        if 1 < ratio <= 6:
-            return "cube"
-        elif 6 < ratio < 14:
-            return "sphere"
-        else:
-            return "unknown"
+            if 1 < ratio <= 6.5:  # Cube: ratio is approximately 1
+                return "cube"
+            elif 14 > ratio > 6.5:  # Sphere: middle layer has significantly more points
+                return "sphere"
+            else:
+                return "unknown"  # Undefined object
     
 
 

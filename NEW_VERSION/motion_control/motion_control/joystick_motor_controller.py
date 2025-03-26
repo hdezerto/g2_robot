@@ -7,7 +7,7 @@ from robp_interfaces.msg import DutyCycles
 
 # Define max velocity values (from https://index.ros.org/p/teleop_twist_joy/)
 MAX_LINEAR_VEL = 0.5  # m/s (adjust for turbo mode if needed)
-MAX_ANGULAR_VEL = 0.5  # rad/s (adjust for turbo mode if needed)
+MAX_ANGULAR_VEL = 1.5  # rad/s (adjust for turbo mode if needed)
 
 DAMPING_FACTOR = 0.15 # Damping factor for the velocities
 
