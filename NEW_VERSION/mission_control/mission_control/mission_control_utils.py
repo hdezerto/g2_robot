@@ -328,12 +328,8 @@ def collection_path_planning(
     Plan the path to the position for the reobservation of the object.
 
     1. Compute 12 points around the object with the observation distance. These are the possible positions.
-    2. Check if these possible positions are occupied higher than 30%. If yes, remove the possible position.
-    3. Check if from these possible positions you have a clear vision of the object.
-        Idea:
-        - Create n points on the line between the object and the possible position.
-        - Convert them to the cell position and check if they are occupied higher than 30%.
-        - If any of them is occupied, remove the possible position.
+    2. Check if these positions are occupied or don't have a clear view to the object. If so, remove them.
+    3. If no possible positions are left, return False.
     4. Compute the path to all possible positions using A* and keep the one with the lowest cost.
     5. Simplify the path and make sure that the orientation of the last waypoint is facing towards the object.
     
@@ -369,36 +365,10 @@ def collection_path_planning(
 
     # remove occupied positions or position without a clear view to the object
     for i, grid_position in enumerate(possible_grid_positions):
-        # Check if the position is occupied
-        if (
-            collection_occupancy_grid.data[
-                grid_position[1] * collection_occupancy_grid.info.width
-                + grid_position[0]
-            ]
-            != 0
-        ):
+        if not check_valid_observation_position(collection_occupancy_grid, object_position, possible_positions[i], grid_position):
             possible_positions.pop(i)
             possible_grid_positions.pop(i)
-        # Check whether the view is clear
-        else:
-            # Create a direct path from the position to the object
-            direct_path = []
-            path_resolution = observing_distance / n
-
-            # Create n points on the line between the object and the possible position
-            for j in range(path_resolution, observing_distance, path_resolution):
-                x = possible_positions[i][0] + j * np.cos(np.arctan2((object_y - possible_positions[i][1]), (object_x - possible_positions[i][0])))
-                y = possible_positions[i][1] + j * np.sin(np.arctan2((object_y - possible_positions[i][1]), (object_x - possible_positions[i][0])))
-                direct_path.append((x, y))
-            direct_grid_path = real_to_grid_coordinates(direct_path, collection_occupancy_grid)
-            for point in direct_grid_path:
-                if collection_occupancy_grid.data[
-                    point[1] * collection_occupancy_grid.info.width + point[0]
-                ] > 30:
-                    possible_positions.pop(i)
-                    possible_grid_positions.pop(i)
-                    break           
-    
+             
     # If no possible positions are left, return False
     if possible_positions:
         return False, None
@@ -439,6 +409,59 @@ def collection_path_planning(
 
     return True, path
 
+def check_valid_observation_position(self, collection_occupancy_grid, object_position, possible_position, possible_grid_position):
+    """
+    Checks whether a given position is valid for observing an object in a grid-based environment.
+    1. Check if the possible position is occupied higher than 30%. If yes, remove the possible position.
+    2. Check if from the possible positions you have a clear vision of the object.
+        Idea:
+        - Create n points on the line between the object and the possible position.
+        - Convert them to the cell position and check if they are occupied higher than 30%.
+        - If any of them is occupied, remove the possible position.
+    Args:
+        collection_occupancy_grid (OccupancyGrid): The occupancy grid representing the environment. 
+            It contains information about which cells are occupied.
+        object_position (tuple): The (x, y) coordinates of the object to be observed.
+        possible_position (tuple): The (x, y) coordinates of the position to be validated.
+        possible_grid_position (tuple): The (x, y) grid cell indices corresponding to the possible position.
+    Returns:
+        bool: True if the position is valid for observation (not occupied and has a clear line of sight to the object), 
+              False otherwise.
+    Notes:
+        - The function checks if the grid cell corresponding to the possible position is occupied.
+        - It also verifies that there is a clear line of sight between the possible position and the object by 
+          sampling points along the direct path and ensuring they are not obstructed.
+        - The function assumes that the occupancy grid data uses a threshold value (e.g., >30) to indicate obstruction.
+    """
+
+    object_x, object_y = object_position
+    # Check if the position is occupied
+    if (
+        collection_occupancy_grid.data[
+            possible_grid_position[1] * collection_occupancy_grid.info.width
+            + possible_grid_position[0]
+        ]
+        != 0
+    ):
+        return False
+    # Check whether the view is clear
+    else:
+        # Create a direct path from the position to the object
+        direct_path = []
+        path_resolution = observing_distance / n
+
+        # Create n points on the line between the object and the possible position
+        for j in range(path_resolution, observing_distance, path_resolution):
+            x = possible_position[0] + j * np.cos(np.arctan2((object_y - possible_position[1]), (object_x - possible_position[0])))
+            y = possible_position[1] + j * np.sin(np.arctan2((object_y - possible_position[1]), (object_x - possible_position[0])))
+            direct_path.append((x, y))
+        direct_grid_path = real_to_grid_coordinates(direct_path, collection_occupancy_grid)
+        for point in direct_grid_path:
+            if collection_occupancy_grid.data[
+                point[1] * collection_occupancy_grid.info.width + point[0]
+            ] > 30:
+                return False
+        return True  
 
 def get_pickup_path(
     object_position: tuple[float, float], current_position: tuple[float, float], clock
