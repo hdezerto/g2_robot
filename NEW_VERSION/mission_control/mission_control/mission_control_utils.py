@@ -316,5 +316,189 @@ def bezier_smooth_path(path_points):
     return smooth_path.tolist()
 
 
+### ------- Collection ------- ###
+
+def collection_path_planning(
+    object_position: tuple,
+    current_grid_position: tuple,
+    collection_occupancy_grid,
+    clock,
+) -> tuple[bool, Path]:
+    """
+    Plan the path to the position for the reobservation of the object.
+
+    1. Compute 12 points around the object with the observation distance. These are the possible positions.
+    2. Check if these possible positions are occupied higher than 30%. If yes, remove the possible position.
+    3. Check if from these possible positions you have a clear vision of the object.
+        Idea:
+        - Create n points on the line between the object and the possible position.
+        - Convert them to the cell position and check if they are occupied higher than 30%.
+        - If any of them is occupied, remove the possible position.
+    4. Compute the path to all possible positions using A* and keep the one with the lowest cost.
+    5. Simplify the path and make sure that the orientation of the last waypoint is facing towards the object.
+    
+    Args:
+        object_position (tuple): The (x, y) coordinates of the object to be collected.
+        current_grid_position (tuple): The current grid position (x, y) of the robot.
+        collection_occupancy_grid: The occupancy grid representing the environment.
+        clock: The current time or clock object used for timestamping the path.
+    Returns:
+        tuple[bool, Path]: A tuple containing a boolean indicating success or failure,
+                           and the planned path as a Path message if successful, or None if not.
+    """
+
+    # Parameters
+    observing_distance = 30
+    n = 10 # Number of points on the line between the object and the possible position
+
+    # Init
+    object_x, object_y = object_position
+    _, object_grid_position = real_to_grid_coordinates(
+        [object_position], collection_occupancy_grid
+    )
+    possible_positions = []
+
+    # positions are in a circle around the object every 30 degrees
+    for i in range(0, 360, 30):
+        x = object_x + observing_distance * np.cos(np.radians(i))
+        y = object_y + observing_distance * np.sin(np.radians(i))
+        possible_positions.append((x, y))
+    possible_grid_positions = real_to_grid_coordinates(
+        possible_positions, collection_occupancy_grid
+    )
+
+    # remove occupied positions or position without a clear view to the object
+    for i, grid_position in enumerate(possible_grid_positions):
+        # Check if the position is occupied
+        if (
+            collection_occupancy_grid.data[
+                grid_position[1] * collection_occupancy_grid.info.width
+                + grid_position[0]
+            ]
+            != 0
+        ):
+            possible_positions.pop(i)
+            possible_grid_positions.pop(i)
+        # Check whether the view is clear
+        else:
+            # Create a direct path from the position to the object
+            direct_path = []
+            path_resolution = observing_distance / n
+
+            # Create n points on the line between the object and the possible position
+            for j in range(path_resolution, observing_distance, path_resolution):
+                x = possible_positions[i][0] + j * np.cos(np.arctan2((object_y - possible_positions[i][1]), (object_x - possible_positions[i][0])))
+                y = possible_positions[i][1] + j * np.sin(np.arctan2((object_y - possible_positions[i][1]), (object_x - possible_positions[i][0])))
+                direct_path.append((x, y))
+            direct_grid_path = real_to_grid_coordinates(direct_path, collection_occupancy_grid)
+            for point in direct_grid_path:
+                if collection_occupancy_grid.data[
+                    point[1] * collection_occupancy_grid.info.width + point[0]
+                ] > 30:
+                    possible_positions.pop(i)
+                    possible_grid_positions.pop(i)
+                    break           
+    
+    # If no possible positions are left, return False
+    if possible_positions:
+        return False, None
+    
+    # Calculate the path to all possible positions and keep the one with the lowest cost
+    minimum_cost = float("inf")
+    path = []
+    final_position = []
+    for i, goal_grid_position in enumerate(possible_grid_positions):
+        path_points, cost = compute_grid_path(
+            current_grid_position,
+            goal_grid_position,
+            collection_occupancy_grid,
+            return_cost=True,
+        )
+        if cost < minimum_cost:
+            minimum_cost = cost
+            path = path_points
+            final_position = possible_positions[i]
+    # if no path to the object is found, return False
+    if not path:
+        return False, None
+
+    # Create the path message
+    path = create_path_message(path_points, clock, collection_occupancy_grid)
+
+    # Correct the final orientation of the robot to face the object
+    dx = object_x - final_position[0]
+    dy = object_y - final_position[1]
+    theta = np.arctan2(dy, dx)
+    q = quaternion_from_euler(0, 0, theta)
+    path.poses[-1].pose.position.x = final_position[0]
+    path.poses[-1].pose.position.y = final_position[1]
+    path.poses[-1].pose.orientation.x = q[0]
+    path.poses[-1].pose.orientation.y = q[1]
+    path.poses[-1].pose.orientation.z = q[2]
+    path.poses[-1].pose.orientation.w = q[3]
+
+    return True, path
 
 
+def get_pickup_path(
+    object_position: tuple[float, float], current_position: tuple[float, float], clock
+) -> Path:
+    """
+    Calculate the path for the robot to pick up an object.
+
+    Direct path with only the only pose as the goal point.
+    Moves the base_link such that the pickup_place is at the object position.
+    Args:
+        object_position (tuple[float, float]): The (x, y) position of the object to be picked up.
+        current_position (tuple[float, float]): The (x, y) current position of the robot.
+        clock: A clock instance to get the current time.
+    Returns:
+        Path: A Path message containing the pose where the robot should move to pick up the object.
+    Parameters:
+        pickup_tf_x (float): The x translation to go from base_link to pickup_place as an absolute value
+        pickup_tf_y (float): The y translation to go from base_link to pickup_place as an absolute value
+    """
+
+    # Parameters
+    pickup_tf_x = 0.0  # x translation to go from base_link to pickup_place
+    pickup_tf_y = 0.0  # y translation to go from base_link to pickup_place
+
+    # Calculate the orientation of the robot towards the object
+    dx = object_position[0] - current_position[0]
+    dy = object_position[1] - current_position[1]
+    theta = np.arctan2(dy, dx)
+    q = quaternion_from_euler(0, 0, theta)
+
+    # Calculate the position of the pickup place
+    pickup_place_x = (
+        object_position[0] - pickup_tf_x * np.cos(theta) - pickup_tf_y * np.sin(theta)
+    )
+    pickup_place_y = (
+        object_position[1] - pickup_tf_x * np.sin(theta) + pickup_tf_y * np.cos(theta)
+    )
+
+    # Create the pose, where the base_link should be at
+    pickup_pose = PoseStamped()
+    pickup_pose.header.stamp = clock.now().to_msg()
+    pickup_pose.header.frame_id = "map"
+    pickup_pose.pose.position.x = pickup_place_x
+    pickup_pose.pose.position.y = pickup_place_y
+    pickup_pose.pose.orientation.x = q[0]
+    pickup_pose.pose.orientation.y = q[1]
+    pickup_pose.pose.orientation.z = q[2]
+    pickup_pose.pose.orientation.w = q[3]
+
+    # Create the path message
+    path = Path()
+    path.header.stamp = clock.now().to_msg()
+    path.header.frame_id = "map"
+    path.poses.append(pickup_pose)
+
+    return path
+
+
+# CHANGES MADE IN OTHER FUNCTIONS THAN COLLECTION_PATH_PLANNING:
+# - compute_grid_path() function was modified to return the cost of the path if return_cost is True.
+#
+# TODO:
+# - Measure parameters observing_distance, pickup_tf_x and pickup_tf_y.
