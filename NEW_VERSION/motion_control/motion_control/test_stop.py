@@ -22,35 +22,35 @@ class TestStop(Node):
         self.continue_pub = self.create_publisher(Path, "/planned_path", 10)
         self.get_logger().info("Initialized publishers.")
 
-    def stop(self):
+    def stop(self, yesno):
         msg = Bool()
-        msg.data = True
+        msg.data = yesno
         self.stop_pub.publish(msg)
         self.get_logger().info("Stopping motion...")
 
-    def continue_motion(self):
-        self.get_logger().info("Get ready to continue motion...")
-        msg = Path()
-        msg.header.frame_id = "map"
-        msg.poses = []  # Initialize poses as an empty list
-        current_time = self.get_clock().now().to_msg()
-        msg.header.stamp = current_time
+    # def continue_motion(self):
+    #     self.get_logger().info("Get ready to continue motion...")
+    #     msg = Path()
+    #     msg.header.frame_id = "map"
+    #     msg.poses = []  # Initialize poses as an empty list
+    #     current_time = self.get_clock().now().to_msg()
+    #     msg.header.stamp = current_time
 
-        pose = PoseStamped()
-        pose.header.frame_id = "map"
-        pose.header.stamp = current_time
+    #     pose = PoseStamped()
+    #     pose.header.frame_id = "map"
+    #     pose.header.stamp = current_time
 
-        pose2 = PoseStamped()
-        pose2.header.frame_id = "map"
-        pose2.header.stamp = current_time
-        pose2.pose.position.x = 1
-        pose2.pose.position.y = 1
+    #     pose2 = PoseStamped()
+    #     pose2.header.frame_id = "map"
+    #     pose2.header.stamp = current_time
+    #     pose2.pose.position.x = 1
+    #     pose2.pose.position.y = 1
 
-        msg.poses.append(pose)
-        msg.poses.append(pose2)
+    #     msg.poses.append(pose)
+    #     msg.poses.append(pose2)
 
-        self.continue_pub.publish(msg)
-        self.get_logger().info("Continuing motion...")
+    #     self.continue_pub.publish(msg)
+    #     self.get_logger().info("Continuing motion...")
 
 def main(args=None):
     rclpy.init(args=args)
@@ -61,9 +61,9 @@ def main(args=None):
 
 
     while rclpy.ok():
-        node.stop()
+        node.stop(True)
         time.sleep(2)
-        node.continue_motion()
+        node.stop(False)
         time.sleep(2)
 
 
