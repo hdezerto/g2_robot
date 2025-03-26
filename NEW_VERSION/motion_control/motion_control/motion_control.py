@@ -122,6 +122,10 @@ class MotionController(Node):
         self.w_damper = 1
         self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
 
+        self.stuck_check = 0
+        self.last_distance = 0
+        self.stuck_parameter = 0
+
         self.accuracy_check = 0
 
         self.cycle_damping = 0.1
@@ -178,6 +182,8 @@ class MotionController(Node):
         1. Rotating towards the waypoint.
         2. Moving towards the waypoint.
         3. Correcting orientation at the final waypoint.
+
+        If the robot is not at the desired position but the input signal is too small for the robot to move, iteratively de   `crease the damping factor.
         Args:
             waypoint (PoseStamped): The target waypoint to move to.
         Returns:
@@ -187,6 +193,7 @@ class MotionController(Node):
         # init
         v = 0
         w = 0
+        stuck_parameter = 0
 
         # Init goal positions if there is a new waypoint
         if self.next_goal != waypoint:
@@ -233,6 +240,7 @@ class MotionController(Node):
         if self.control_phase == 1:
             if abs(delta_theta) < self.goal_margin_rotational:
                 self.control_phase = 2
+                self.stuck_check = 0
                 self.get_logger().info("Facing towards the waypoint")
             else:
                 w = self.p_rotation_one * delta_theta
@@ -245,6 +253,7 @@ class MotionController(Node):
             if distance < self.goal_margin_translational:
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
+                    self.stuck_check = 0
                     if self.accuracy_check > 5:
                         self.get_logger().info("Reached final waypoint")
                         self.control_phase = 3
@@ -257,6 +266,11 @@ class MotionController(Node):
                     self.get_logger().info("Reached waypoint")
                     self.reached_waypoint = True
             else:
+                # Check if robot is stuck
+                if self.last_distance == distance:
+                    self.stuck_check += 1
+                if self.stuck_check > 5:
+                    stuck_parameter = (self.stuck_check - 5)*0.01
                 self.accuracy_check = 0
                 # Set velocity
                 v = self.p_translation_two * (
@@ -270,6 +284,7 @@ class MotionController(Node):
                 w = self.p_rotation_two * dp
         # Correcting orientation at the final waypoint
         elif self.control_phase == 3:
+            self.stuck_check = 0
             # Get the angle to the final waypoints orientation
             final_dtheta = self.theta_final - theta
             if final_dtheta > math.pi:
@@ -297,8 +312,8 @@ class MotionController(Node):
 
         # Convert to duty cycles
         motor_msg = DutyCycles()
-        motor_msg.duty_cycle_left = (v - 0.5 * w) * self.cycle_damping
-        motor_msg.duty_cycle_right = (v + 0.5 * w) * self.cycle_damping
+        motor_msg.duty_cycle_left = (v - 0.5 * w) * (self.cycle_damping + stuck_parameter)
+        motor_msg.duty_cycle_right = (v + 0.5 * w) * (self.cycle_damping + stuck_parameter)
         motor_msg.header.stamp = self.get_clock().now().to_msg()
 
         # Publish the duty cycles

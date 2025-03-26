@@ -23,6 +23,7 @@ setup(
             'odometry = motion_control.odometry:main',
             'joystick_motor_controller = motion_control.joystick_motor_controller:main',
             'motion_control = motion_control.motion_control:main',
+            'test_stop = motion_control.test_stop:main',
         ],
     },
 )
