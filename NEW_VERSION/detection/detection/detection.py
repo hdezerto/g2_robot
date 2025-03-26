@@ -165,7 +165,7 @@ class PointCloudDetection(Node):
         lower_green1, upper_green1 = np.array([81, 100, 44]), np.array([84, 255, 105])
         lower_green2, upper_green2 = np.array([73, 210, 90]), np.array([74, 240, 120])
         lower_blue, upper_blue = np.array([99, 254, 75]), np.array([99, 255, 80])
-        lower_brown, upper_brown =np.array([15, 68, 137]), np.array([17, 76, 134])
+        #lower_brown, upper_brown =np.array([15, 68, 137]), np.array([17, 76, 134])
 
         # Iterate over each cluster
         for cluster_label in unique_labels:
@@ -185,13 +185,11 @@ class PointCloudDetection(Node):
             green_mask = (hsv_colors[:, 0] >= lower_green1[0]) & (hsv_colors[:, 0] <= upper_green1[0]) | \
                         ((hsv_colors[:, 0] >= lower_green2[0]) & (hsv_colors[:, 0] <= upper_green2[0]))
             blue_mask = (hsv_colors[:, 0] >= lower_blue[0]) & (hsv_colors[:, 0] <= upper_blue[0])
-            #brown_mask = (hsv_colors[:, 0] >= lower_brown[0]) & (hsv_colors[:, 0] <= upper_brown[0])
 
             # Apply masks for the current cluster
             red_points = cluster_points[red_mask]
             green_points = cluster_points[green_mask]
             blue_points = cluster_points[blue_mask]
-            #brown_points = cluster_points[brown_mask]
 
             # Calculate the total number of points in the cluster
             total_points = len(cluster_points)
@@ -200,9 +198,8 @@ class PointCloudDetection(Node):
             red_ratio = len(red_points) / total_points
             green_ratio = len(green_points) / total_points
             blue_ratio = len(blue_points) / total_points
-            #brown_ratio = len(brown_points) / total_points
 
-            pure_red = pure_green = pure_blue = pure_brown = False
+            pure_red = pure_green = pure_blue  = False
             
             # Check if the cluster is predominantly red, green, blue or brown
             if red_ratio > 0.01 and green_ratio == 0.0 and blue_ratio == 0.0:
@@ -211,42 +208,27 @@ class PointCloudDetection(Node):
                 pure_green = True
             elif blue_ratio > 0.01 and red_ratio == 0.0 and green_ratio == 0.0:
                 pure_blue = True
-            #elif brown_ratio > 0.01 and red_ratio == 0.0 and green_ratio == 0.0 and blue_ratio == 0.0:
-            #    pure_brown = True
             
             x, y, z = np.mean(cluster_points, axis=0) # Calculate the centroid of the cluster
+
+            if self.is_near_box(x, y, z):
+                self.get_logger().info(f'Cluster is near a box!')
+                continue
 
             # Classify based on floor contact points for the current cluster
             object_type = self.classify_based_on_floor_contact(cluster_points)
 
-            # if pure_brown:
-            #     if object_type == "cube":
-            #         self.get_logger().info(f'🟫 Cluster is a cube!')
-            #         self.create_object('cube', x, z + 0.02, 0.0, msg.header.stamp)
-
             if pure_red or pure_green or pure_blue:
                 if object_type == "sphere":
-                    if pure_red:
-                        emoji = "🔴"  # Red circle emoji
-                    elif pure_green:
-                        emoji = "🟢"  # Green circle emoji
-                    elif pure_blue:
-                        emoji = "🔵"  # Blue circle emoji
-                    self.get_logger().info(f'{emoji} Cluster  is a sphere!')
+                    self.get_logger().info(f'Cluster  is a sphere!')
                     self.create_object('sphere', x, z + 0.02, 0.0, msg.header.stamp)
                 elif object_type == "cube":
-                    if pure_red:
-                        emoji = "🟥"  # Red square emoji
-                    elif pure_green:
-                        emoji = "🟩"  # Green square emoji
-                    elif pure_blue:
-                        emoji = "🟦"  # Blue square emoji
-                    self.get_logger().info(f'{emoji} Cluster is a cube!')
+                    self.get_logger().info(f' Cluster is a cube!')
                     self.create_object('cube', x, z + 0.02, 0.0, msg.header.stamp)
                 elif object_type == "unknown":
                     self.get_logger().info(f'Object not identified :(!')
 
-            elif self.is_plushie(cluster_points): # If detected object is a plushie
+            elif self.is_plushie(cluster_points): 
                 self.get_logger().info(f'🧸 Cluster  is a plushie!')
                 self.create_object('plushie', x, z + 0.01, 0.0, msg.header.stamp)
 
@@ -259,10 +241,14 @@ class PointCloudDetection(Node):
                 # Store box with angle information
                 if angle == 0.0:
                     self.create_object('box', x, z + 0.08, angle, msg.header.stamp)
+                    self.detected_boxes.append((x, y, z +0.08))  
+
                 elif angle == 90.0:
                     self.create_object('box', x, z + 0.12, angle, msg.header.stamp)
+                    self.detected_boxes.append((x, y, z +0.12))  
                 else:
                     self.create_object('box', x, z + 0.08, angle, msg.header.stamp)
+                    self.detected_boxes.append((x, y, z +0.08))  
 
             else:
                 self.get_logger().info(f'Cluster is NOT a recognized object.')
@@ -275,6 +261,14 @@ class PointCloudDetection(Node):
 
 
     # v ------------------ FUNCTIONS BELOW ------------------ v
+    def is_near_box(self, x, y, z, radius=0.20):
+        if not self.detected_boxes: #when I still havent detected any box
+            return False
+        for box_x, box_y, box_z in self.detected_boxes:
+            distance = np.sqrt((x - box_x) ** 2 + (y - box_y) ** 2 + (z - box_z) ** 2)
+            if distance <= radius:
+                return True
+        return False
 
     def is_plushie(self, cluster_points):
 
