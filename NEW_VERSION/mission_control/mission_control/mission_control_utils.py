@@ -121,7 +121,7 @@ def check_collision(path_planning_grid, grid_path, current_grid_position):
 
 def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes, clock):
     """
-    Publishes detected objects and boxes to RViz as TFs with corresponding labels embedded in the child_frame_id.
+    Publishes detected objects and boxes to RViz as dynamic TFs with corresponding labels embedded in the child_frame_id.
 
     Args:
         tf_broadcaster (TransformBroadcaster): The TransformBroadcaster instance for publishing TFs.

@@ -21,7 +21,7 @@ from enum import Enum, auto
 from nav_msgs.msg import Path
 from std_msgs.msg import Bool
 
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+from tf2_ros import TransformBroadcaster
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
@@ -99,7 +99,7 @@ class ExplorationController(Node):
         # Publish the workspace to RViz
         publish_workspace(self.workspace_publisher, self.get_clock())
 
-        self.static_tf_broadcaster  = StaticTransformBroadcaster(self) # For publishing detected objects/boxes to RViz
+        self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
 
         # Subscribe to the /mapper_occupancy_grid topic
         self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
@@ -141,6 +141,7 @@ class ExplorationController(Node):
 
         self.exploration_point_index = 0
         self.exploration_point = None
+        self.detections = []  # Unified list for all detections
         self.detected_objects = [] # List of tuples (x, y, category)
         self.detected_boxes = [] # List of tuples (x, y, theta)
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
@@ -221,22 +222,80 @@ class ExplorationController(Node):
     # TO FINISH
     def detections_callback(self, msg):
         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
-        # Check if the detection is new and inside the workspace
-        # NOTE: objects that lie on the edge of the workspace are considered outside!
+        # Check if the detection is inside the workspace. NOTE: objects that lie on the edge of the workspace are considered outside!
+        if not self.is_inside_workspace(msg.x, msg.y):
+            self.get_logger().info(f'Detection is outside the workspace. Ignoring it.')
+            return
+        
+        # Update the detections list. It returns if it's a new detection (for collision check)
+        is_new_detection = self.update_detections(msg)
 
-        if self.is_new_detection(msg) and self.is_inside_workspace(msg.x, msg.y):         
-            # TO DO: ADD LOGIC TO CHECK FOR COLLISION
-            if msg.type == 'OBJECT':
-                self.detected_objects.append((msg.x, msg.y, msg.cat))
-            else:  # msg.type == 'BOX'
-                self.detected_boxes.append((msg.x, msg.y, msg.theta))
-            publish_detections_to_rviz(self.static_tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
-            #self.state = ExplorationState.START_MOVING
-        else:
-            # Ignore previously detected objects/obstacles (state remains the same)
-            pass
+        # Check for collision with the current path
+        if is_new_detection:
+            # Update the current position of the robot (from odometry or localization)
+            self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
+            if self.current_position is None:
+                self.get_logger().info('Failed to get current position!') # DEBUG        
+            if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
+                self.stop_robot()
+                self.get_logger().info('Collision detected. Recomputing path.')
+                self.state = ExplorationState.START_MOVING
 
+        # Publish the detected objects and boxes to RViz
+        publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
+ 
+
+    # ----------------- NEW FUNCTIONS WITH VOTING TO TEST -----------------
+
+    def update_detections(self, msg):
+        # Check if the detection is new or corresponds to an existing one
+        detected_list = self.detections  # Unified list for all detections
+        for detection in detected_list:
+            if ((detection['x'] - msg.x) ** 2 + (detection['y'] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
+                # Existing detection: update position and add vote
+                detection['x'] = msg.x
+                detection['y'] = msg.y
+                if msg.type == 'BOX':
+                    detection['theta'] = msg.theta
+                    detection['votes'].append(msg.type) # Box detections have no category
+                else:
+                    detection['votes'].append(msg.cat) # For the objects, category is used              
+                detection['winner'] = max(set(detection['votes']), key=detection['votes'].count)  # Update winner
+                self.get_logger().info(f'Updated detection: {detection}')
+                return False # Existing detection updated
+
+        # New detection: add to the list
+        new_detection = {
+            'x': msg.x,
+            'y': msg.y,
+            'theta': msg.theta if msg.type == 'BOX' else None,
+            'votes': [msg.cat] if msg.type == 'OBJECT' else [msg.type],  # Initialize votes with the category or type
+            'winner': msg.cat if msg.type == 'OBJECT' else msg.type  # Initialize winner with the category or type
+        }
+        detected_list.append(new_detection) # detected_list is a list of dictionaries
+        self.get_logger().info(f'Added new detection: {new_detection}')
+
+        self.update_detections_lists()  # Update the detected objects and boxes lists
+
+        return True # New detection added
+
+
+    def update_detections_lists(self):
+        """
+        Updates the individual lists of detected objects and boxes based on the unified detections list.
+        """
+        self.detected_objects = []  # Clear the existing list of objects
+        self.detected_boxes = []    # Clear the existing list of boxes
     
+        for detection in self.detections:
+            if detection['winner'] == 'BOX':  # The detection is classified as a box (x, y, theta)
+                self.detected_boxes.append((detection['x'], detection['y'], detection['theta']))
+            else:  # The detection is classified as an object (x, y, category)
+                self.detected_objects.append((detection['x'], detection['y'], detection['winner']))
+
+    # ----------------------------------------
+
+
     # TO FINISH
     def mapper_occupancy_grid_callback(self, msg):
         self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
@@ -282,7 +341,6 @@ class ExplorationController(Node):
 
     # ------------------- UTILS (specific to ExplorationController) ------------------- 
 
-    # TEST (check if boxes dont need a larger threshold)
     def is_new_detection(self, msg):
         # Select the appropriate list based on the detection type
         detected_list = {
@@ -295,10 +353,9 @@ class ExplorationController(Node):
             if ((detection[0] - msg.x) ** 2 + (detection[1] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
                 return False  # Detection already exists
     
-        return True  # No match, so it is a new detection
+        return None  # No match, so it is a new detection
     
     
-    # NOT TESTED
     def is_inside_workspace(self, x, y):
         """
         Check if the given coordinates (x, y) are inside the workspace.
