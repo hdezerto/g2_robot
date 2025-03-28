@@ -349,9 +349,9 @@ def collection_path_planning(
 
     # Init
     object_x, object_y = object_position
-    _, object_grid_position = real_to_grid_coordinates(
+    object_grid_position = real_to_grid_coordinates(
         [object_position], collection_occupancy_grid
-    )
+    )[0]
     possible_positions = []
 
     # positions are in a circle around the object every 30 degrees
