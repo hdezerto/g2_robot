@@ -102,7 +102,7 @@ class ExplorationController(Node):
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
 
         # Subscribe to the /mapper_occupancy_grid topic
-        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
+        #self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
 
         # Subscribe to the /detections topic
         self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5) # CHECK if 5 is not too much here
@@ -132,9 +132,6 @@ class ExplorationController(Node):
         # Initialize TF2 Buffer and TransformListener
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True) # spin_thread=True to run the listener in a separate thread
-        # Add a delay to allow the TransformListener to populate the buffer
-        self.get_logger().info('Waiting for TF buffer to populate...')
-        time.sleep(1)  # Wait for 1 second
 
         self.current_position = (0, 0)  # Initial position (0, 0) in real world coordinates
         self.current_grid_position = real_to_grid_coordinates([self.current_position], self.exploration_occupancy_grid)[0]
@@ -147,7 +144,9 @@ class ExplorationController(Node):
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
         self.path_planning_grid = initialize_occupancy_grid()
         inflate_occupied_cells(self.path_planning_grid)
-        self.grid_path = []  # Path in grid coordinates  
+        self.grid_path = []  # Path in grid coordinates
+
+        self.planning_grid_publisher = self.create_publisher(OccupancyGrid, '/planning_grid', latched_qos)
 
         # Subscribe to the /goal_reached topic
         self.reached_destination_subscriber = self.create_subscription(Bool, '/reached_destination', self.reached_destination_callback, 10)
@@ -157,6 +156,14 @@ class ExplorationController(Node):
 
         # Publisher for the stop command (to motion controller)
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
+
+        # Timer to periodically publish detections to RViz
+        self.detections_timer = self.create_timer(0.5, self.publish_detections_periodically)
+
+        # Add a delay to allow the TransformListener to populate the buffer and 
+        self.get_logger().info('Waiting 3 sec for TF buffer to populate...')
+        time.sleep(3)  # Wait for 2 second
+
 
         #self.state = ExplorationState.OBSERVING
         self.state = ExplorationState.MOVING # DEBUG detection
@@ -197,8 +204,7 @@ class ExplorationController(Node):
             self.get_logger().info('Failed to get current position!') # DEBUG
         self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
         
-        self.get_logger().info(f'Start: {self.current_grid_position} | Goal: {self.exploration_point}')  # DEBUG
-        # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
+                # Compute or recompute the path to the exploration point (in case a collision is detected) and move to it
         # The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
         start = (self.current_grid_position, self.current_position)
         goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
@@ -207,7 +213,6 @@ class ExplorationController(Node):
 
         # --------- JUST TO SEE THE GRID PATH ---------
         self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
-
         # --------------------------------------
 
         if path: # Path found
@@ -221,7 +226,7 @@ class ExplorationController(Node):
 
     # TO FINISH
     def detections_callback(self, msg):
-        self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
+        #self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Check if the detection is inside the workspace. NOTE: objects that lie on the edge of the workspace are considered outside!
         if not self.is_inside_workspace(msg.x, msg.y):
             self.get_logger().info(f'Detection is outside the workspace. Ignoring it.')
@@ -230,20 +235,21 @@ class ExplorationController(Node):
         # Update the detections list. It returns if it's a new detection (for collision check)
         is_new_detection = self.update_detections(msg)
 
-        # Check for collision with the current path
-        if is_new_detection:
-            # Update the current position of the robot (from odometry or localization)
-            self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
-            if self.current_position is None:
-                self.get_logger().info('Failed to get current position!') # DEBUG        
-            if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
-                self.stop_robot()
-                self.get_logger().info('Collision detected. Recomputing path.')
-                self.state = ExplorationState.START_MOVING
+        # # Check for collision with the current path
+        # if is_new_detection:
+        #     # Update the planning grid with the latest lidar occupancy grid and the detected objects/boxes
+        #     update_path_planning_grid(self.path_planning_grid, self.detected_objects + self.detected_boxes) # DEBUG
+        #     self.planning_grid_publisher.publish(self.path_planning_grid)  # DEBUG
+        #     # Update the current position of the robot (from odometry or localization)
+        #     self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
+        #     if self.current_position is None:
+        #         self.get_logger().info('Failed to get current position!') # DEBUG
+        #     if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
+        #         self.stop_robot()
+        #         self.get_logger().info('Collision detected. Recomputing path.')
+        #         self.state = ExplorationState.START_MOVING
 
-        # Publish the detected objects and boxes to RViz
-        publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
- 
+
 
     # ----------------- NEW FUNCTIONS WITH VOTING TO TEST -----------------
 
@@ -261,7 +267,7 @@ class ExplorationController(Node):
                 else:
                     detection['votes'].append(msg.cat) # For the objects, category is used              
                 detection['winner'] = max(set(detection['votes']), key=detection['votes'].count)  # Update winner
-                self.get_logger().info(f'Updated detection: {detection}')
+                #self.get_logger().info(f'Updated detection: {detection}')
                 return False # Existing detection updated
 
         # New detection: add to the list
@@ -273,7 +279,7 @@ class ExplorationController(Node):
             'winner': msg.cat if msg.type == 'OBJECT' else msg.type  # Initialize winner with the category or type
         }
         detected_list.append(new_detection) # detected_list is a list of dictionaries
-        self.get_logger().info(f'Added new detection: {new_detection}')
+        #self.get_logger().info(f'Added new detection: {new_detection}')
 
         self.update_detections_lists()  # Update the detected objects and boxes lists
 
@@ -377,6 +383,13 @@ class ExplorationController(Node):
 
         # If out of bounds, return False
         return False
+
+
+    def publish_detections_periodically(self):
+        """
+        Periodically publish detections to RViz to keep transforms visible.
+        """
+        publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
 
 
     # The map is saved in the directory where the node is run

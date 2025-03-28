@@ -1,54 +1,3 @@
-#!/usr/bin/env python
-
-import math
-
-import rclpy
-from rclpy.node import Node
-
-from tf2_ros import TransformBroadcaster
-from tf_transformations import quaternion_from_euler
-
-from geometry_msgs.msg import TransformStamped
-from robp_interfaces.msg import Encoders
-from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
-from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSHistoryPolicy
-import numpy as np
-
-import rclpy
-from rclpy.node import Node
-
-from tf2_ros import TransformBroadcaster
-from tf_transformations import quaternion_from_euler
-
-from geometry_msgs.msg import TransformStamped
-from robp_interfaces.msg import Encoders
-from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
-from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSHistoryPolicy
-import numpy as np
-
-"""
-CHECK:
-
-- The path might be too long and cause memory issues.
-
-"""
-
-class Odometry(Node):
-
-    def __init__(self):
-        super().__init__("odometry_node")
-
-        # Initialize the transform broadcaster
-        self._tf_broadcaster = TransformBroadcaster(self)
-
-        # Create a QoS profile with a queue size of 1
-        qos_profile = QoSProfile(
-            depth=1,
-            durability=QoSDurabilityPolicy.VOLATILE,
-            history=QoSHistoryPolicy.KEEP_LAST
-        )
 import rclpy
 from rclpy.node import Node
 
@@ -178,6 +127,7 @@ class Odometry(Node):
 
         self.broadcast_transform(stamp, self._x, self._y, q)
         # self.publish_path(stamp, self._x, self._y, q)
+
 
     def broadcast_transform(self, stamp, x, y, q):
         """Broadcasts a 3D transform with z, roll, and pitch all zero."""
