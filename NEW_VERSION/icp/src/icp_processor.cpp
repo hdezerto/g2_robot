@@ -74,7 +74,10 @@ private:
             reference_cloud = (corrected_accum_cloud_) ? corrected_accum_cloud_ : prev_cloud;
         } else {
             // Use the previous LiDAR scan for /nth_corrected_pointcloud
-            reference_cloud = prev_cloud;
+            //reference_cloud = prev_cloud;
+            //The bellow was found to work better
+            reference_cloud = (corrected_accum_cloud_) ? corrected_accum_cloud_ : prev_cloud;
+
         }
     
         // Apply voxel grid filtering
