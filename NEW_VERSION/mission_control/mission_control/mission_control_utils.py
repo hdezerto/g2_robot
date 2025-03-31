@@ -81,8 +81,6 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
             return None, None
 
 
-
-# NOT TESTED
 def check_collision(path_planning_grid, grid_path, current_grid_position):
     """
     Check if there is a collision along the grid_path starting from the closest point
@@ -171,149 +169,6 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         transform.transform.rotation.w = quaternion[3]
 
         tf_broadcaster.sendTransform(transform)
-        
-
-
-# ------------ Internal functions (auxiliary) ------------
-
-def create_polygon(coordinates):
-    polygon = PolygonStamped()
-    polygon.header = Header()
-    polygon.header.frame_id = "map"
-    for coord in coordinates:
-        point = Point32(x=coord[0], y=coord[1], z=0.0)
-        polygon.polygon.points.append(point)
-    return polygon
-
-
-# A* pathfinding algorithm
-def compute_grid_path(start, goal, grid):
-    diagonal_cost = 1.414 # Cost to move diagonally ~= sqrt(2)
-    # Octile distance heuristic
-    def heuristic(a, b):
-        dx = abs(a[0] - b[0])
-        dy = abs(a[1] - b[1])
-        return max(dx, dy) + (diagonal_cost - 1) * min(dx, dy)
-    
-    neighbors = [(0, 1),  (1, 0),  (0, -1),  (-1, 0),  # Cardinal directions
-                 (1, 1),  (1, -1), (-1, 1), (-1, -1)   # Diagonal directions
-                ]
-    close_set = set() # Set of visited cells
-    came_from = {} # Dictionary to store the path
-    gscore = {start: 0} # Cost from start to current cell
-    fscore = {start: heuristic(start, goal)} # Estimated cost from start to goal through current cell (using heuristic)
-    oheap = [] # Priority queue to store the cells to visit
-
-    heapq.heappush(oheap, (fscore[start], start)) # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
-
-    while oheap:
-        current = heapq.heappop(oheap)[1] # Get the cell with the lowest fscore
-
-        if current == goal:
-            data = []
-            while current in came_from:
-                data.append(current)
-                current = came_from[current]
-            return [start] + data[::-1] # Return reversed path (start to goal)
-
-        close_set.add(current)
-        for i, j in neighbors:
-            neighbor = current[0] + i, current[1] + j
-            tentative_g_score = gscore[current] + (diagonal_cost if abs(i) + abs(j) == 2 else 1)
-
-            # Check if the neighbor is not a free cell
-            if grid.data[neighbor[1] * grid.info.width + neighbor[0]] != 0:
-                continue
-            
-            # Check if the neighbor has been visited and if the cost to reach it is higher than the current cost
-            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, float('inf')):
-                continue
-            
-            # If the cost to reach the neighbor is lower than the current cost or not in the queue, update the path
-            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
-                came_from[neighbor] = current
-                gscore[neighbor] = tentative_g_score
-                fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
-                heapq.heappush(oheap, (fscore[neighbor], neighbor))
-
-    return False
-
-
-
-def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
-    grid_path_points = simplify_grid_path(grid_path_points) # Simplify the path by removing redundant points
-
-    grid_path_points = grid_path_points[1:-1] # Remove the start and goal points from the path (the exact ones will be added later)
-
-    # Convert path grid coordinates to real-world coordinates
-    real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
-
-    # Add start_real and goal_real as the first and last points
-    real_path_points.insert(0, start_real)
-    real_path_points.append(goal_real)
-
-    # Smooth the path using cubic interpolation
-    #path_points = bezier_smooth_path(path_points)
-
-    path = Path()
-    path.header.stamp = clock.now().to_msg()
-    path.header.frame_id = 'map'
-
-    for point in real_path_points:
-        pose = PoseStamped()
-        pose.header.stamp = clock.now().to_msg()
-        pose.header.frame_id = 'map'
-        pose.pose.position.x = point[0]
-        pose.pose.position.y = point[1]
-        pose.pose.orientation.w = 1.0 # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation 
-        path.poses.append(pose)
-
-    # Set the orientation of the last waypoint to match the direction of the path
-    waypoint_no = len(path.poses)
-    dx = path.poses[waypoint_no - 1].pose.position.x - path.poses[waypoint_no - 2].pose.position.x
-    dy = path.poses[waypoint_no - 1].pose.position.y - path.poses[waypoint_no - 2].pose.position.y
-    theta = np.arctan2(dy, dx)
-    q = quaternion_from_euler(0, 0, theta)
-    path.poses[waypoint_no - 1].pose.orientation.x = q[0]
-    path.poses[waypoint_no - 1].pose.orientation.y = q[1]
-    path.poses[waypoint_no - 1].pose.orientation.z = q[2]
-    path.poses[waypoint_no - 1].pose.orientation.w = q[3]
-    
-    return path
-
-
-def simplify_grid_path(path_points):
-    if not path_points:
-        return []
-
-    simplified_path = [path_points[0]]
-    for i in range(1, len(path_points) - 1):
-        prev_point = simplified_path[-1] # x1, y1
-        curr_point = path_points[i] # x2, y2
-        next_point = path_points[i + 1] # x3, y3
-
-        # Check if the current point is redundant (i.e., lies on a straight line)
-        # (x3-x2)*(y2-y1) != (y3-y2)*(x2-x1)
-        if (next_point[0] - curr_point[0]) * (curr_point[1] - prev_point[1]) != (next_point[1] - curr_point[1]) * (curr_point[0] - prev_point[0]):
-            simplified_path.append(curr_point)
-
-    simplified_path.append(path_points[-1])
-    return simplified_path
-
-
-# CHECK THIS LATER
-def bezier_smooth_path(path_points):
-    """Applies cubic interpolation to smooth the path."""
-    path_points = np.array(path_points)
-    t = np.linspace(0, 1, len(path_points))
-    
-    x_spline = CubicSpline(t, path_points[:, 0])
-    y_spline = CubicSpline(t, path_points[:, 1])
-
-    smooth_t = np.linspace(0, 1, len(path_points) * 10)  # More points for smoothness
-    smooth_path = np.stack((x_spline(smooth_t), y_spline(smooth_t)), axis=-1)
-
-    return smooth_path.tolist()
 
 
 ### ------- Collection ------- ###
@@ -525,3 +380,146 @@ def get_pickup_path(
 #
 # TODO:
 # - Measure parameters observing_distance, pickup_tf_x and pickup_tf_y.
+
+
+
+# ------------ Internal functions (auxiliary) ------------
+
+def create_polygon(coordinates):
+    polygon = PolygonStamped()
+    polygon.header = Header()
+    polygon.header.frame_id = "map"
+    for coord in coordinates:
+        point = Point32(x=coord[0], y=coord[1], z=0.0)
+        polygon.polygon.points.append(point)
+    return polygon
+
+
+# A* pathfinding algorithm
+def compute_grid_path(start, goal, grid):
+    diagonal_cost = 1.414 # Cost to move diagonally ~= sqrt(2)
+    # Octile distance heuristic
+    def heuristic(a, b):
+        dx = abs(a[0] - b[0])
+        dy = abs(a[1] - b[1])
+        return max(dx, dy) + (diagonal_cost - 1) * min(dx, dy)
+    
+    neighbors = [(0, 1),  (1, 0),  (0, -1),  (-1, 0),  # Cardinal directions
+                 (1, 1),  (1, -1), (-1, 1), (-1, -1)   # Diagonal directions
+                ]
+    close_set = set() # Set of visited cells
+    came_from = {} # Dictionary to store the path
+    gscore = {start: 0} # Cost from start to current cell
+    fscore = {start: heuristic(start, goal)} # Estimated cost from start to goal through current cell (using heuristic)
+    oheap = [] # Priority queue to store the cells to visit
+
+    heapq.heappush(oheap, (fscore[start], start)) # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
+
+    while oheap:
+        current = heapq.heappop(oheap)[1] # Get the cell with the lowest fscore
+
+        if current == goal:
+            data = []
+            while current in came_from:
+                data.append(current)
+                current = came_from[current]
+            return [start] + data[::-1] # Return reversed path (start to goal)
+
+        close_set.add(current)
+        for i, j in neighbors:
+            neighbor = current[0] + i, current[1] + j
+            tentative_g_score = gscore[current] + (diagonal_cost if abs(i) + abs(j) == 2 else 1)
+
+            # Check if the neighbor is not a free cell
+            if grid.data[neighbor[1] * grid.info.width + neighbor[0]] != 0:
+                continue
+            
+            # Check if the neighbor has been visited and if the cost to reach it is higher than the current cost
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, float('inf')):
+                continue
+            
+            # If the cost to reach the neighbor is lower than the current cost or not in the queue, update the path
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+                came_from[neighbor] = current
+                gscore[neighbor] = tentative_g_score
+                fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
+                heapq.heappush(oheap, (fscore[neighbor], neighbor))
+
+    return False
+
+
+
+def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
+    grid_path_points = simplify_grid_path(grid_path_points) # Simplify the path by removing redundant points
+
+    grid_path_points = grid_path_points[1:-1] # Remove the start and goal points from the path (the exact ones will be added later)
+
+    # Convert path grid coordinates to real-world coordinates
+    real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
+
+    # Add start_real and goal_real as the first and last points
+    real_path_points.insert(0, start_real)
+    real_path_points.append(goal_real)
+
+    # Smooth the path using cubic interpolation
+    #path_points = bezier_smooth_path(path_points)
+
+    path = Path()
+    path.header.stamp = clock.now().to_msg()
+    path.header.frame_id = 'map'
+
+    for point in real_path_points:
+        pose = PoseStamped()
+        pose.header.stamp = clock.now().to_msg()
+        pose.header.frame_id = 'map'
+        pose.pose.position.x = point[0]
+        pose.pose.position.y = point[1]
+        pose.pose.orientation.w = 1.0 # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation 
+        path.poses.append(pose)
+
+    # Set the orientation of the last waypoint to match the direction of the path
+    waypoint_no = len(path.poses)
+    dx = path.poses[waypoint_no - 1].pose.position.x - path.poses[waypoint_no - 2].pose.position.x
+    dy = path.poses[waypoint_no - 1].pose.position.y - path.poses[waypoint_no - 2].pose.position.y
+    theta = np.arctan2(dy, dx)
+    q = quaternion_from_euler(0, 0, theta)
+    path.poses[waypoint_no - 1].pose.orientation.x = q[0]
+    path.poses[waypoint_no - 1].pose.orientation.y = q[1]
+    path.poses[waypoint_no - 1].pose.orientation.z = q[2]
+    path.poses[waypoint_no - 1].pose.orientation.w = q[3]
+    
+    return path
+
+
+def simplify_grid_path(path_points):
+    if not path_points:
+        return []
+
+    simplified_path = [path_points[0]]
+    for i in range(1, len(path_points) - 1):
+        prev_point = simplified_path[-1] # x1, y1
+        curr_point = path_points[i] # x2, y2
+        next_point = path_points[i + 1] # x3, y3
+
+        # Check if the current point is redundant (i.e., lies on a straight line)
+        # (x3-x2)*(y2-y1) != (y3-y2)*(x2-x1)
+        if (next_point[0] - curr_point[0]) * (curr_point[1] - prev_point[1]) != (next_point[1] - curr_point[1]) * (curr_point[0] - prev_point[0]):
+            simplified_path.append(curr_point)
+
+    simplified_path.append(path_points[-1])
+    return simplified_path
+
+
+# CHECK THIS LATER
+def bezier_smooth_path(path_points):
+    """Applies cubic interpolation to smooth the path."""
+    path_points = np.array(path_points)
+    t = np.linspace(0, 1, len(path_points))
+    
+    x_spline = CubicSpline(t, path_points[:, 0])
+    y_spline = CubicSpline(t, path_points[:, 1])
+
+    smooth_t = np.linspace(0, 1, len(path_points) * 10)  # More points for smoothness
+    smooth_path = np.stack((x_spline(smooth_t), y_spline(smooth_t)), axis=-1)
+
+    return smooth_path.tolist()

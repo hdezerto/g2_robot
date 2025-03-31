@@ -126,10 +126,20 @@ def real_to_grid_coordinates(real_points, occupancy_grid):
     return grid_points
 
 
+def update_path_planning_grid(path_planning_grid, lidar_occupancy_grid, obstacles_list):
+    """
+    Updates the path planning grid by combining the latest lidar occupancy grid
+    and the obstacles list
 
+    Args:
+        path_planning_grid (OccupancyGrid): The grid used for path planning.
+        lidar_occupancy_grid (OccupancyGrid): The latest lidar occupancy grid.
+        obstacles_list (list): List of detected objects and boxes, where each
+                               element is a tuple (x, y, [theta/category]).
+    """
+    # Deep copy the lidar occupancy grid to the path planning grid
+    path_planning_grid = copy.deepcopy(lidar_occupancy_grid)
 
-# JUST WITH DETECTIONS
-def update_path_planning_grid(path_planning_grid, obstacles_list):
     # Convert detected objects/boxes to grid coordinates
     grid_points = real_to_grid_coordinates([(obj[0], obj[1]) for obj in obstacles_list], path_planning_grid)
 
@@ -145,41 +155,6 @@ def update_path_planning_grid(path_planning_grid, obstacles_list):
 
     path_planning_grid.data = data
     inflate_occupied_cells(path_planning_grid)
-
-
-
-
-# USING THE LIDAR
-# def update_path_planning_grid(path_planning_grid, lidar_occupancy_grid, obstacles_list):
-#     """
-#     Updates the path planning grid by combining the latest lidar occupancy grid
-#     and the obstacles list
-
-#     Args:
-#         path_planning_grid (OccupancyGrid): The grid used for path planning.
-#         lidar_occupancy_grid (OccupancyGrid): The latest lidar occupancy grid.
-#         obstacles_list (list): List of detected objects and boxes, where each
-#                                element is a tuple (x, y, [theta/category]).
-#     """
-#     # Deep copy the lidar occupancy grid to the path planning grid
-#     path_planning_grid = copy.deepcopy(lidar_occupancy_grid)
-
-#     # Convert detected objects/boxes to grid coordinates
-#     grid_points = real_to_grid_coordinates([(obj[0], obj[1]) for obj in obstacles_list], lidar_occupancy_grid)
-
-#     # Mark detected obstacles as occupied in the path planning grid
-#     width = path_planning_grid.info.width
-#     height = path_planning_grid.info.height
-#     data = path_planning_grid.data
-
-#     for (grid_x, grid_y) in grid_points:
-#         if 0 <= grid_x < width and 0 <= grid_y < height:
-#             index = grid_y * width + grid_x
-#             data[index] = 100  # Mark as occupied
-
-#     path_planning_grid.data = data
-#     inflate_occupied_cells(path_planning_grid)
-
 
 
 
