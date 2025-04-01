@@ -188,7 +188,7 @@ class ExplorationController(Node):
 
 
     def detections_callback(self, msg):
-        #self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
+        self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Check if the detection is inside the workspace. NOTE: objects that lie on the edge of the workspace are considered outside!
         if not self.is_inside_workspace(msg.x, msg.y):
             self.get_logger().info(f'Detection is outside the workspace. Ignoring it.')
