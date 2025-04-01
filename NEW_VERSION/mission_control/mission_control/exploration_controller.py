@@ -108,7 +108,8 @@ class ExplorationController(Node):
         # - check if the detected objects/boxes are inside the workspace
         self.exploration_occupancy_grid = initialize_occupancy_grid()
         inflate_occupied_cells(self.exploration_occupancy_grid)
-        self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
+        #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
+        self.exploration_points = [(10, 45), (185, 60), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()
         # DEBUG:

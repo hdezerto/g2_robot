@@ -38,14 +38,21 @@ MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 # ------------------------------------
 
 
+EXPLORATION_STEP = 15 # DEBUGGING
+
 # ------------------------------- State class -------------------------------
 class State(Enum):
     INIT = auto()
     OBSERVING = auto()
     GET_NEXT_OBJECT = auto()
-    START_MOVING = auto()
-    MOVING = auto() # Just proccessing callbacks
+    MOVE_TO_OBSERVATION = auto()
+    AVOID_COLLISION = auto()
+    MOVE_TO_PICK = auto()
+    PICK_OBJECT = auto()
+    MOVE_TO_BOX = auto()
+    DROP_OBJECT = auto()
     END_COLLECTION = auto()
+    TEST = auto()  # For testing purposes
 
 
 # ------------------------------- ExplorationController class -------------------------------
@@ -53,20 +60,39 @@ class CollectionController(Node):
 
     def run(self):
         while rclpy.ok():
-            if self.state == State.OBSERVING:
-               self.observing(3.0)  # Observe (spin) for 3 seconds
-            elif self.state == State.GET_NEXT_OBJECT:
-                self.get_next_object()
-            # elif self.state == State.MOVE_TO_OBSERVATION:
-            #     pass      
-            elif self.state == State.MOVING:
-                rclpy.spin_once(self) # DEBUGGING
 
+            if self.state == State.TEST:
+                rclpy.spin_once(self)
+
+
+            # if self.state == State.OBSERVING:
+            #     self.observing(3.0)  # Observe (spin) for 3 seconds
+            # elif self.state == State.GET_NEXT_OBJECT:
+            #     # Chooses the closest object to the robot and computes an observation point
+            #     self.get_next_object()
+            # elif self.state == State.START_MOVING:
+            #     # Receives a point, computes a path and publishes it
+            #     self.start_moving()
+            # elif self.state == State.MOVING:
+            #     # If a collision is detected, changes to START_MOVING to recomput the path.
+            #     # Also listens to /reached_destination, and changes state to PICK or DROP if the robot has reached the destination
+            #     rclpy.spin_once(self)
+            # elif self.state == State.OBSERVE_OBJECT:
+            #     # Observes the object to get accurate position
+            #     self.observe_object(3.0)
             # elif self.state == State.MOVE_TO_PICK:
-            #     pass
-            elif self.state == State.END_COLLECTION:
-                self.end_collection()
-                break
+            #     # Publishes a direct path from the 
+
+            #     self.move_to_pick()
+            # elif self.state == State.PICK:
+            #     self.pick()
+            # elif self.state == State.MOVE_TO_BOX:
+            #     self.move_to_box()
+            # elif self.state == State.DROP:
+            #     self.drop()
+            # elif self.state == State.END_COLLECTION:
+            #     self.end_collection()
+            #     break
 
     # ------------------- Initialization -------------------
     def __init__(self):
@@ -79,7 +105,8 @@ class CollectionController(Node):
         latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing objects/boxes to RViz
-        #self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
+        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
+        #self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5)
         self.planning_grid_publisher = self.create_publisher(OccupancyGrid, '/planning_grid', latched_qos)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
         #self.reached_destination_subscriber = self.create_subscription(Bool, '/reached_destination', self.reached_destination_callback, 10)
@@ -110,17 +137,117 @@ class CollectionController(Node):
         # Timer to periodically publish objects/boxes to RViz
         self.detections_timer = self.create_timer(0.5, self.publish_transforms_periodically)
 
+
+
+        # ------ DEBUGGING EXPLORATION POINTS ------
+        # Initialize exploration grid (workspace file and resolution defined in occupancy_grid_map.py) to:
+        # - compute the exploration points
+        # - check if the detected objects/boxes are inside the workspace
+        self.exploration_occupancy_grid = initialize_occupancy_grid()
+        inflate_occupied_cells(self.exploration_occupancy_grid)
+        #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
+        self.exploration_points = [(10, 45), (185, 60), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values
+        self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
+        self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
+        self.publish_exploration_grid()
+        # DEBUG:
+        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
+        # real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
+        # formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
+        # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
+        # -----------------------------------------
+
+
         self.get_logger().info('Waiting 3 sec...') 
         time.sleep(3) # Wait for all nodes to be ready and the TF buffer to populate
 
-        self.state == State.MOVING # DEBUGGING
+        self.state == State.TEST # DEBUGGING
 
+
+
+    # ---------- DEBUGGING (ignore) ----------
+
+    def compute_exploration_points(self, occupancy_grid, step):
+        exploration_points = []
+        width = occupancy_grid.info.width
+        height = occupancy_grid.info.height
+        data = occupancy_grid.data
+        line_count = -1 # -1 to ignore the line y=0 (no free cells with workspace2)
+    
+        for y in range(0, height, step):  # Iterate over rows with the given step
+            leftmost = None
+            rightmost = None
+            line_count += 1
+            for x in range(0, width, step):
+                index = y * width + x
+                if data[index] == 0:  # Assuming 0 represents free space
+                    if leftmost is None:
+                        leftmost = (x, y)  # First free cell in the row
+                    rightmost = (x, y)  # Update to the last free cell in the row
+    
+            # Alternate the order of adding points for zigzag pattern
+            if leftmost and rightmost:
+                if line_count % 2 != 0:  # Odd rows: leftmost first, then rightmost
+                    exploration_points.append(leftmost)
+                    if rightmost != leftmost:
+                        exploration_points.append(rightmost)
+                else:  # Even rows: rightmost first, then leftmost
+                    exploration_points.append(rightmost)
+                    if rightmost != leftmost:
+                        exploration_points.append(leftmost)
+    
+        return exploration_points
+
+
+    def mark_exploration_points(self, occupancy_grid, exploration_points):
+        data = occupancy_grid.data
+        width = occupancy_grid.info.width
+
+        for (x, y) in exploration_points:
+            index = y * width + x
+            data[index] = 15  # Mark exploration points with a lighter shade of gray
+
+
+    def publish_exploration_grid(self):
+        self.exploration_occupancy_grid.header.stamp = self.get_clock().now().to_msg()
+        self.exploration_grid_publisher.publish(self.exploration_occupancy_grid)
 
 
 
     # ------------------- STATE FUNCTIONS -------------------
+    def observing(self, duration):
+        """
+        Process callbacks for a specified duration, just for initial observation of the environment (using lidar)
+        """
+        self.get_logger().info(f'Observing for {duration} seconds...')
+        start_time = self.get_clock().now().nanoseconds() / 1e9  # Start time in seconds
+    
+        while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
+            rclpy.spin_once(self)
+    
+        self.get_logger().info('Finished observing.')
+        self.state = State.GET_NEXT_OBJECT  # Now it can get the first object
 
 
+    def start_moving(self):
+        # TO DO
+
+
+        self.State = State.AVOID_COLLISION # Avoid collision using Lidar
+    
+
+
+
+
+    def mapper_occupancy_grid_callback(self, msg):
+        """
+        Callback for processing the /mapper_occupancy_grid topic.
+        """
+        if self.state not in [State.OBSERVING, State.AVOID_COLLISION]:
+            return
+        # FILL WITH CODE FROM EXPLORATION CONTROLLER
+ 
+    
 
 
     # ------------------- UTILS ------------------- 
