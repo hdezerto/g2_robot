@@ -108,8 +108,12 @@ class ExplorationController(Node):
         # - check if the detected objects/boxes are inside the workspace
         self.exploration_occupancy_grid = initialize_occupancy_grid()
         inflate_occupied_cells(self.exploration_occupancy_grid)
+        
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
-        self.exploration_points = [(10, 45), (185, 60), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values
+        #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
+        #self.exploration_points = [(10, 45), (145, 45), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()
         # DEBUG:
@@ -139,8 +143,8 @@ class ExplorationController(Node):
         time.sleep(3) # Wait for all nodes to be ready and the TF buffer to populate
 
         #self.state = ExplorationState.OBSERVING
-        self.state = ExplorationState.MOVING # DEBUG detection
-        #self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
+        #self.state = ExplorationState.MOVING # DEBUG detection
+        self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
 
 
     # ------------------- STATE FUNCTIONS -------------------
@@ -176,12 +180,12 @@ class ExplorationController(Node):
         goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
         self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
-        # --------- JUST TO SEE THE GRID PATH ---------
-        self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
-        # --------------------------------------
         if path: # Path found
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
             self.get_logger().info('Path published. Moving...')
+            # --------- JUST TO SEE THE GRID PATH ---------
+            self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
+            # --------------------------------------
             self.state = ExplorationState.MOVING
         else: # No path found
             self.get_logger().info('No path found. Getting the next exploration point.')
@@ -196,11 +200,11 @@ class ExplorationController(Node):
             return
         # Update the detections list. It returns true if it's a new detection (for collision check)
         is_new_detection = self.update_detections(msg)
-        # if is_new_detection:
-        #     # Update path planning grid with the detected object/box and check for collision
-        #     if self.update_path_planning_grid_and_check_collision(self.latest_lidar_grid):
-        #         self.get_logger().info('Collision detected from camera. Recomputing path.')
-        #         self.state = ExplorationState.START_MOVING
+        if is_new_detection:
+            # Update path planning grid with the detected object/box and check for collision
+            if self.update_path_planning_grid_and_check_collision(self.latest_lidar_grid):
+                self.get_logger().info('Collision detected from camera. Recomputing path.')
+                self.state = ExplorationState.START_MOVING
 
 
     # TO CHECK
@@ -313,8 +317,8 @@ class ExplorationController(Node):
         if 0 <= grid_x < width and 0 <= grid_y < height:
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
-            # Check if the cell value is 0 (free space), 15 (exploration point) or 50 (inflated cells of the workspace border)
-            return self.exploration_occupancy_grid.data[index] in [0, 15, 50]
+            # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells of the workspace border), 100 (workspace border)
+            return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 100]
 
         # If out of bounds, return False
         return False

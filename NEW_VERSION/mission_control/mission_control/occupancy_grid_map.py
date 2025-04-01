@@ -15,7 +15,7 @@ import os
 # -------- Tunable parameters --------
 WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_3.tsv') # Path to the workspace file
 RESOLUTION = 0.05  # Grid cell size [m/cell]
-EXPANSION_RADIUS = 3  # Radius in cells to dilate occupied cells [cells]
+EXPANSION_RADIUS = 4  # Radius in cells to dilate occupied cells [cells]
 
 # Lidar mapper:
 LIDAR_MIN_RANGE = 0.4  # Minimum range to consider a valid measurement [m]
