@@ -1,12 +1,5 @@
 #!/usr/bin/env python
 
-""" 
-EXPLORATION LOGIC:
-
-
-
-"""
-
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
@@ -37,7 +30,6 @@ TO DO:
 - Integrate lidar mapper
 - HUGE DRIFT
 - Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
-- Change update_path_planning_grid to mark boxes with more than 1 occupied cell
 
 NOTES:
 - Might be better to add objects to the grid inside the mission controller to avoid delay in collision check.
@@ -54,6 +46,7 @@ It can also be more useful for the collection in case we need to compute a path 
 #EXPLORATION_STEP = 7  # Step size for generating exploration points [cells]
 EXPLORATION_STEP = 15 # DEBUGGING
 POSITION_THRESHOLD = 0.13  # Threshold for considering two detections as the same [m]
+MAP_FILE_NAME = "map_file.tsv"  # Name of the map file to save
 # ------------------------------------
 
 
@@ -234,11 +227,11 @@ class ExplorationController(Node):
         self.get_logger().info('Exploration completed. Map file saved.')
 
 
-    # ------------------- UTILS (specific to ExplorationController) ------------------- 
+    # ------------------- UTILS ------------------- 
 
     def update_path_planning_grid_and_check_collision(self, lidar_occupancy_grid):
         # Update the planning grid with the latest detected objects/boxes
-        update_path_planning_grid(self.path_planning_grid, lidar_occupancy_grid, self.detected_objects + self.detected_boxes)
+        self.path_planning_grid = update_path_planning_grid(lidar_occupancy_grid, self.detected_objects, self.detected_boxes)
         self.planning_grid_publisher.publish(self.path_planning_grid) # Publish the updated grid to RViz
         self.update_current_position() # Update the current position of the robot
         if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
@@ -386,18 +379,17 @@ class ExplorationController(Node):
 
 
     # The map is saved in the directory where the node is run
-    def write_map_file(self):
-        file_name = "map_file.txt"
+    def write_map_file(self, file_name=MAP_FILE_NAME):
         current_directory = os.getcwd()  # Get the current working directory
     
         with open(file_name, 'w') as file:
             # Write the objects to the file
             for x, y, category in self.detected_objects:
-                file.write(f"{category}\t{x:.2f}\t{y:.2f}\t0\n")  # Angle is 0 for objects
+                file.write(f"{category}\t{x * 100:.2f}\t{y * 100:.2f}\t0\n")  # Angle is 0 for objects
     
             # Write the boxes to the file
             for x, y, theta in self.detected_boxes:
-                file.write(f"B\t{x:.2f}\t{y:.2f}\t{theta:.0f}\n")  # Use theta for the angle
+                file.write(f"B\t{x * 100:.2f}\t{y * 100:.2f}\t{theta:.0f}\n")  # Use theta for the angle
     
         self.get_logger().info(f"Map file '{file_name}' has been written successfully to '{current_directory}'.")
 

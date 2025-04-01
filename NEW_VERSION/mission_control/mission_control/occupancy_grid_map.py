@@ -15,7 +15,7 @@ import os
 # -------- Tunable parameters --------
 WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_3.tsv') # Path to the workspace file
 RESOLUTION = 0.05  # Grid cell size [m/cell]
-EXPANSION_RADIUS = 4  # Radius in cells to dilate occupied cells [cells]
+EXPANSION_RADIUS = 3  # Radius in cells to dilate occupied cells [cells]
 
 # Lidar mapper:
 LIDAR_MIN_RANGE = 0.4  # Minimum range to consider a valid measurement [m]
@@ -126,35 +126,53 @@ def real_to_grid_coordinates(real_points, occupancy_grid):
     return grid_points
 
 
-def update_path_planning_grid(path_planning_grid, lidar_occupancy_grid, obstacles_list):
+def update_path_planning_grid(lidar_occupancy_grid, obstacles_list, boxes_list):
     """
     Updates the path planning grid by combining the latest lidar occupancy grid
-    and the obstacles list
+    and the obstacles list.
 
     Args:
         path_planning_grid (OccupancyGrid): The grid used for path planning.
         lidar_occupancy_grid (OccupancyGrid): The latest lidar occupancy grid.
         obstacles_list (list): List of detected objects and boxes, where each
-                               element is a tuple (x, y, [theta/category]).
+                               element is a tuple (x, y, category).
+        boxes_list (list): List of detected boxes, where each element is a tuple (x, y, theta).
     """
     # Deep copy the lidar occupancy grid to the path planning grid
     path_planning_grid = copy.deepcopy(lidar_occupancy_grid)
 
-    # Convert detected objects/boxes to grid coordinates
-    grid_points = real_to_grid_coordinates([(obj[0], obj[1]) for obj in obstacles_list], path_planning_grid)
+    # Convert detected objects to grid coordinates
+    object_grid_points = real_to_grid_coordinates([(obj[0], obj[1]) for obj in obstacles_list], path_planning_grid)
 
-    # Mark detected obstacles as occupied in the path planning grid
+    # Convert detected boxes to grid coordinates
+    box_grid_points = real_to_grid_coordinates([(box[0], box[1]) for box in boxes_list], path_planning_grid)
+
     width = path_planning_grid.info.width
     height = path_planning_grid.info.height
     data = path_planning_grid.data
-
-    for (grid_x, grid_y) in grid_points:
+    # Mark detected objects as occupied in the path planning grid
+    for (grid_x, grid_y) in object_grid_points:
         if 0 <= grid_x < width and 0 <= grid_y < height:
             index = grid_y * width + grid_x
             data[index] = 100  # Mark as occupied
 
+    # Mark detected boxes and their neighboring cells as occupied
+    for (grid_x, grid_y) in box_grid_points:
+        if 0 <= grid_x < width and 0 <= grid_y < height:
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    neighbor_x = grid_x + dx
+                    neighbor_y = grid_y + dy
+                    if 0 <= neighbor_x < width and 0 <= neighbor_y < height:
+                        neighbor_index = neighbor_y * width + neighbor_x
+                        if data[neighbor_index] == 0:  # Only mark free cells
+                            data[neighbor_index] = 100  # Mark as occupied
+
     path_planning_grid.data = data
     inflate_occupied_cells(path_planning_grid)
+
+    return path_planning_grid
+
 
 
 
