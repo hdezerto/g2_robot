@@ -137,8 +137,8 @@ class ExplorationController(Node):
         self.get_logger().info('Waiting 3 sec...') 
         time.sleep(3) # Wait for all nodes to be ready and the TF buffer to populate
 
-        self.state = ExplorationState.OBSERVING
-        #self.state = ExplorationState.MOVING # DEBUG detection
+        #self.state = ExplorationState.OBSERVING
+        self.state = ExplorationState.MOVING # DEBUG detection
         #self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
 
 
@@ -195,11 +195,11 @@ class ExplorationController(Node):
             return
         # Update the detections list. It returns true if it's a new detection (for collision check)
         is_new_detection = self.update_detections(msg)
-        if is_new_detection:
-            # Update path planning grid with the detected object/box and check for collision
-            if self.update_path_planning_grid_and_check_collision(self.latest_lidar_grid):
-                self.get_logger().info('Collision detected from camera. Recomputing path.')
-                self.state = ExplorationState.START_MOVING
+        # if is_new_detection:
+        #     # Update path planning grid with the detected object/box and check for collision
+        #     if self.update_path_planning_grid_and_check_collision(self.latest_lidar_grid):
+        #         self.get_logger().info('Collision detected from camera. Recomputing path.')
+        #         self.state = ExplorationState.START_MOVING
 
 
     # TO CHECK
