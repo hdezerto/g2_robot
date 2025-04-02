@@ -111,7 +111,6 @@ class ExplorationController(Node):
         
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        #self.exploration_points = [(10, 45), (145, 45), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
@@ -133,6 +132,7 @@ class ExplorationController(Node):
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
         self.path_planning_grid = initialize_occupancy_grid()
         inflate_occupied_cells(self.path_planning_grid)
+        self.planning_grid_publisher.publish(self.path_planning_grid) # Publish the initial grid to RViz
         self.grid_path = []  # Path in grid coordinates
         self.latest_lidar_grid = initialize_occupancy_grid() # Just in case detections_callback is called before the lidar grid is received
 
