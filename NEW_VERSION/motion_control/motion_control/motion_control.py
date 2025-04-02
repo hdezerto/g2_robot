@@ -125,6 +125,7 @@ class MotionController(Node):
 
         self.stuck_check = 0
         self.last_distance = 0
+        self.last_delta_theta = 0
         self.stuck_parameter = 0
 
         self.accuracy_check = 0
@@ -240,8 +241,18 @@ class MotionController(Node):
                 self.control_phase = 2
                 self.reset_rotation = True
                 self.stuck_check = 0
-                self.get_logger().info("Facing towards the waypoint")
+                self.get_logger().info("Facing towards the waypoint. Now moving.")
             else:
+                if abs(self.last_delta_theta - delta_theta) < 0.0005:
+                    self.stuck_check += 1
+                    self.get_logger().info(f"Not turning.")
+                else:
+                    self.stuck_check = 0
+                if self.stuck_check > 5:
+                    stuck_parameter = (self.stuck_check - 5)*0.01
+                    self.get_logger().info(f"Stuck. Increasing damping factor to {stuck_parameter}")
+
+                # Set velocities
                 w = self.p_rotation_one * delta_theta
                 v = 0
                 # If robot should turn on the spot - parameter might need to be adjusted
@@ -250,11 +261,11 @@ class MotionController(Node):
         elif self.control_phase == 2:
             # Check if the robot has reached the waypoint
             if distance < self.goal_margin_translational:
+                self.stuck_check = 0
+                
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
-                    self.stuck_check = 0
                     if self.accuracy_check > 5:
-                        self.get_logger().info("Reached final waypoint")
                         self.control_phase = 3
                         self.get_logger().info(
                             "Reached final waypoint. Now correcting orientation"
@@ -262,15 +273,20 @@ class MotionController(Node):
                     else:
                         self.accuracy_check += 1
                 else:
-                    self.get_logger().info("Reached waypoint")
+                    self.get_logger().info("Reached waypoint. Moving to next waypoint.")
                     self.reached_waypoint = True
             else:
                 # Check if robot is stuck
-                if self.last_distance == distance:
+                if abs(self.last_distance - distance) < 0.0005:
                     self.stuck_check += 1
+                    self.get_logger().info(f"Not moving.")
+                else:
+                    self.stuck_check = 0
                 if self.stuck_check > 5:
                     stuck_parameter = (self.stuck_check - 5)*0.01
+                    self.get_logger().info(f"Stuck. Increasing damping factor to {stuck_parameter}")
                 self.accuracy_check = 0
+
                 # Set velocity
                 v = self.p_translation_two * (
                     dx * math.cos(self.theta_g) + dy * math.sin(self.theta_g)
@@ -293,12 +309,19 @@ class MotionController(Node):
 
             if abs(final_dtheta) < self.goal_margin_rotational:
                 self.get_logger().info("Final Waypoint Reached")
+                self.stuck_check = 0
                 self.reached_waypoint = True
             else:
+                if self.last_delta_theta == delta_theta:
+                    self.stuck_check += 1
+                    self.get_logger().info(f"Not turning.")
+                else:
+                    self.stuck_check = 0
+                if self.stuck_check > 5:
+                    stuck_parameter = (self.stuck_check - 5)*0.01
+                    self.get_logger().info(f"Stuck. Increasing damping factor to {stuck_parameter}")
                 w = self.p_rotation_one * final_dtheta
                 v = 0
-
-        self.get_logger().info(f"v: {v}, w: {w}, distance: {distance}")
 
         # Damping
         v = v * self.v_damper
@@ -309,11 +332,18 @@ class MotionController(Node):
         if abs(w) > 1.5:
             w = np.sign(w) * 1.5
 
+        # Update last values
+        self.last_distance = distance
+        self.last_delta_theta = delta_theta
+
         # Convert to duty cycles
         motor_msg = DutyCycles()
         motor_msg.duty_cycle_left = (v - 0.5 * w) * (self.cycle_damping + stuck_parameter)
         motor_msg.duty_cycle_right = (v + 0.5 * w) * (self.cycle_damping + stuck_parameter)
         motor_msg.header.stamp = self.get_clock().now().to_msg()
+
+        # Logging
+        # self.get_logger().info(f"v: {v}, w: {w}, distance: {distance}")
 
         # Publish the duty cycles
         self.motion_publisher.publish(motor_msg)
