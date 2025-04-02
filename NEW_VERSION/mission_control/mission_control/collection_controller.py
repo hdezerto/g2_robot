@@ -207,7 +207,7 @@ class CollectionController(Node):
              # Use an observation grid (copy of planning grid) where it is just uninflated around the objet to pick
              # Select the cells from distance = MIN_OBSERVATION_DISTANCE that are free
              # Filter the ones which are line free
-             # If no cells found, return None
+             # If no cells found, set self.destination to None
              # If it exists, store the observation point in self.destination (real coordinates, including orientation)
 
         if self.destination:
