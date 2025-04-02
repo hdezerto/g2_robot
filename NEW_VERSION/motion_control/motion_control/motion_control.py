@@ -241,7 +241,7 @@ class MotionController(Node):
                 self.control_phase = 2
                 self.reset_rotation = True
                 self.stuck_check = 0
-                self.get_logger().info("Facing towards the waypoint")
+                self.get_logger().info("Facing towards the waypoint. Now moving.")
             else:
                 if abs(self.last_delta_theta - delta_theta) < 0.0005:
                     self.stuck_check += 1
@@ -261,11 +261,11 @@ class MotionController(Node):
         elif self.control_phase == 2:
             # Check if the robot has reached the waypoint
             if distance < self.goal_margin_translational:
+                self.stuck_check = 0
+                
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
-                    self.stuck_check = 0
                     if self.accuracy_check > 5:
-                        self.get_logger().info("Reached final waypoint")
                         self.control_phase = 3
                         self.get_logger().info(
                             "Reached final waypoint. Now correcting orientation"
@@ -273,7 +273,7 @@ class MotionController(Node):
                     else:
                         self.accuracy_check += 1
                 else:
-                    self.get_logger().info("Reached waypoint")
+                    self.get_logger().info("Reached waypoint. Moving to next waypoint.")
                     self.reached_waypoint = True
             else:
                 # Check if robot is stuck
