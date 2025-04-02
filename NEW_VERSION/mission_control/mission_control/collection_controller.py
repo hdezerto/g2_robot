@@ -41,6 +41,7 @@ MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 
 # ------------------------------- State class -------------------------------
 class State(Enum):
+    TESTING = auto()
     INIT = auto()
     SCANNING = auto()
     GET_NEXT_OBJECT = auto()
@@ -53,7 +54,6 @@ class State(Enum):
     MOVE_TO_BOX = auto()
     DROP = auto()
     END_COLLECTION = auto()
-    TEST = auto()  # For testing purposes
 
 
 # ------------------------------- ExplorationController class -------------------------------
@@ -78,19 +78,20 @@ class CollectionController(Node):
         Handles the current state by calling the corresponding method.
         """
         state_methods = {
+            State.TESTING: lambda: rclpy.spin_once(self),
             # lamda is needed when the function takes parameters (to avoid calling it immediately)
             # Ex.: self.function() is called immediately, while self.function is passed as a reference
-            State.SCANNING: lambda: self.observing(3.0), # Observe (spin) for 3 seconds
-            State.GET_NEXT_OBJECT: self.get_next_object,
-            State.PLAN_PATH: self.plan_path,
-            State.MOVING: lambda: rclpy.spin_once(self),
-            State.OBSERVE_OBJECT: lambda: self.observe_object(3.0),
-            State.MOVE_TO_PICK: self.move_to_pick,
-            State.PICK: self.pick,
-            State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
-            State.MOVE_TO_BOX: self.move_to_box,
-            State.DROP: self.drop,
-            State.END_COLLECTION: self.end_collection,
+            # State.SCANNING: lambda: self.observing(3.0), # Observe (spin) for 3 seconds
+            # State.GET_NEXT_OBJECT: self.get_next_object,
+            # State.PLAN_PATH: self.plan_path,
+            # State.MOVING: lambda: rclpy.spin_once(self),
+            # State.OBSERVE_OBJECT: lambda: self.observe_object(3.0),
+            # State.MOVE_TO_PICK: self.move_to_pick,
+            # State.PICK: self.pick,
+            # State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
+            # State.MOVE_TO_BOX: self.move_to_box,
+            # State.DROP: self.drop,
+            # State.END_COLLECTION: self.end_collection,
         }
 
         if self.state in state_methods:
@@ -149,31 +150,35 @@ class CollectionController(Node):
         # Timer to periodically publish objects/boxes to RViz
         self.detections_timer = self.create_timer(0.5, self.publish_transforms_periodically)
 
+        self.next_object_position = None
+        self.destination = None  # Destination point in real world coordinates
 
 
-        # ------ DEBUGGING EXPLORATION POINTS ------
-        # Initialize exploration grid (workspace file and resolution defined in occupancy_grid_map.py) to:
-        # - compute the exploration points
-        # - check if the detected objects/boxes are inside the workspace
-        self.exploration_occupancy_grid = initialize_occupancy_grid()
-        inflate_occupied_cells(self.exploration_occupancy_grid)
-        #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
-        self.exploration_points = [(10, 45), (185, 60), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values
-        self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
-        self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
-        self.publish_exploration_grid()
-        # DEBUG:
-        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
-        # real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
-        # formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
-        # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
-        # -----------------------------------------
+
+
+        # # ------ DEBUGGING EXPLORATION POINTS ------
+        # # Initialize exploration grid (workspace file and resolution defined in occupancy_grid_map.py) to:
+        # # - compute the exploration points
+        # # - check if the detected objects/boxes are inside the workspace
+        # self.exploration_occupancy_grid = initialize_occupancy_grid()
+        # inflate_occupied_cells(self.exploration_occupancy_grid)
+        # #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
+        # self.exploration_points = [(10, 45), (185, 60), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values
+        # self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
+        # self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
+        # self.publish_exploration_grid()
+        # # DEBUG:
+        # self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
+        # # real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
+        # # formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
+        # # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
+        # # -----------------------------------------
 
 
         self.get_logger().info('Waiting 3 sec...') 
         time.sleep(3) # Wait for all nodes to be ready and the TF buffer to populate
 
-        self.state == State.TEST # DEBUGGING
+        self.state = State.TESTING # DEBUGGING
 
 
     # ------------------- STATE FUNCTIONS -------------------
@@ -191,6 +196,26 @@ class CollectionController(Node):
         self.state = State.GET_NEXT_OBJECT  # Now it can get the first object
 
 
+
+    def get_next_object(self):
+
+        # Select the closest object to the current position of the robot
+
+
+        # Compute the observation point
+        self.compute_observation_point()
+             # Use an observation grid (copy of planning grid) where it is just uninflated around the objet to pick
+             # Select the cells from distance = MIN_OBSERVATION_DISTANCE that are free
+             # Filter the ones which are line free
+             # If no cells found, return None
+             # If it exists, store the observation point in self.destination (real coordinates, including orientation)
+
+        if self.destination:
+            self.State = State.PLAN_PATH # Plan the path to the observation point
+        else:
+            self.State = State.GET_NEXT_OBJECT # No observation point found, get the next object
+
+
     def plan_path(self):
         # TO DO
 
@@ -205,7 +230,7 @@ class CollectionController(Node):
         """
         Callback for processing the /mapper_occupancy_grid topic.
         """
-        if self.state not in [State.OBSERVING, State.AVOID_COLLISION]:
+        if self.state not in [State.OBSERVING, State]:
             return
         # FILL WITH CODE FROM EXPLORATION CONTROLLER
  
