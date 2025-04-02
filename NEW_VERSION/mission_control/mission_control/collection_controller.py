@@ -36,21 +36,22 @@ TO DO:
 # -------- Tunable parameters --------
 MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 # ------------------------------------
+#EXPLORATION_STEP = 15 # DEBUGGING
 
-
-EXPLORATION_STEP = 15 # DEBUGGING
 
 # ------------------------------- State class -------------------------------
 class State(Enum):
     INIT = auto()
-    OBSERVING = auto()
+    SCANNING = auto()
     GET_NEXT_OBJECT = auto()
-    MOVE_TO_OBSERVATION = auto()
-    AVOID_COLLISION = auto()
+    PLAN_PATH = auto()
+    MOVING = auto()
+    OBSERVE_OBJECT = auto()
     MOVE_TO_PICK = auto()
-    PICK_OBJECT = auto()
+    PICK = auto()
+    WAIT_FOR_ARM = auto()
     MOVE_TO_BOX = auto()
-    DROP_OBJECT = auto()
+    DROP = auto()
     END_COLLECTION = auto()
     TEST = auto()  # For testing purposes
 
@@ -59,40 +60,51 @@ class State(Enum):
 class CollectionController(Node):
 
     def run(self):
+        """
+        Main loop for the state machine.
+        """
         while rclpy.ok():
+            try:
+                self.handle_state()
+            except StopIteration:
+                #self.get_logger().info("Exiting the main loop.")
+                break
+            except Exception as e:
+                self.get_logger().error(f"Error in state {self.state}: {e}")
+                break
+    
+    def handle_state(self):
+        """
+        Handles the current state by calling the corresponding method.
+        """
+        state_methods = {
+            # lamda is needed when the function takes parameters (to avoid calling it immediately)
+            # Ex.: self.function() is called immediately, while self.function is passed as a reference
+            State.SCANNING: lambda: self.observing(3.0), # Observe (spin) for 3 seconds
+            State.GET_NEXT_OBJECT: self.get_next_object,
+            State.PLAN_PATH: self.plan_path,
+            State.MOVING: lambda: rclpy.spin_once(self),
+            State.OBSERVE_OBJECT: lambda: self.observe_object(3.0),
+            State.MOVE_TO_PICK: self.move_to_pick,
+            State.PICK: self.pick,
+            State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
+            State.MOVE_TO_BOX: self.move_to_box,
+            State.DROP: self.drop,
+            State.END_COLLECTION: self.end_collection,
+        }
 
-            if self.state == State.TEST:
-                rclpy.spin_once(self)
+        if self.state in state_methods:
+            #self.get_logger().info(f"Current state: {self.state.name}")
+            state_methods[self.state]()  # Call the corresponding method
 
+            # Stop the loop if the state is END_COLLECTION
+            if self.state == State.END_COLLECTION:
+                #self.get_logger().info("Collection process completed. Stopping the robot.")
+                raise StopIteration  # Exit the loop in the `run` method
+        else:
+            #self.get_logger().error(f"Unknown state: {self.state}")
+            raise ValueError(f"Unknown state: {self.state}")
 
-            # if self.state == State.OBSERVING:
-            #     self.observing(3.0)  # Observe (spin) for 3 seconds
-            # elif self.state == State.GET_NEXT_OBJECT:
-            #     # Chooses the closest object to the robot and computes an observation point
-            #     self.get_next_object()
-            # elif self.state == State.START_MOVING:
-            #     # Receives a point, computes a path and publishes it
-            #     self.start_moving()
-            # elif self.state == State.MOVING:
-            #     # If a collision is detected, changes to START_MOVING to recomput the path.
-            #     # Also listens to /reached_destination, and changes state to PICK or DROP if the robot has reached the destination
-            #     rclpy.spin_once(self)
-            # elif self.state == State.OBSERVE_OBJECT:
-            #     # Observes the object to get accurate position
-            #     self.observe_object(3.0)
-            # elif self.state == State.MOVE_TO_PICK:
-            #     # Publishes a direct path from the 
-
-            #     self.move_to_pick()
-            # elif self.state == State.PICK:
-            #     self.pick()
-            # elif self.state == State.MOVE_TO_BOX:
-            #     self.move_to_box()
-            # elif self.state == State.DROP:
-            #     self.drop()
-            # elif self.state == State.END_COLLECTION:
-            #     self.end_collection()
-            #     break
 
     # ------------------- Initialization -------------------
     def __init__(self):
@@ -164,56 +176,6 @@ class CollectionController(Node):
         self.state == State.TEST # DEBUGGING
 
 
-
-    # ---------- DEBUGGING (ignore) ----------
-
-    def compute_exploration_points(self, occupancy_grid, step):
-        exploration_points = []
-        width = occupancy_grid.info.width
-        height = occupancy_grid.info.height
-        data = occupancy_grid.data
-        line_count = -1 # -1 to ignore the line y=0 (no free cells with workspace2)
-    
-        for y in range(0, height, step):  # Iterate over rows with the given step
-            leftmost = None
-            rightmost = None
-            line_count += 1
-            for x in range(0, width, step):
-                index = y * width + x
-                if data[index] == 0:  # Assuming 0 represents free space
-                    if leftmost is None:
-                        leftmost = (x, y)  # First free cell in the row
-                    rightmost = (x, y)  # Update to the last free cell in the row
-    
-            # Alternate the order of adding points for zigzag pattern
-            if leftmost and rightmost:
-                if line_count % 2 != 0:  # Odd rows: leftmost first, then rightmost
-                    exploration_points.append(leftmost)
-                    if rightmost != leftmost:
-                        exploration_points.append(rightmost)
-                else:  # Even rows: rightmost first, then leftmost
-                    exploration_points.append(rightmost)
-                    if rightmost != leftmost:
-                        exploration_points.append(leftmost)
-    
-        return exploration_points
-
-
-    def mark_exploration_points(self, occupancy_grid, exploration_points):
-        data = occupancy_grid.data
-        width = occupancy_grid.info.width
-
-        for (x, y) in exploration_points:
-            index = y * width + x
-            data[index] = 15  # Mark exploration points with a lighter shade of gray
-
-
-    def publish_exploration_grid(self):
-        self.exploration_occupancy_grid.header.stamp = self.get_clock().now().to_msg()
-        self.exploration_grid_publisher.publish(self.exploration_occupancy_grid)
-
-
-
     # ------------------- STATE FUNCTIONS -------------------
     def observing(self, duration):
         """
@@ -229,11 +191,11 @@ class CollectionController(Node):
         self.state = State.GET_NEXT_OBJECT  # Now it can get the first object
 
 
-    def start_moving(self):
+    def plan_path(self):
         # TO DO
 
 
-        self.State = State.AVOID_COLLISION # Avoid collision using Lidar
+        self.State = State.MOVING # Avoid collision using Lidar
     
 
 
@@ -280,6 +242,56 @@ class CollectionController(Node):
                     self.objects.append((x, y, int(category)))
         
         self.get_logger().info(f"Map file '{file_name}' has been read successfully.")
+
+
+
+        # # ---------- DEBUGGING (ignore) ----------
+
+
+    # def compute_exploration_points(self, occupancy_grid, step):
+    #     exploration_points = []
+    #     width = occupancy_grid.info.width
+    #     height = occupancy_grid.info.height
+    #     data = occupancy_grid.data
+    #     line_count = -1 # -1 to ignore the line y=0 (no free cells with workspace2)
+    
+    #     for y in range(0, height, step):  # Iterate over rows with the given step
+    #         leftmost = None
+    #         rightmost = None
+    #         line_count += 1
+    #         for x in range(0, width, step):
+    #             index = y * width + x
+    #             if data[index] == 0:  # Assuming 0 represents free space
+    #                 if leftmost is None:
+    #                     leftmost = (x, y)  # First free cell in the row
+    #                 rightmost = (x, y)  # Update to the last free cell in the row
+    
+    #         # Alternate the order of adding points for zigzag pattern
+    #         if leftmost and rightmost:
+    #             if line_count % 2 != 0:  # Odd rows: leftmost first, then rightmost
+    #                 exploration_points.append(leftmost)
+    #                 if rightmost != leftmost:
+    #                     exploration_points.append(rightmost)
+    #             else:  # Even rows: rightmost first, then leftmost
+    #                 exploration_points.append(rightmost)
+    #                 if rightmost != leftmost:
+    #                     exploration_points.append(leftmost)
+    
+    #     return exploration_points
+
+
+    # def mark_exploration_points(self, occupancy_grid, exploration_points):
+    #     data = occupancy_grid.data
+    #     width = occupancy_grid.info.width
+
+    #     for (x, y) in exploration_points:
+    #         index = y * width + x
+    #         data[index] = 15  # Mark exploration points with a lighter shade of gray
+
+
+    # def publish_exploration_grid(self):
+    #     self.exploration_occupancy_grid.header.stamp = self.get_clock().now().to_msg()
+    #     self.exploration_grid_publisher.publish(self.exploration_occupancy_grid)
 
 
 

@@ -55,7 +55,7 @@ class ExplorationState(Enum):
     INIT = auto()
     OBSERVING = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
-    START_MOVING = auto()
+    PLAN_PATH = auto()
     MOVING = auto() # Just proccessing callbacks
     END_EXPLORATION = auto()
 
@@ -69,8 +69,8 @@ class ExplorationController(Node):
                 self.observing(3.0)  # Observe (spin) for 3 seconds
             elif self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
-            elif self.state == ExplorationState.START_MOVING:
-                self.start_moving()
+            elif self.state == ExplorationState.PLAN_PATH:
+                self.plan_path()
             elif self.state == ExplorationState.MOVING: # Just process callbacks
                 rclpy.spin_once(self)
             elif self.state == ExplorationState.END_EXPLORATION:
@@ -167,13 +167,13 @@ class ExplorationController(Node):
         if self.exploration_point_index < len(self.exploration_points):
             self.exploration_point = self.exploration_points[self.exploration_point_index] # Get grid coordinates of the next exploration point
             self.exploration_point_index += 1
-            self.state = ExplorationState.START_MOVING
+            self.state = ExplorationState.PLAN_PATH
         else: # No more points to explore
             self.get_logger().info('No more exploration points. Ending exploration.')
             self.state = ExplorationState.END_EXPLORATION
     
 
-    def start_moving(self):
+    def plan_path(self):
         self.update_current_position()  # Update the current position of the robot
         # Compute to the exploration point and move to it. The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
         start = (self.current_grid_position, self.current_position)
@@ -204,7 +204,7 @@ class ExplorationController(Node):
             # Update path planning grid with the detected object/box and check for collision
             if self.update_path_planning_grid_and_check_collision(self.latest_lidar_grid):
                 self.get_logger().info('Collision detected from camera. Recomputing path.')
-                self.state = ExplorationState.START_MOVING
+                self.state = ExplorationState.PLAN_PATH
 
 
     # TO CHECK
@@ -214,7 +214,7 @@ class ExplorationController(Node):
         # Update path planning grid with the received lidar occupancy grid and check for collision. msg is passed as lidar_occupancy_grid
         if self.update_path_planning_grid_and_check_collision(msg):
             self.get_logger().info('Collision detected from lidar. Recomputing path.')
-            self.state = ExplorationState.START_MOVING
+            self.state = ExplorationState.PLAN_PATH
             
 
     def reached_destination_callback(self, msg):
