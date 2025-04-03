@@ -27,7 +27,7 @@ setup(
             'collection_controller = mission_control.collection_controller:main',
             'mapper = mission_control.occupancy_mapping_gray:main',
             'simple_mapper = mission_control.simple_mapping:main',
-            'processor_mapper = mission_control.processor_mapper:main',
+            'processor_mapper = mission_control.Processor_Mapper:main',
         ],
     },
 )

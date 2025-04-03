@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node  # Base class for defining a ROS 2 node
 from rclpy.time import Time  # Used for handling ROS 2 timestamps
 from rclpy.qos import QoSProfile, DurabilityPolicy
-
+from collections import deque
 
 # Importing message types used for communication in ROS 2
 from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
@@ -43,19 +43,25 @@ from shapely import Point,Polygon as ShapelyPolygon
 
 # -------- Tunable Parameters --------
 #TODO ensure right file path is used
-#WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_2.tsv')  # Path to the workspace file
+WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_3.tsv')  # Path to the workspace file
+'''
 WORKSPACE_FILE_PATH = os.path.join(
     os.getenv("HOME"), "test_ws", "src", "g2_robot", "detection", "resource", "workspace_2.tsv"
-)
+)  # Path to the workspace file
+'''
+
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
-SCAN_THRESHOLD = 5  # Number of scans to skip before processing new data
-SCAN_FREQUENCY = 20  # Frequency at which the map is published and saved
+SCAN_THRESHOLD =5  # Number of scans to skip before processing new data
+SCAN_FREQUENCY = 50  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
-DISTANCE_FILTER = 0.40  # Minimum distance filter for LiDAR points to avoid noise
+DISTANCE_FILTER = 0.70  # Minimum distance filter for LiDAR points to avoid noise
+MINUS_THETA = -130  # Minimum angle threshold for LiDAR points
+PLUS_THETA = 130  # Maximum angle threshold for LiDAR points
 MAX_CONFIDENCE = 100  # Maximum confidence value
 CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
+LD_FILTER = 3  # Maximum distance for LiDAR points
 # ------------------------------------
 
 #TODO
@@ -86,7 +92,8 @@ class MapBuilder:
         self.origin_y = 0
         self.map = None  # Main occupancy map
         self.confidence_map = None  # Confidence levels per cell
-        
+        self.workspace_outline_mask = None  # Boolean mask for workspace boundary
+
         #self.map = 205 * np.ones((size, size), dtype=np.uint8)  # Initialize as unknown (gray)
         #self.confidence_map = np.zeros((size, size), dtype=np.uint8)  # Track confidence (0-100)
 
@@ -100,6 +107,7 @@ class MapBuilder:
         # Initialize maps: Occupancy is unknown (-1), confidence starts at 0
         self.map = 0 * np.ones((self.size_y, self.size_x), dtype=np.int8)  # Using -1 for unknown, 0 for known cells
         self.confidence_map = np.zeros((self.size_y, self.size_x), dtype=np.uint8)  # Confidence map [0-100]
+        # Initialize the outline mask as all False
 
 
     def world_to_map(self, x, y):
@@ -115,7 +123,7 @@ class MapBuilder:
         return x, y
 
 
-    def add_scan(self, scan_data):
+    def deficient_add_scan(self, scan_data):
         """ Processes new LiDAR scan data, updates the occupancy grid, and applies dilation. """
         if not scan_data:
             return
@@ -131,16 +139,21 @@ class MapBuilder:
                 map_points.append((x, y))  # Store world coordinates for dilation
 
         # Apply dilation to the entire scan
-        self.apply_dilation(map_points)        
+        self.apply_dilation(map_points)  
 
-    def efficient_add_scan(self, scan_data):
+    def array_world_to_map(self, x, y):
+        mx = np.floor((x - self.origin_x) / self.resolution).astype(int)
+        my = np.floor((y - self.origin_y) / self.resolution).astype(int)
+        return mx, my      
+
+    def add_scan(self, scan_data):
         """Processes new LiDAR scan data, updates the occupancy grid, and applies dilation using NumPy."""
         if not scan_data:
             return
 
         # Convert world coordinates to map indices
         scan_data = np.array(scan_data)  # Convert list to NumPy array for vectorized operations
-        mx, my = self.world_to_map(scan_data[:, 0], scan_data[:, 1])  # Vectorized coordinate conversion
+        mx, my = self.array_world_to_map(scan_data[:, 0], scan_data[:, 1])  # Vectorized coordinate conversion
 
         # Filter valid indices that are within map bounds
         valid_mask = (0 <= mx) & (mx < self.size_x) & (0 <= my) & (my < self.size_y)
@@ -217,8 +230,8 @@ class MapBuilder:
         # Define the dilation kernel (3x3 kernel for expanding by 1 cell)
         kernel = np.ones((3, 3), np.uint8)
 
-        # Define the dilation kernel (11x11 kernel for expanding by 5 cells)
-        kernel = np.ones((11, 11), np.uint8)
+        # Define the dilation kernel (11x11 kernel for expanding by 3 cells)
+        kernel = np.ones((7, 7), np.uint8)
 
         # Apply either dilation or reverse dilation (erosion) based on the reverse flag
         if reverse:
@@ -239,6 +252,22 @@ class MapBuilder:
             dilated_cells = processed_mask > 0
             self.map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.map[dilated_cells])  # Mark dilated areas with 50% occupancy
             self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.confidence_map[dilated_cells])  # Set confidence to 50
+    
+    def decay_map(self, decay_factor=0.99, threshold=20):
+        """
+        Decays the confidence map values over time.
+        :param decay_factor: Multiplier to reduce confidence (e.g., 0.99 reduces confidence by 1%).
+        :param threshold: Confidence threshold below which the cell is considered free.
+        """
+        # Compute decayed confidence values.
+        decayed = self.confidence_map.astype(np.float32) * decay_factor
+        # Use the pre-computed mask to update only non-outline cells.
+        mask = ~self.workspace_outline_mask
+        # Multiply the confidence map by the decay factor.
+        self.confidence_map[mask] = decayed[mask].astype(np.uint8)
+        # Optionally update occupancy grid: set cells with low confidence to free (0)
+        low_confidence = (self.confidence_map < threshold) & mask
+        self.map[low_confidence] = 0
 
 
 class LidarProcessor(Node):
@@ -258,8 +287,8 @@ class LidarProcessor(Node):
         #ICP corrected accumulated cloud callback, used to trigger map generation based on udated accumulated cloud
         self.final_map_subscriber = self.create_subscription(PointCloud2, '/corrected_accumulated_pointcloud', self.final_map_callback, 10)
         #Object addition and removal callbacks
-        self.addition_subscriber = self.create_subscription(DetectionMsg, '/add_object', self.add_obj_callback, 10)
-        self.removal_subscriber = self.create_subscription(DetectionMsg, '/remove_object', self.remove_obj_callback, 10)
+        #self.addition_subscriber = self.create_subscription(DetectionMsg, '/detections', self.add_obj_callback, 10)
+        #self.removal_subscriber = self.create_subscription(DetectionMsg, '/remove_object', self.remove_obj_callback, 10)
 
 
         #self.marker_subscriber = self.create_subscription(Marker, '/visualization_marker', self.marker_callback, 10)
@@ -274,6 +303,7 @@ class LidarProcessor(Node):
         # Publisher for the workspace (latched publisher)
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
         
+        self.decay_timer = self.create_timer(1.0, self.decay_callback)  # Decay every second
 
 
         # TF Buffer and Listener for correcting odometry drift
@@ -282,20 +312,36 @@ class LidarProcessor(Node):
 
         self.map_builder = MapBuilder()
         self.proj = LaserProjection()
+        
         self.accumulated_points = []
+        self.corrected_accumulated_points = []
+        
 
         self.scan_count = 0
         self.nth_scan = SCAN_THRESHOLD
         self.scan_freq = SCAN_FREQUENCY
         self.d_filter= DISTANCE_FILTER
-        self.ld_filter = 6
+        self.minus_theta= MINUS_THETA
+        self.plus_theta= PLUS_THETA
+        self.ld_filter = LD_FILTER
         self.First_time=True
+        self.decay_counter=0;
 
     
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
         self.publish_workspace()
 
+    def decay_callback(self):
+        self.decay_counter+=1;
+        self.map_builder.decay_map(decay_factor=0.90, threshold=20)
+        # Optionally, republish the updated occupancy grid.
+        # No publishing here; just update the internal state.
+        self.get_logger().debug("Map decayed.")
+        if  self.decay_counter==2:
+            self.decay_counter=0;
+            current_time = rclpy.clock.Clock().now().to_msg()
+            self.map_make_pub(current_time)
 
     def scan_callback(self, msg):
 
@@ -354,7 +400,7 @@ class LidarProcessor(Node):
 
                 # Voxelize the point cloud before adding to the map
                 #Voxelize will also filter out points out of the workspace
-                voxel_size = 0.1  # Adjust voxel size for desired resolution
+                voxel_size = 0.05  # Adjust voxel size for desired resolution
                 voxelized_points = self.voxelize(points, voxel_size)
 
                 # Reset accumulated points to ICP-corrected ones
@@ -437,6 +483,9 @@ class LidarProcessor(Node):
         # Convert the world coordinates to map coordinates
         mx, my = self.map_builder.world_to_map(x, y)
 
+        if self.map_builder.map[my, mx] == 100:
+            return  # Exit without publishing if already occupied
+
         # Ensure the point is within the map bounds
         if 0 <= mx < self.map_builder.size_x and 0 <= my < self.map_builder.size_y:
             # Increase the confidence of the cell to simulate adding the object
@@ -445,7 +494,9 @@ class LidarProcessor(Node):
 
             # Apply dilation on the newly added point
             self.map_builder.apply_dilation([(x, y)])
-            self.map_make_pub(msg.stamp)
+            # Use the current ROS 2 time instead of `msg.header.stamp`
+            current_time = rclpy.clock.Clock().now().to_msg()
+            self.map_make_pub(current_time)
 
     def remove_obj_callback(self, msg):
         """ Removes a point from the occupancy map and applies reverse dilation. """
@@ -454,6 +505,9 @@ class LidarProcessor(Node):
         # Convert the world coordinates to map coordinates
         mx, my = self.map_builder.world_to_map(x, y)
 
+        if self.map_builder.map[my, mx] == 0:
+            return  # Exit without publishing if already occupied
+
         # Ensure the point is within the map bounds
         if 0 <= mx < self.map_builder.size_x and 0 <= my < self.map_builder.size_y:
             # If the confidence is greater than 0, reduce the confidence value
@@ -461,10 +515,11 @@ class LidarProcessor(Node):
                 self.map_builder.confidence_map[my, mx] = max(self.map_builder.confidence_map[my, mx] - CONFIDENCE_STEP, 0)
                 self.map_builder.map[my, mx] = int(self.map_builder.confidence_map[my, mx])
 
-            # Apply reverse dilation only if the cell is at 50% occupancy
-            if self.map_builder.map[my, mx] == 50:
-                self.map_builder.apply_reverse_dilation([(x, y)],reverse=True)  # Reverse dilation on the removed point
-            self.map_make_pub(msg.stamp)
+                # Apply reverse dilation only if the cell is at 50% occupancy
+                if self.map_builder.map[my, mx] == 50:
+                    self.map_builder.apply_reverse_dilation([(x, y)],reverse=True)  # Reverse dilation on the removed point
+                current_time = rclpy.clock.Clock().now().to_msg()
+                self.map_make_pub(current_time)
     
     def map_trigger_callback(self, msg):
         """ Publishes the map when triggered by an external signal. """
@@ -542,6 +597,40 @@ class LidarProcessor(Node):
             self.draw_line_on_map(mx1, my1, mx2, my2)
 
     def draw_line_on_map(self, x1, y1, x2, y2):
+        """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid and apply dilation """
+        dx = abs(x2 - x1)
+        dy = abs(y2 - y1)
+        sx = 1 if x1 < x2 else -1
+        sy = 1 if y1 < y2 else -1
+        err = dx - dy
+
+        affected_points = []  # Store points for dilation
+
+        while True:
+            # Mark the current point as occupied
+            self.map_builder.map[y1, x1] = 100  # Occupied
+            self.map_builder.confidence_map[y1, x1] = 100  # Max confidence
+
+            # Store the world coordinates for dilation
+            wx, wy = self.map_builder.map_to_world(x1, y1)
+            affected_points.append((wx, wy))
+
+            if x1 == x2 and y1 == y2:
+                break
+            e2 = err * 2
+            if e2 > -dy:
+                err -= dy
+                x1 += sx
+            if e2 < dx:
+                err += dx
+                y1 += sy
+
+        # Apply dilation using real-world coordinates
+        self.map_builder.apply_dilation(affected_points)
+
+
+
+    def old_draw_line_on_map(self, x1, y1, x2, y2):
         """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid, ensure everything else is 0 """
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
@@ -607,6 +696,7 @@ class LidarProcessor(Node):
         
         self.map_builder.map[mask]=100
         self.map_builder.confidence_map[mask]=100
+        self.map_builder.workspace_outline_mask = (self.map_builder.map != 0)
 
 
 def main():
