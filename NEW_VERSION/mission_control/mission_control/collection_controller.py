@@ -273,38 +273,6 @@ class CollectionController(Node):
         # # ---------- DEBUGGING (ignore) ----------
 
 
-    # def compute_exploration_points(self, occupancy_grid, step):
-    #     exploration_points = []
-    #     width = occupancy_grid.info.width
-    #     height = occupancy_grid.info.height
-    #     data = occupancy_grid.data
-    #     line_count = -1 # -1 to ignore the line y=0 (no free cells with workspace2)
-    
-    #     for y in range(0, height, step):  # Iterate over rows with the given step
-    #         leftmost = None
-    #         rightmost = None
-    #         line_count += 1
-    #         for x in range(0, width, step):
-    #             index = y * width + x
-    #             if data[index] == 0:  # Assuming 0 represents free space
-    #                 if leftmost is None:
-    #                     leftmost = (x, y)  # First free cell in the row
-    #                 rightmost = (x, y)  # Update to the last free cell in the row
-    
-    #         # Alternate the order of adding points for zigzag pattern
-    #         if leftmost and rightmost:
-    #             if line_count % 2 != 0:  # Odd rows: leftmost first, then rightmost
-    #                 exploration_points.append(leftmost)
-    #                 if rightmost != leftmost:
-    #                     exploration_points.append(rightmost)
-    #             else:  # Even rows: rightmost first, then leftmost
-    #                 exploration_points.append(rightmost)
-    #                 if rightmost != leftmost:
-    #                     exploration_points.append(leftmost)
-    
-    #     return exploration_points
-
-
     # def mark_exploration_points(self, occupancy_grid, exploration_points):
     #     data = occupancy_grid.data
     #     width = occupancy_grid.info.width
