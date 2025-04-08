@@ -17,6 +17,10 @@
     <!--  Run camera to initiate pointcloud  -->
     <include file="$(find-pkg-share robp_launch)/launch/rs_d435i_launch.py"/>
 
+        <!--  Run Lidar  -->
+    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
+
+
     <!--  Run joystick teleop  -->
     <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
         <arg name="joy_config" value="xbox"/>

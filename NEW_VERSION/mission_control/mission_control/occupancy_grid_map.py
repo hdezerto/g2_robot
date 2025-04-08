@@ -17,6 +17,8 @@ WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'
 RESOLUTION = 0.05  # Grid cell size [m/cell]
 EXPANSION_RADIUS = 4  # Radius in cells to dilate occupied cells [cells]
 
+
+
 # Lidar mapper:
 LIDAR_MIN_RANGE = 0.4  # Minimum range to consider a valid measurement [m]
 MIN_ANGLE = -120  # Minimum angle to consider a valid measurement [degrees]

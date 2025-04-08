@@ -22,18 +22,16 @@ public:
         subscription_nth_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
             "/nth_simple_pointcloud", 10,
             [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-                pointcloud_callback(msg, "/nth_corrected_pointcloud", prev_nth_cloud_);
+                pointcloud_callback(msg, "/nth_corrected_pointcloud",prev_cloud);
             }
         );
         publisher_nth_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/nth_corrected_pointcloud", 10);
 
-        subscription_accum_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-            "/uncorrected_accumulated_pointcloud", 10,
-            [this](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-                pointcloud_callback(msg, "/corrected_accumulated_pointcloud", prev_accum_cloud_);
-            }
+        // Subscribe to the reference cloud topic
+        subscription_reference_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+            "/reference_cloud", 1,
+            std::bind(&ICPProcessor::reference_callback, this, std::placeholders::_1)
         );
-        publisher_accum_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/corrected_accumulated_pointcloud", 10);
     
         subscription_yaw_ = this->create_subscription<std_msgs::msg::Float32>(
             "/odom/yaw", 10,
@@ -54,17 +52,18 @@ public:
 private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_nth_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_nth_;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_nth_cloud_ {nullptr};
 
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_accum_;
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_accum_;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_accum_cloud_ {nullptr};
+    // Subscriber for the reference cloud.
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_reference_;
+
 
     // Declare the yaw subscription
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_yaw_;
     // Declare the yaw subscription
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_lin_;
 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr reference_cloud_{std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()};
+    pcl::PointCloud<pcl::PointXYZ>::Ptr prev_cloud {nullptr};
 
     const float MAX_TRANSLATION = 1.5;    // Maximum translation threshold (meters)
     const float MAX_ROTATION = 1;    // Maximum rotation threshold (radians) ~ 10 degrees
@@ -74,13 +73,21 @@ private:
     float yaw_rate_{0.0f};     // Yaw rate (radians per second)
     float linv_{0.0f};     // linear velocity (m/s)
 
-    const float smoothing_std = 0.25f;  
+    const float smoothing_std = 0.25f; 
+    // Check yaw rate threshold before running ICP.
+    const float YAW_RATE_THRESHOLD = 0.5; // Example threshold in rad/s
+    int counter=0; 
 
     float smoothing_factor = smoothing_std;  // Tune this value (e.g., 0.1 for gradual updates)
     
 
+    // Callback for the reference cloud subscriber.
+    void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+        // Convert the incoming PointCloud2 message into a PCL point cloud and store it.
+        pcl::fromROSMsg(*msg, *reference_cloud_);
+        RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", reference_cloud_->size());
+    }
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr corrected_accum_cloud_ {nullptr};  // Store corrected accumulated cloud
 
     void yaw_callback(const std_msgs::msg::Float32::SharedPtr msg) {
         float current_yaw = msg->data;
@@ -100,30 +107,17 @@ private:
     void publish_previous_cloud(const std::string &output_topic, 
         const sensor_msgs::msg::PointCloud2::SharedPtr msg,
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
-        if (output_topic == "/corrected_accumulated_pointcloud") {
-            // If no accumulated cloud exists, initialize it with the current cloud
-            if (!corrected_accum_cloud_) {
-                corrected_accum_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud);
-                RCLCPP_INFO(this->get_logger(), "Initialized accumulated cloud with the current cloud.");
-            }
-
-            // Publish the last valid accumulated cloud
-            sensor_msgs::msg::PointCloud2 ros_cloud;
-            pcl::toROSMsg(*corrected_accum_cloud_, ros_cloud);
-            ros_cloud.header = msg->header;  // Maintain timestamp consistency
-            publisher_accum_->publish(ros_cloud);
-            RCLCPP_INFO(this->get_logger(), "Re-published last valid accumulated cloud.");
+        // Publish the last valid nth cloud without updating
+        if (!cloud) {
+            RCLCPP_WARN(this->get_logger(), "No valid cloud to publish for topic %s.", output_topic.c_str());
+            return;
         }
-        else {
-            // Publish the last valid nth cloud without updating
-
-            sensor_msgs::msg::PointCloud2 ros_cloud;
-            pcl::toROSMsg(*cloud, ros_cloud);
-            ros_cloud.header = msg->header;
-            publisher_nth_->publish(ros_cloud);
-            RCLCPP_INFO(this->get_logger(), "Re-published last valid nth cloud.");
-
-        }
+        
+        sensor_msgs::msg::PointCloud2 ros_cloud;
+        pcl::toROSMsg(*cloud, ros_cloud);
+        ros_cloud.header = msg->header;
+        publisher_nth_->publish(ros_cloud);
+        RCLCPP_INFO(this->get_logger(), "Re-published last valid nth cloud.");
         
     }
 
@@ -142,9 +136,7 @@ private:
             return;
         }
 
-        // Check yaw rate threshold before running ICP.
-        const float YAW_RATE_THRESHOLD = 0.5; // Example threshold in rad/s
-        int counter=0;
+
 
         //
         if ((std::abs(yaw_rate_) > abs(YAW_RATE_THRESHOLD)||abs(linv_) < 0.01)) {
@@ -165,21 +157,15 @@ private:
             
         }
         counter=0;
-    
-        // Determine reference cloud for ICP:
-        pcl::PointCloud<pcl::PointXYZ>::Ptr reference_cloud;
-        
-        if (output_topic == "/corrected_accumulated_pointcloud") {
-            // Use the previously corrected accumulated cloud, or fallback to prev_cloud if first run
-            reference_cloud = (corrected_accum_cloud_) ? corrected_accum_cloud_ : prev_cloud;
-            //reference_cloud = prev_cloud;
-        } else {
-            // Use the previous LiDAR scan for /nth_corrected_pointcloud
-            //reference_cloud = prev_cloud;
-            //The bellow was found to work better
-            reference_cloud = (corrected_accum_cloud_) ? corrected_accum_cloud_ : prev_cloud;
 
+        // Check reference cloud availability
+        if (reference_cloud_ && !reference_cloud_->empty()) {
+            //target_cloud = reference_cloud_;
+            continue;
+        } else {
+            return;
         }
+
     
         // Apply voxel grid filtering
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
@@ -190,7 +176,7 @@ private:
         // Run ICP
         pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
         icp.setInputSource(cloud);
-        icp.setInputTarget(reference_cloud);
+        icp.setInputTarget(reference_cloud_);
         icp.setRANSACIterations(50);
         icp.setMaxCorrespondenceDistance(0.5);
         icp.setMaximumIterations(500);
@@ -225,7 +211,7 @@ private:
             float rotation_magnitude = std::abs(euler_angles.x());
             RCLCPP_INFO(this->get_logger(), "Translation mag: %f, Yaw mag: %f", translation_magnitude, rotation_magnitude);
         
-            // Only proceed if within limits (your condition here; adjust thresholds as needed). && output_topic != "/corrected_accumulated_pointcloud"
+            // Only proceed if within limits (your condition here; adjust thresholds as needed).
             if (translation_magnitude < MAX_TRANSLATION && rotation_magnitude < MAX_ROTATION )  {
         
                 // Smoothing factor: 0.0 means no update; 1.0 means full update.
@@ -272,65 +258,6 @@ private:
         
                 tf_broadcaster_->sendTransform(transform_stamped);
             }
-        /*
-            
-            // Get the new ICP transformation.
-            Eigen::Matrix4f transformation = icp.getFinalTransformation();
-             // Extract translation and force z to zero.
-            Eigen::Vector3f translation = transformation.block<3,1>(0,3);
-            translation.z() = 0.0f;  // Zero out vertical translation.
-            
-            // Extract rotation matrix and convert to Euler angles (Z, Y, X order).
-            Eigen::Matrix3f rotation_matrix = transformation.block<3,3>(0,0);
-            Eigen::Vector3f euler_angles = rotation_matrix.eulerAngles(2, 1, 0); // [yaw, pitch, roll]
-            
-            // Only use the yaw (rotation about Z) by creating a rotation matrix that ignores x and y rotations.
-            Eigen::Matrix3f z_only_rot = Eigen::AngleAxisf(euler_angles.x(), Eigen::Vector3f::UnitZ()).toRotationMatrix();
-            
-            // Build an adjusted transformation with the modified translation and only z-axis rotation.
-            Eigen::Matrix4f adjusted_transformation = Eigen::Matrix4f::Identity();
-            adjusted_transformation.block<3,3>(0,0) = z_only_rot;
-            adjusted_transformation.block<3,1>(0,3) = translation;
-            
-            // Optionally, check the magnitude of the adjusted transformation.
-            float translation_magnitude = translation.norm();
-            float rotation_magnitude = std::abs(euler_angles.x());
-            RCLCPP_INFO(this->get_logger(), "Translation mag: %f, Yaw mag: %f", translation_magnitude, rotation_magnitude);
-
-            Eigen::Vector3f translation = accumulated_transformation_.block<3,1>(0,3);
-            Eigen::Matrix3f rotation_matrix = accumulated_transformation_.block<3,3>(0,0);
-            Eigen::Vector3f euler_angles = rotation_matrix.eulerAngles(2, 1, 0);
-    
-            float translation_magnitude = translation.norm();
-            float rotation_magnitude = euler_angles.norm();
-            RCLCPP_INFO(this->get_logger(), "Translation mag: %f., Rotation mag: %f", translation_magnitude,rotation_magnitude);
-
-    
-            if (translation_magnitude <MAX_TRANSLATION || rotation_magnitude < MAX_ROTATION) {
-
-                accumulated_transformation_ = accumulated_transformation_*adjusted_transformation ;
-            // Publish transform if it's for accumulated point cloud
-            //if (output_topic == "/corrected_accumulated_pointcloud") {
-                geometry_msgs::msg::TransformStamped transform_stamped;
-                transform_stamped.header.frame_id = "map";
-                transform_stamped.child_frame_id = "odom";
-                transform_stamped.transform.translation.x = translation.x();
-                transform_stamped.transform.translation.y = translation.y();
-                transform_stamped.transform.translation.z = 0;//translation.z();
-    
-                tf2::Quaternion q;
-                q.setRPY(euler_angles.x(), euler_angles.y(), euler_angles.z());
-                transform_stamped.transform.rotation.x = 0.0;//q.x();
-                transform_stamped.transform.rotation.y = 0.0;//q.y();
-                transform_stamped.transform.rotation.z = q.z();
-                transform_stamped.transform.rotation.w = q.w();
-    
-                tf_broadcaster_->sendTransform(transform_stamped);
-            //}
-            }
-            
-            
-            */
             
     
     
@@ -339,25 +266,16 @@ private:
             output.header = msg->header;
             output.header.frame_id = msg->header.frame_id;
     
-            if (output_topic == "/corrected_accumulated_pointcloud") {
-                // Update corrected accumulated cloud
-                if (!corrected_accum_cloud_) {
-                    corrected_accum_cloud_ = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(aligned);
-                } else {
-                    *corrected_accum_cloud_ = aligned;  // Accumulate new corrected points
-                }
-                publisher_accum_->publish(output);
-                corrected_accum_cloud_ = nullptr;  // Reset the corrected accumulated cloud
-            } else {
-                prev_cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(aligned);  // Update prev_nth_cloud_
-                publisher_nth_->publish(output);
-            }
-    
+            publisher_nth_->publish(output);
+            prev_cloud = cloud;  // Update the previous cloud with the current one
+
             RCLCPP_INFO(this->get_logger(), "Published corrected point cloud to %s.", output_topic.c_str());
         } else {
             RCLCPP_WARN(this->get_logger(), "ICP failed to converge on topic %s.", output_topic.c_str());
-            prev_cloud = nullptr;  // Reset the previous cloud to force a new alignment
-            corrected_accum_cloud_ = nullptr;  // Reset the corrected accumulated cloud
+            // Publish the last valid nth cloud without updating
+            publish_previous_cloud(output_topic, msg, prev_cloud);
+            //prev_cloud = nullptr;  // Reset the previous cloud to force a new alignment
+            //corrected_accum_cloud_ = nullptr;  // Reset the corrected accumulated cloud
         }
     }
 
