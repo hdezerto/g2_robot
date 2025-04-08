@@ -25,9 +25,15 @@ import time # DEBUG
 
 """
 TO DO:
+- Check the case when a box is also considered as a plushie
+- Fix locked states for the motion controller when the robot moves on the floor
+- Integrate lidar mapper
+- HUGE DRIFT
 - Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
 
 NOTES:
+- Might be better to add objects to the grid inside the mission controller to avoid delay in collision check.
+It can also be more useful for the collection in case we need to compute a path to pick an object (avoiding inflation near that object)
 
 """
 
@@ -41,6 +47,7 @@ NOTES:
 EXPLORATION_STEP = 15 # DEBUGGING
 POSITION_THRESHOLD = 0.13  # Threshold for considering two detections as the same [m]
 MAP_FILE_NAME = "map_file.tsv"  # Name of the map file to save
+OBSERVATION_TIME = 3.0  # Time to observe the environment [s]
 # ------------------------------------
 
 
@@ -50,6 +57,7 @@ class ExplorationState(Enum):
     OBSERVING = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     PLAN_PATH = auto()
+    STUCK_OBSERVING = auto() # Just process callbacks
     MOVING = auto() # Just proccessing callbacks
     END_EXPLORATION = auto()
 
@@ -60,11 +68,13 @@ class ExplorationController(Node):
     def run(self):
         while rclpy.ok():
             if self.state == ExplorationState.OBSERVING:
-                self.observing(3.0)  # Observe (spin) for 3 seconds
+                self.observing(OBSERVATION_TIME)  # Observe (spin) for 3 seconds
             elif self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
             elif self.state == ExplorationState.PLAN_PATH:
                 self.plan_path()
+            elif self.state == ExplorationState.STUCK_OBSERVING:
+                self.stuck_observing(OBSERVATION_TIME)  # Observe (spin) for 3 seconds
             elif self.state == ExplorationState.MOVING: # Just process callbacks
                 rclpy.spin_once(self)
             elif self.state == ExplorationState.END_EXPLORATION:
@@ -130,6 +140,9 @@ class ExplorationController(Node):
         self.grid_path = []  # Path in grid coordinates
         self.latest_lidar_grid = initialize_occupancy_grid() # Just in case detections_callback is called before the lidar grid is received
 
+        #TODO stuck flag
+        self.stuck_flag = False
+
         # Timer to periodically publish detections to RViz
         self.detections_timer = self.create_timer(0.5, self.publish_detections_periodically)
 
@@ -155,6 +168,20 @@ class ExplorationController(Node):
         self.get_logger().info('Finished observing.')
         self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # Now it can get the first exploration point
 
+    def stuck_observing(self, duration):
+        """
+        Process callbacks for a specified duration, just for initial observation of the environment (using camera and lidar)
+        """
+        self.get_logger().info(f'Stuck observing for {duration} seconds...')
+        start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
+    
+        while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
+            rclpy.spin_once(self)
+    
+        self.get_logger().info('Finished stuck observing.')
+        self.state = ExplorationState.PLAN_PATH
+
+
 
     def get_next_exploration_point(self):
         # Get the next exploration point from the list (if it exists)
@@ -172,7 +199,7 @@ class ExplorationController(Node):
         # Compute to the exploration point and move to it. The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
         start = (self.current_grid_position, self.current_position)
         goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
-        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+        #self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
         if path: # Path found
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
@@ -181,9 +208,14 @@ class ExplorationController(Node):
             self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
             # --------------------------------------
             self.state = ExplorationState.MOVING
+            self.stuck_flag = False
         else: # No path found
-            self.get_logger().info('No path found. Getting the next exploration point.')
-            self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
+            if self.stuck_flag:
+                self.state = ExplorationState.STUCK_OBSERVING
+                self.get_logger().info('No path found. Recomputing path.')
+            else:    
+                self.get_logger().info('No path found. Getting the next exploration point.')
+                self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
 
 
     def detections_callback(self, msg):
@@ -207,8 +239,11 @@ class ExplorationController(Node):
         self.latest_lidar_grid = msg # Save the latest lidar grid for detections_callback
         # Update path planning grid with the received lidar occupancy grid and check for collision. msg is passed as lidar_occupancy_grid
         if self.update_path_planning_grid_and_check_collision(msg):
-            self.get_logger().info('Collision detected from lidar. Recomputing path.')
-            self.state = ExplorationState.PLAN_PATH
+            if self.state == ExplorationState.STUCK_OBSERVING:
+                self.get_logger().info('Collision detected from lidar. Waiting for the next map.')
+            else:
+                self.get_logger().info('Collision detected from lidar. Recomputing path.')
+                self.state = ExplorationState.PLAN_PATH
             
 
     def reached_destination_callback(self, msg):
@@ -235,6 +270,22 @@ class ExplorationController(Node):
         self.update_current_position() # Update the current position of the robot
         if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
             self.stop_robot()
+
+            #Addition, check if the robot is INSIDE an occupied cell
+            x= self.current_grid_position[0]
+            y= self.current_grid_position[1]
+            if self.path_planning_grid.data[x+ self.path_planning_grid.info.width*y]> 0:
+                #if the robot is inside an occupied cell, stop and wait for the next map
+                self.stuck_flag = True
+                self.get_logger().info('Robot is inside an occupied cell. Stopping and waiting for the next map.')
+                #check for map again and again, untill no collision is detected
+                #TODO do it for limited amount of time, otherwise have some execution where it tries to go to the closest unoccupied cell
+                self.state = ExplorationState.STUCK_OBSERVING    
+                return True
+           
+            #if not go to the next exploration point
+            #if yes stop the robot, but wait for the next map, and try again.
+
             return True # Collision detected
         else:
             return False 
@@ -245,7 +296,7 @@ class ExplorationController(Node):
         self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
         if self.current_position is None:
             self.get_logger().info('Failed to get current position!')
-        self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
+        #self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
         
 
     def update_detections(self, msg):
@@ -321,7 +372,9 @@ class ExplorationController(Node):
     def stop_robot(self):
         msg = Bool()
         msg.data = True
-        self.stop_publisher.publish(msg)  
+        self.stop_publisher.publish(msg)
+        time.sleep(1)  # Give time for the motion controller to stop
+
 
 
     def compute_exploration_points(self, occupancy_grid, step):
