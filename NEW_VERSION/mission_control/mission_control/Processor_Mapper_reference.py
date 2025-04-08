@@ -64,7 +64,8 @@ MAX_CONFIDENCE = 100  # Maximum confidence value
 CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
 LD_FILTER = 3  # Maximum distance for LiDAR points
-SCAN_QUE_FULL =False
+THRESHOLD = 2.0 # Distance threshold for keyframe selection
+
 # ------------------------------------
 
 #TODO
@@ -304,6 +305,10 @@ class LidarProcessor(Node):
         self.decay_timer = self.create_timer(1.0, self.decay_callback)  # Decay every second
 
 
+        #publisher for visualising keyframes
+        self.circle_marker_pub = self.create_publisher(PolygonStamped, '/keyframe_circle', 10)
+
+
         # TF Buffer and Listener for correcting odometry drift
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -313,6 +318,8 @@ class LidarProcessor(Node):
         
         self.accumulated_points = []
         self.corrected_accumulated_points = []
+        self.latest_reference = None
+        self.reference_scans = []  # List to store reference scans
         
 
         self.scan_count = 0
@@ -322,8 +329,10 @@ class LidarProcessor(Node):
         self.minus_theta= MINUS_THETA
         self.plus_theta= PLUS_THETA
         self.ld_filter = LD_FILTER
+        self.keyf_threshold = THRESHOLD  # meters
         self.First_time=True
         self.decay_counter=0
+        self.scan_que_full=False
 
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
@@ -336,10 +345,37 @@ class LidarProcessor(Node):
         header.frame_id = "map"
         # Flatten the points from the reference scan
         # Each point is assumed to be a tuple (x, y, z)
-        points_array = np.array([(p[0], p[1], p[2]) for p in ref['points']], dtype=np.float32)
-        ref_cloud = pc2.create_cloud_xyz32(header, points_array)
-        self.reference_publisher.publish(ref_cloud)
+        #points_array = np.array([(p[0], p[1], p[2]) for p in ref['points']], dtype=np.float32)
+        #ref_cloud = pc2.create_cloud_xyz32(header, points_array)
+        self.reference_publisher.publish(ref['cloud'])
         self.get_logger().info(f"Published reference scan at position: {ref['pos']}")
+
+    def publish_circle_marker(self, msg):
+        # Use the keyframe threshold as the radius
+        radius = float(self.keyf_threshold)
+
+        # Get the circle center from the latest reference scan
+        cx = float(self.latest_reference['pos'][0])
+        cy = float(self.latest_reference['pos'][1])
+
+        # Generate points along the circle's perimeter
+        num_points = 36  # More points = smoother circle
+        circle_coords = [
+            (
+                cx + radius * math.cos(2 * math.pi * i / num_points),
+                cy + radius * math.sin(2 * math.pi * i / num_points)
+            )
+            for i in range(num_points)
+        ]
+        circle_coords.append(circle_coords[0])  # Close the loop
+
+        # Create the PolygonStamped message
+        polygon_msg = create_polygon(circle_coords)
+        polygon_msg.header.stamp = msg.header.stamp
+
+        # Publish it
+        self.circle_marker_pub.publish(polygon_msg)
+
 
     def decay_callback(self):
         self.decay_counter+=1;
@@ -397,8 +433,6 @@ class LidarProcessor(Node):
             cloud = self.proj.projectLaser(msg)
             # Transform the point cloud to the 'map' frame
             transformed_cloud = do_transform_cloud(cloud, transform)
-            # Publish the accumulated point cloud
-            self.pointcloud_publisher.publish(transformed_cloud)
 
             #TODO Ensure the bellow properly adds points
             if self.First_time:
@@ -424,6 +458,20 @@ class LidarProcessor(Node):
                 self.map_builder.save_map()
                 
                 self.First_time = False
+                
+                #Create the first reference scan
+                # Get current position from the transform (only XY)
+                current_pos = (transform.transform.translation.x, transform.transform.translation.y)
+            
+                # Create a candidate reference scan from the current points
+                candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
+                
+                # First time so no reference scan exists: store and publish candidate
+                self.reference_scans.append(candidate_reference)
+                self.latest_reference = candidate_reference
+                self.publish_reference(candidate_reference)
+                #TODO Debugging for key frame selection
+                self.publish_circle_marker(msg)
             else:
                 self.First_time = False
                 self.get_logger().info(f'Published nth scan as PointCloud2')
@@ -433,39 +481,40 @@ class LidarProcessor(Node):
             current_pos = (transform.transform.translation.x, transform.transform.translation.y)
             
             # Create a candidate reference scan from the current points
-            candidate_reference = {'points': points, 'pos': current_pos}
+            candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
             
-            threshold = 2.0  # meters
             
-            if not self.reference_scans:
-                # No reference scan exists: store and publish candidate
-                self.reference_scans.append(candidate_reference)
-                self.latest_reference = candidate_reference
-                self.publish_reference(candidate_reference)
-            else:
-                # Check if current position is within threshold of latest reference
-                dist_latest = math.sqrt((current_pos[0] - self.latest_reference['pos'][0])**2 +
+   
+            # Check if current position is within threshold of latest reference
+            dist_latest = math.sqrt((current_pos[0] - self.latest_reference['pos'][0])**2 +
                                         (current_pos[1] - self.latest_reference['pos'][1])**2)
-                if dist_latest < threshold:
-                    # maybe Re-publish the latest reference scan to ensure it is up to date if the first message did not go through
-                    #self.publish_reference(self.latest_reference)
-                    pass
-                else:
-                    # Search other stored references
-                    found = False
-                    for ref in self.reference_scans:
-                        d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
+            if dist_latest < self.keyf_threshold:
+                # maybe Re-publish the latest reference scan to ensure it is up to date if the first message did not go through
+                #self.publish_reference(self.latest_reference)
+                pass
+            else:
+                # Search other stored references
+                found = False
+                for ref in self.reference_scans:
+                    d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
                                       (current_pos[1] - ref['pos'][1])**2)
-                        if d < threshold:
-                            self.latest_reference = ref
-                            self.publish_reference(ref)
-                            found = True
-                            break
-                    if not found:
-                        # None of the stored reference scans is within threshold: add candidate
-                        self.reference_scans.append(candidate_reference)
-                        self.latest_reference = candidate_reference
-                        self.publish_reference(candidate_reference)
+                    if d < self.keyf_threshold:
+                        self.latest_reference = ref
+                        self.publish_reference(ref)
+                        #TODO Debugging for key frame selection
+                        self.publish_circle_marker(msg)
+                        found = True
+                        break
+                if not found:
+                    # None of the stored reference scans is within threshold: add candidate
+                    self.reference_scans.append(candidate_reference)
+                    self.latest_reference = candidate_reference
+                    self.publish_reference(candidate_reference)
+                    #TODO Debugging for key frame selection
+                    self.publish_circle_marker(msg)
+            
+            # Publish the current point cloud
+            self.pointcloud_publisher.publish(transformed_cloud)
 
 
         except Exception as e:
@@ -493,11 +542,11 @@ class LidarProcessor(Node):
             self.final_map_callback(self.accumulated_points,header.stamp) #map the accumulated points
 
             self.get_logger().info('Published accumulated PointCloud2')
-            if SCAN_QUE_FULL==False:# first time this part of the code is called the bool is set to true, which means the que is full
-                SCAN_QUE_FULL=True
+            if self.scan_que_full==False:# first time this part of the code is called the bool is set to true, which means the que is full
+                self.scan_que_full=True
             
 
-        if SCAN_QUE_FULL:
+        if self.scan_que_full:
             # Check if the accumulated points exceed a certain threshold
             x=int(len(self.accumulated_points)*self.nth_scan/self.scan_freq)
             self.accumulated_points = self.accumulated_points[x:]

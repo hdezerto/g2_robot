@@ -73,11 +73,12 @@ private:
     float yaw_rate_{0.0f};     // Yaw rate (radians per second)
     float linv_{0.0f};     // linear velocity (m/s)
 
-    const float smoothing_std = 0.25f; 
+    const float smoothing_std = 0.2f; 
     // Check yaw rate threshold before running ICP.
-    const float YAW_RATE_THRESHOLD = 0.5; // Example threshold in rad/s
-    int counter=0; 
-
+    const float YAW_RATE_THRESHOLD = 0.45; // Example threshold in rad/s
+    int counter=0;
+    int stationary_counter=0;
+    
     float smoothing_factor = smoothing_std;  // Tune this value (e.g., 0.1 for gradual updates)
     
 
@@ -138,30 +139,49 @@ private:
 
 
 
-        //
-        if ((std::abs(yaw_rate_) > abs(YAW_RATE_THRESHOLD)||abs(linv_) < 0.01)) {
+        //||abs(linv_) < 0.01
+        if ((std::abs(yaw_rate_) > abs(YAW_RATE_THRESHOLD))) {
             RCLCPP_WARN(this->get_logger(), "Yaw rate (%.2f rad/s) exceeds threshold or robot stationary(%.2f m/s): skipping ICP.", yaw_rate_, linv_);
             // For accumulated clouds:
             publish_previous_cloud(output_topic, msg, prev_cloud);
             
             if (std::abs(yaw_rate_) > abs(YAW_RATE_THRESHOLD)) {
-            
-                smoothing_factor = 0.01*counter;  // Disable smoothing for large yaw rates
+                /*
+                                                smoothing_factor = 0.01*counter;  // Disable smoothing for large yaw rates
                 counter+=1;
                 if (smoothing_factor > 0.5) {
                     smoothing_factor = 0.5;  // Cap the smoothing factor
                 }
+                */
 
             }
             return; // Skip ICP processing
             
         }
+        else {
+            smoothing_factor = smoothing_std;  // Reset to default value
+        }
         counter=0;
+        if (std::abs(linv_) < 0.01) {
+            stationary_counter++;
+            if (stationary_counter%3 == 0) {
+                RCLCPP_WARN(this->get_logger(), "Robot has been stationary for three collections (%.2f m/s): performing ICP.", linv_);
+                
+
+            } 
+            RCLCPP_WARN(this->get_logger(), "Robot is stationary (%.2f m/s): skiping first ICP.", linv_);
+            publish_previous_cloud(output_topic, msg, prev_cloud);
+            return; // Skip ICP processing
+        }
+        else {
+            stationary_counter=0;  // Reset to default value
+        }
+
+        
 
         // Check reference cloud availability
         if (reference_cloud_ && !reference_cloud_->empty()) {
             //target_cloud = reference_cloud_;
-            continue;
         } else {
             return;
         }
@@ -170,7 +190,7 @@ private:
         // Apply voxel grid filtering
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
         voxel_filter.setInputCloud(cloud);
-        voxel_filter.setLeafSize(0.03f, 0.03f, 100.0f);
+        voxel_filter.setLeafSize(0.01f, 0.01f, 100.0f);
         voxel_filter.filter(*cloud);
     
         // Run ICP
@@ -186,6 +206,8 @@ private:
         icp.align(aligned);
     
         if (icp.hasConverged()) {
+            float icpfitness = icp.getFitnessScore();
+            RCLCPP_INFO(this->get_logger(), "Fittness score: %f,", icpfitness);
 
             // Get the new ICP transformation.
             Eigen::Matrix4f transformation = icp.getFinalTransformation();
@@ -267,7 +289,7 @@ private:
             output.header.frame_id = msg->header.frame_id;
     
             publisher_nth_->publish(output);
-            prev_cloud = cloud;  // Update the previous cloud with the current one
+            *prev_cloud = aligned;  // Update the previous cloud with the current one
 
             RCLCPP_INFO(this->get_logger(), "Published corrected point cloud to %s.", output_topic.c_str());
         } else {
