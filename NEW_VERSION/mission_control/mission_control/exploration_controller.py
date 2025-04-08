@@ -25,15 +25,9 @@ import time # DEBUG
 
 """
 TO DO:
-- Check the case when a box is also considered as a plushie
-- Fix locked states for the motion controller when the robot moves on the floor
-- Integrate lidar mapper
-- HUGE DRIFT
 - Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
 
 NOTES:
-- Might be better to add objects to the grid inside the mission controller to avoid delay in collision check.
-It can also be more useful for the collection in case we need to compute a path to pick an object (avoiding inflation near that object)
 
 """
 
