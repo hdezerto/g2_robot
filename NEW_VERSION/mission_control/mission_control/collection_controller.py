@@ -42,6 +42,7 @@ MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 # ------------------------------- State class -------------------------------
 class State(Enum):
     TESTING = auto()
+
     INIT = auto()
     SCANNING = auto()
     GET_NEXT_OBJECT = auto()
@@ -67,7 +68,7 @@ class CollectionController(Node):
             try:
                 self.handle_state()
             except StopIteration:
-                #self.get_logger().info("Exiting the main loop.")
+                self.get_logger().info("Exiting the main loop.")
                 break
             except Exception as e:
                 self.get_logger().error(f"Error in state {self.state}: {e}")
@@ -81,17 +82,17 @@ class CollectionController(Node):
             State.TESTING: lambda: rclpy.spin_once(self),
             # lamda is needed when the function takes parameters (to avoid calling it immediately)
             # Ex.: self.function() is called immediately, while self.function is passed as a reference
-            # State.SCANNING: lambda: self.observing(3.0), # Observe (spin) for 3 seconds
-            # State.GET_NEXT_OBJECT: self.get_next_object,
-            # State.PLAN_PATH: self.plan_path,
-            # State.MOVING: lambda: rclpy.spin_once(self),
-            # State.OBSERVE_OBJECT: lambda: self.observe_object(3.0),
-            # State.MOVE_TO_PICK: self.move_to_pick,
-            # State.PICK: self.pick,
-            # State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
-            # State.MOVE_TO_BOX: self.move_to_box,
-            # State.DROP: self.drop,
-            # State.END_COLLECTION: self.end_collection,
+            State.SCANNING: lambda: self.observing(3.0), # Observe (spin) for 3 seconds
+            State.GET_NEXT_OBJECT: self.get_next_object,
+            State.PLAN_PATH: self.plan_path,
+            State.MOVING: lambda: rclpy.spin_once(self),
+            State.OBSERVE_OBJECT: lambda: self.observe_object(3.0),
+            State.MOVE_TO_PICK: self.move_to_pick,
+            State.PICK: self.pick,
+            State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
+            State.MOVE_TO_BOX: self.move_to_box,
+            State.DROP: self.drop,
+            State.END_COLLECTION: self.end_collection,
         }
 
         if self.state in state_methods:

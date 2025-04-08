@@ -24,16 +24,28 @@ import os # To get the current directory
 import time # DEBUG
 
 """
-TO DO:
-- Check the case when a box is also considered as a plushie
-- Fix locked states for the motion controller when the robot moves on the floor
-- Integrate lidar mapper
-- HUGE DRIFT
-- Check if the timer to populate the buffer is the best approach to avoid the transform error. Maybe async is better
+NOTES (HUGO):
 
-NOTES:
-- Might be better to add objects to the grid inside the mission controller to avoid delay in collision check.
-It can also be more useful for the collection in case we need to compute a path to pick an object (avoiding inflation near that object)
+- Cant the stuck problem be solved if the lidar mapper excludes points with range < thresold ?
+
+- I would remove the stuck logic from the plan_path function and just tune the stuck_observing time (checking how long the lidar mapper
+takes to correct the occupied cells at the position of the robot)
+Imagine the robot gets into 'stuck' state due to lidar error, but while in stuck_observing it also gets
+a detected object that ocuppies (+inflation) the desired exloration point, it would be infinitely stuck
+(no path found -> stuck_observing -> no path found -> stuck_observing -> ...)
+Another solution is adding a state that checks if the current position is still occupied (and avoiding using the path 
+planner for that). If True -> change state to stuck_observing, if False -> change state to plan_path. I've changed to this.
+
+- The idea of appending to the list an exploration points that failed to compute a path can run into an infinite loop
+because the exploration point might be actually occupied by a detected object or obstacle. We can just add more exploration points
+(the original function compute_exploration_points computes more points).
+
+------------------------------------
+CHANGES (HUGO):
+- Moved the 'stuck' detection to the lidar mapper to avoid checking 'stuck' for collisions from camera, since 
+those would never be resolved with new lidar maps.
+- Implemented the stuck logic with a CHECK_STUCK state
+
 
 """
 
@@ -53,12 +65,12 @@ OBSERVATION_TIME = 3.0  # Time to observe the environment [s]
 
 # ------------------------------- ExplorationState class -------------------------------
 class ExplorationState(Enum):
-    INIT = auto()
     OBSERVING = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     PLAN_PATH = auto()
-    STUCK_OBSERVING = auto() # Just process callbacks
-    MOVING = auto() # Just proccessing callbacks
+    MOVING = auto()
+    STUCK_OBSERVING = auto()
+    CHECK_STUCK = auto()  # Check if the robot is still stuck
     END_EXPLORATION = auto()
 
 
@@ -68,15 +80,17 @@ class ExplorationController(Node):
     def run(self):
         while rclpy.ok():
             if self.state == ExplorationState.OBSERVING:
-                self.observing(OBSERVATION_TIME)  # Observe (spin) for 3 seconds
+                self.observing(OBSERVATION_TIME)
             elif self.state == ExplorationState.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
             elif self.state == ExplorationState.PLAN_PATH:
                 self.plan_path()
-            elif self.state == ExplorationState.STUCK_OBSERVING:
-                self.stuck_observing(OBSERVATION_TIME)  # Observe (spin) for 3 seconds
             elif self.state == ExplorationState.MOVING: # Just process callbacks
                 rclpy.spin_once(self)
+            elif self.state == ExplorationState.STUCK_OBSERVING:
+                self.stuck_observing(OBSERVATION_TIME)
+            elif self.state == ExplorationState.CHECK_STUCK:
+                self.check_stuck()
             elif self.state == ExplorationState.END_EXPLORATION:
                 self.end_exploration()
                 break
@@ -85,7 +99,6 @@ class ExplorationController(Node):
     def __init__(self):
         # State to initialize the node
         super().__init__('ExplorationController_node')
-        self.state = ExplorationState.INIT
 
         # Publishers and subscribers
         latched_qos = QoSProfile(depth=1) # Define a shared QoS profile for latched publishers
@@ -120,7 +133,7 @@ class ExplorationController(Node):
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()
         # DEBUG:
-        self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
+        #self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
         # real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
         # formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
         # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
@@ -136,12 +149,10 @@ class ExplorationController(Node):
         # Grid where the path will be computed. Obtained by adding the detected objects/boxes to the latest lidar grid.
         self.path_planning_grid = initialize_occupancy_grid()
         inflate_occupied_cells(self.path_planning_grid)
-        self.planning_grid_publisher.publish(self.path_planning_grid) # Publish the initial grid to RViz
+
+        self.publish_planning_grid() # Publish the initial grid to RViz
         self.grid_path = []  # Path in grid coordinates
         self.latest_lidar_grid = initialize_occupancy_grid() # Just in case detections_callback is called before the lidar grid is received
-
-        #TODO stuck flag
-        self.stuck_flag = False
 
         # Timer to periodically publish detections to RViz
         self.detections_timer = self.create_timer(0.5, self.publish_detections_periodically)
@@ -168,10 +179,8 @@ class ExplorationController(Node):
         self.get_logger().info('Finished observing.')
         self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT  # Now it can get the first exploration point
 
+
     def stuck_observing(self, duration):
-        """
-        Process callbacks for a specified duration, just for initial observation of the environment (using camera and lidar)
-        """
         self.get_logger().info(f'Stuck observing for {duration} seconds...')
         start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
     
@@ -181,6 +190,15 @@ class ExplorationController(Node):
         self.get_logger().info('Finished stuck observing.')
         self.state = ExplorationState.PLAN_PATH
 
+
+    def check_stuck(self):
+        # Check if the robot is still stuck
+        if self.is_stuck():
+            self.get_logger().info('Robot is still stuck. Waiting again for corrected map. CHECK_STUCK -> STUCK_OBSERVING')
+            self.state = ExplorationState.STUCK_OBSERVING
+        else:
+            self.get_logger().info('Robot is no longer stuck. Recomputing path. CHECK_STUCK -> PLAN_PATH')
+            self.state = ExplorationState.PLAN_PATH
 
 
     def get_next_exploration_point(self):
@@ -208,18 +226,13 @@ class ExplorationController(Node):
             self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
             # --------------------------------------
             self.state = ExplorationState.MOVING
-            self.stuck_flag = False
-        else: # No path found
-            if self.stuck_flag:
-                self.state = ExplorationState.STUCK_OBSERVING
-                self.get_logger().info('No path found. Recomputing path.')
-            else:    
-                self.get_logger().info('No path found. Getting the next exploration point.')
-                self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
+        else:
+            self.get_logger().info('No path found. Getting the next exploration point.')
+            self.state = ExplorationState.GET_NEXT_EXPLORATION_POINT
 
 
     def detections_callback(self, msg):
-        self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
+        #self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Check if the detection is inside the workspace. NOTE: objects that lie on the edge of the workspace are considered outside!
         if not self.is_inside_workspace(msg.x, msg.y):
             self.get_logger().info(f'Detection is outside the workspace. Ignoring it.')
@@ -233,14 +246,14 @@ class ExplorationController(Node):
                 self.state = ExplorationState.PLAN_PATH
 
 
-    # TO CHECK
     def mapper_occupancy_grid_callback(self, msg):
         self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
         self.latest_lidar_grid = msg # Save the latest lidar grid for detections_callback
         # Update path planning grid with the received lidar occupancy grid and check for collision. msg is passed as lidar_occupancy_grid
         if self.update_path_planning_grid_and_check_collision(msg):
-            if self.state == ExplorationState.STUCK_OBSERVING:
-                self.get_logger().info('Collision detected from lidar. Waiting for the next map.')
+            if self.is_stuck():
+                self.get_logger().info('Robot is stuck. Waiting for corrected map. MOVING -> STUCK_OBSERVING')
+                self.state = ExplorationState.STUCK_OBSERVING
             else:
                 self.get_logger().info('Collision detected from lidar. Recomputing path.')
                 self.state = ExplorationState.PLAN_PATH
@@ -263,29 +276,18 @@ class ExplorationController(Node):
 
     # ------------------- UTILS ------------------- 
 
+    def is_stuck(self):
+        # Check if the robot is inside a non-free cell (occupied or inflated) in the path planning grid
+        return self.path_planning_grid.data[self.current_grid_position[0] + self.current_grid_position[1] * self.path_planning_grid.info.width] != 0
+
+
     def update_path_planning_grid_and_check_collision(self, lidar_occupancy_grid):
         # Update the planning grid with the latest detected objects/boxes
         self.path_planning_grid = update_path_planning_grid(lidar_occupancy_grid, self.detected_objects, self.detected_boxes)
-        self.planning_grid_publisher.publish(self.path_planning_grid) # Publish the updated grid to RViz
+        self.publish_planning_grid() # Publish the updated grid to RViz
         self.update_current_position() # Update the current position of the robot
         if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
-            self.stop_robot()
-
-            #Addition, check if the robot is INSIDE an occupied cell
-            x= self.current_grid_position[0]
-            y= self.current_grid_position[1]
-            if self.path_planning_grid.data[x+ self.path_planning_grid.info.width*y]> 0:
-                #if the robot is inside an occupied cell, stop and wait for the next map
-                self.stuck_flag = True
-                self.get_logger().info('Robot is inside an occupied cell. Stopping and waiting for the next map.')
-                #check for map again and again, untill no collision is detected
-                #TODO do it for limited amount of time, otherwise have some execution where it tries to go to the closest unoccupied cell
-                self.state = ExplorationState.STUCK_OBSERVING    
-                return True
-           
-            #if not go to the next exploration point
-            #if yes stop the robot, but wait for the next map, and try again.
-
+            self.stop_robot() # Send message to stop the robot
             return True # Collision detected
         else:
             return False 
@@ -348,8 +350,7 @@ class ExplorationController(Node):
 
     def is_inside_workspace(self, x, y):
         """
-        Check if the given coordinates (x, y) are inside the workspace.
-        The workspace is defined as cells in the exploration grid with values 0 (free space) or 15 (exploration points).
+        Check if the given coordinates (x, y) are inside the workspace (including the border).
         """
         # Convert real-world coordinates to grid coordinates
         grid_x, grid_y = real_to_grid_coordinates([(x, y)], self.exploration_occupancy_grid)[0]
@@ -362,8 +363,8 @@ class ExplorationController(Node):
         if 0 <= grid_x < width and 0 <= grid_y < height:
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
-            # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells of the workspace border), 100 (workspace border)
-            return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 100]
+            # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells), 70 (grid path), 100 (workspace border)
+            return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
 
         # If out of bounds, return False
         return False
@@ -373,8 +374,7 @@ class ExplorationController(Node):
         msg = Bool()
         msg.data = True
         self.stop_publisher.publish(msg)
-        time.sleep(1)  # Give time for the motion controller to stop
-
+        time.sleep(1)  # Give time for the motion controller to stop. This avoids it missing the next path.
 
 
     def compute_exploration_points(self, occupancy_grid, step):
@@ -423,6 +423,11 @@ class ExplorationController(Node):
         self.exploration_grid_publisher.publish(self.exploration_occupancy_grid)
 
 
+    def publish_planning_grid(self):
+        self.path_planning_grid.header.stamp = self.get_clock().now().to_msg()
+        self.planning_grid_publisher.publish(self.path_planning_grid)
+
+
     def publish_detections_periodically(self):
         """
         Periodically publish detections to RViz to keep transforms visible.
@@ -446,7 +451,7 @@ class ExplorationController(Node):
         self.get_logger().info(f"Map file '{file_name}' has been written successfully to '{current_directory}'.")
 
 
-    # ------ OUTDATED CODE (can be deleted later) ------
+    # ------ PREVIOUS VERSION ------
  
     #  # OLD version with all intermediate points
     # def compute_exploration_points(self, occupancy_grid, step):
