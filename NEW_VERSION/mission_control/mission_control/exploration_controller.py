@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import PolygonStamped
-from .mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_position,
+from .mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_pose,
                                     check_collision)
 from .occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
                                 grid_to_real_coordinates, real_to_grid_coordinates)
@@ -25,26 +25,8 @@ import time # DEBUG
 
 """
 NOTES (HUGO):
-
-- Cant the stuck problem be solved if the lidar mapper excludes points with range < thresold ?
-
-- I would remove the stuck logic from the plan_path function and just tune the stuck_observing time (checking how long the lidar mapper
-takes to correct the occupied cells at the position of the robot)
-Imagine the robot gets into 'stuck' state due to lidar error, but while in stuck_observing it also gets
-a detected object that ocuppies (+inflation) the desired exloration point, it would be infinitely stuck
-(no path found -> stuck_observing -> no path found -> stuck_observing -> ...)
-Another solution is checking inside the mapper_callback if the robot is still stuck (and avoiding using the path 
-planner for that). If True -> stay in stuck_observing, if False -> change state to plan_path. I've changed to this.
-
-- The idea of appending to the list an exploration points that failed to compute a path can run into an infinite loop
-because the exploration point might be actually occupied by a detected object or obstacle. We can just add more exploration points
-(the original function compute_exploration_points computes more points).
-
-------------------------------------
-CHANGES (HUGO):
-- Moved the 'stuck' detection to the lidar mapper to avoid checking 'stuck' for collisions from camera, since 
-those would never be resolved with new lidar maps.
-- Improved stuck logic. Now it also ignores detections while in stuck_observing state (to avoid the collision check)
+- Fix trapped inside objects
+- Fix unable to process more map callbacks and detection at the same time
 
 
 """
@@ -65,6 +47,7 @@ OBSERVATION_TIME = 3.0  # Time to observe the environment [s]
 
 # ------------------------------- ExplorationState class -------------------------------
 class ExplorationState(Enum):
+    INIT = auto()
     OBSERVING = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     PLAN_PATH = auto()
@@ -96,6 +79,7 @@ class ExplorationController(Node):
     def __init__(self):
         # State to initialize the node
         super().__init__('ExplorationController_node')
+        self.state = ExplorationState.INIT
 
         # Publishers and subscribers
         latched_qos = QoSProfile(depth=1) # Define a shared QoS profile for latched publishers
@@ -136,8 +120,8 @@ class ExplorationController(Node):
         # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
 
         # Initilizate variables for exploration
-        self.current_position = (0, 0)  # Initial position (0, 0) in real world coordinates
-        self.current_grid_position = real_to_grid_coordinates([self.current_position], self.exploration_occupancy_grid)[0]
+        self.current_pose = (0, 0, 0)  # Initial position (x, y, yaw) in real world coordinates
+        self.current_grid_position = real_to_grid_coordinates([self.current_pose], self.exploration_occupancy_grid)[0]
         self.exploration_point_index = 0
         self.exploration_point = None
         self.detections = []  # Unified list for all detections
@@ -197,10 +181,10 @@ class ExplorationController(Node):
     
 
     def plan_path(self):
-        self.update_current_position()  # Update the current position of the robot
+        self.update_current_pose()  # Update the current pose of the robot
         # Compute to the exploration point and move to it. The grid_path is also saved to check for collisions while moving (much easier in grid coordinates)
-        start = (self.current_grid_position, self.current_position)
-        goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
+        start = (self.current_grid_position, self.current_pose)
+        goal = (self.exploration_point, (*grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0], None))
         #self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
         if path: # Path found
@@ -247,7 +231,7 @@ class ExplorationController(Node):
                     self.get_logger().info('Collision detected from lidar. Recomputing path.')
                     self.state = ExplorationState.PLAN_PATH
         
-        if self.state == ExplorationState.STUCK_OBSERVING:
+        elif self.state == ExplorationState.STUCK_OBSERVING:
             if not self.is_stuck():
                 self.get_logger().info('Robot is no longer stuck. Recomputing path. STUCK_OBSERVING -> PLAN_PATH')
                 self.state = ExplorationState.PLAN_PATH
@@ -280,7 +264,7 @@ class ExplorationController(Node):
         # Update the planning grid with the latest detected objects/boxes
         self.path_planning_grid = update_path_planning_grid(lidar_occupancy_grid, self.detected_objects, self.detected_boxes)
         self.publish_planning_grid() # Publish the updated grid to RViz
-        self.update_current_position() # Update the current position of the robot
+        self.update_current_pose() # Update the current pose of the robot
         if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
             self.stop_robot() # Send message to stop the robot
             return True # Collision detected
@@ -288,12 +272,12 @@ class ExplorationController(Node):
             return False 
 
 
-    def update_current_position(self):
-        # Update the current position of the robot
-        self.current_position, self.current_grid_position = get_current_position(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
-        if self.current_position is None:
-            self.get_logger().info('Failed to get current position!')
-        #self.get_logger().info(f'Current position (real): {self.current_position}  | (grid): {self.current_grid_position}')  # DEBUG
+    def update_current_pose(self):
+        # Update the current pose of the robot
+        self.current_pose, self.current_grid_position = get_current_pose(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
+        if self.current_pose is None:
+            self.get_logger().info('Failed to get current pose!')
+        #self.get_logger().info(f'Current pose (real): {self.current_pose}  | (grid): {self.current_grid_position}')  # DEBUG
         
 
     def update_detections(self, msg):

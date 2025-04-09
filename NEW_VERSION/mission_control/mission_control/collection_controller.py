@@ -24,7 +24,8 @@ import os # To get the current directory
 import time # DEBUG
 
 """
-TO DO:
+NOTES (HUGO):
+- Check how the motion controller executes the yaw from the PoseStamped() of the Path()
 
 """
 
@@ -41,8 +42,7 @@ MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 
 # ------------------------------- State class -------------------------------
 class State(Enum):
-    TESTING = auto()
-
+    TESTING = auto() # To delete later
     INIT = auto()
     SCANNING = auto()
     GET_NEXT_OBJECT = auto()
@@ -68,7 +68,6 @@ class CollectionController(Node):
             try:
                 self.handle_state()
             except StopIteration:
-                self.get_logger().info("Exiting the main loop.")
                 break
             except Exception as e:
                 self.get_logger().error(f"Error in state {self.state}: {e}")
@@ -82,7 +81,7 @@ class CollectionController(Node):
             State.TESTING: lambda: rclpy.spin_once(self),
             # lamda is needed when the function takes parameters (to avoid calling it immediately)
             # Ex.: self.function() is called immediately, while self.function is passed as a reference
-            State.SCANNING: lambda: self.observing(3.0), # Observe (spin) for 3 seconds
+            State.SCANNING: lambda: self.scanning(3.0), # Observe (spin) for 3 seconds
             State.GET_NEXT_OBJECT: self.get_next_object,
             State.PLAN_PATH: self.plan_path,
             State.MOVING: lambda: rclpy.spin_once(self),
@@ -101,11 +100,11 @@ class CollectionController(Node):
 
             # Stop the loop if the state is END_COLLECTION
             if self.state == State.END_COLLECTION:
-                #self.get_logger().info("Collection process completed. Stopping the robot.")
+                #self.get_logger().info("Collection process completed.")
                 raise StopIteration  # Exit the loop in the `run` method
         else:
             #self.get_logger().error(f"Unknown state: {self.state}")
-            raise ValueError(f"Unknown state: {self.state}")
+            raise ValueError(f"Unknown state")
 
 
     # ------------------- Initialization -------------------
@@ -119,7 +118,7 @@ class CollectionController(Node):
         latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing objects/boxes to RViz
-        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 10)
+        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 1)
         #self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5)
         self.planning_grid_publisher = self.create_publisher(OccupancyGrid, '/planning_grid', latched_qos)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
@@ -151,9 +150,8 @@ class CollectionController(Node):
         # Timer to periodically publish objects/boxes to RViz
         self.detections_timer = self.create_timer(0.5, self.publish_transforms_periodically)
 
-        self.next_object_position = None
-        self.destination = None  # Destination point in real world coordinates
-
+        self.next_object_position = None # (x, y) in real world coordinates
+        self.observation_pose = None # (x, y, theta) in real world coordinates
 
 
 
@@ -180,10 +178,11 @@ class CollectionController(Node):
         time.sleep(3) # Wait for all nodes to be ready and the TF buffer to populate
 
         self.state = State.TESTING # DEBUGGING
+        self.state = State.SCANNING
 
 
     # ------------------- STATE FUNCTIONS -------------------
-    def observing(self, duration):
+    def scanning(self, duration):
         """
         Process callbacks for a specified duration, just for initial observation of the environment (using lidar)
         """
@@ -193,7 +192,7 @@ class CollectionController(Node):
         while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
             rclpy.spin_once(self)
     
-        self.get_logger().info('Finished observing.')
+        self.get_logger().info('Finished scanning.')
         self.state = State.GET_NEXT_OBJECT  # Now it can get the first object
 
 
@@ -201,6 +200,7 @@ class CollectionController(Node):
     def get_next_object(self):
 
         # Select the closest object to the current position of the robot
+        
 
 
         # Compute the observation point
@@ -211,7 +211,7 @@ class CollectionController(Node):
              # If no cells found, set self.destination to None
              # If it exists, store the observation point in self.destination (real coordinates, including orientation)
 
-        if self.destination:
+        if self.observation_pose:
             self.State = State.PLAN_PATH # Plan the path to the observation point
         else:
             self.State = State.GET_NEXT_OBJECT # No observation point found, get the next object
@@ -231,7 +231,7 @@ class CollectionController(Node):
         """
         Callback for processing the /mapper_occupancy_grid topic.
         """
-        if self.state not in [State.OBSERVING, State]:
+        if self.state not in [ FILL ]:
             return
         # FILL WITH CODE FROM EXPLORATION CONTROLLER
  

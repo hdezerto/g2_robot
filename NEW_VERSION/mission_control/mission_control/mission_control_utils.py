@@ -44,9 +44,9 @@ def compute_path(start, goal, exploration_occupancy_grid, clock):
     return path_points, path
 
 
-def get_current_position(tf_buffer, logger, occupancy_grid):
+def get_current_pose(tf_buffer, logger, occupancy_grid):
     """
-    Gets the robot's current position in both real-world and grid coordinates.
+    Gets the robot's current pose in both real-world and grid coordinates.
 
     Args:
         tf_buffer (Buffer): The TF2 buffer instance for looking up transforms.
@@ -55,7 +55,7 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
 
     Returns:
         tuple: A tuple containing:
-            - real_position (tuple): The real-world coordinates (x, y, theta).
+            - real_pose (tuple): The real-world coordinates (x, y, yaw).
             - grid_position (tuple): The grid coordinates (x, y).
     """
     try:
@@ -69,15 +69,15 @@ def get_current_position(tf_buffer, logger, occupancy_grid):
         _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
         # Real-world position
-        real_position = (x, y, yaw)
+        real_pose = (x, y, yaw)
 
         # Convert to grid coordinates
         grid_position = real_to_grid_coordinates([(x, y)], occupancy_grid)[0]
 
-        return real_position, grid_position
+        return real_pose, grid_position
     
     except TransformException as e:
-            logger.error(f"Failed to get current position: {e}")
+            logger.error(f"Failed to get current pose: {e}")
             return None, None
 
 
@@ -468,25 +468,25 @@ def create_path_message(grid_path_points, start_real, goal_real, clock, occupanc
     path.header.stamp = clock.now().to_msg()
     path.header.frame_id = 'map'
 
-    for point in real_path_points:
+    for (x, y) in real_path_points:
         pose = PoseStamped()
         pose.header.stamp = clock.now().to_msg()
         pose.header.frame_id = 'map'
-        pose.pose.position.x = point[0]
-        pose.pose.position.y = point[1]
+        pose.pose.position.x = x
+        pose.pose.position.y = y
         pose.pose.orientation.w = 1.0 # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation 
         path.poses.append(pose)
 
-    # Set the orientation of the last waypoint to match the direction of the path
-    waypoint_no = len(path.poses)
-    dx = path.poses[waypoint_no - 1].pose.position.x - path.poses[waypoint_no - 2].pose.position.x
-    dy = path.poses[waypoint_no - 1].pose.position.y - path.poses[waypoint_no - 2].pose.position.y
-    theta = np.arctan2(dy, dx)
-    q = quaternion_from_euler(0, 0, theta)
-    path.poses[waypoint_no - 1].pose.orientation.x = q[0]
-    path.poses[waypoint_no - 1].pose.orientation.y = q[1]
-    path.poses[waypoint_no - 1].pose.orientation.z = q[2]
-    path.poses[waypoint_no - 1].pose.orientation.w = q[3]
+    if goal_real[2] is None: # If no yaw is provided for the goal, set it to match the direction of the path
+        dx = path.poses[-1].pose.position.x - path.poses[-2].pose.position.x
+        dy = path.poses[-1].pose.position.y - path.poses[-2].pose.position.y
+        yaw = np.arctan2(dy, dx)
+    else: # Yaw is given, useful for collection
+        yaw = goal_real[2]
+    
+    q = quaternion_from_euler(0, 0, yaw)
+    path.poses[-1].pose.orientation.x, path.poses[-1].pose.orientation.y, \
+    path.poses[-1].pose.orientation.z, path.poses[-1].pose.orientation.w = q
     
     return path
 
