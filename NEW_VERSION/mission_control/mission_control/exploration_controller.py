@@ -65,6 +65,7 @@ OBSERVATION_TIME = 3.0  # Time to observe the environment [s]
 
 # ------------------------------- ExplorationState class -------------------------------
 class ExplorationState(Enum):
+    INIT = auto()
     OBSERVING = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     PLAN_PATH = auto()
@@ -96,6 +97,7 @@ class ExplorationController(Node):
     def __init__(self):
         # State to initialize the node
         super().__init__('ExplorationController_node')
+        self.state = ExplorationState.INIT
 
         # Publishers and subscribers
         latched_qos = QoSProfile(depth=1) # Define a shared QoS profile for latched publishers
@@ -504,7 +506,6 @@ def main(args=None):
     rclpy.init(args=args)
     exploration_controller = ExplorationController()
     exploration_controller.get_logger().info('ExplorationController node has been created.')
-
     try:
         exploration_controller.run()
     except Exception as e:
