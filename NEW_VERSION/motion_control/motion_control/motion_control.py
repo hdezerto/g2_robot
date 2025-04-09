@@ -106,7 +106,7 @@ class MotionController(Node):
         self.y_0 = 0.0
 
         # Parameters (changing allowed)
-        self.goal_margin_translational = 0.02
+        self.goal_margin_translational = 0.05
         self.goal_margin_rotational = math.pi / 32
 
         self.p_rotation_one = (

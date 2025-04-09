@@ -30,6 +30,8 @@ import cv2
 
 import csv
 
+import math
+
 # Importing os for handling file system operations (creating folders, saving files)
 import os  
 
@@ -52,8 +54,8 @@ WORKSPACE_FILE_PATH = os.path.join(
 
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
-SCAN_THRESHOLD =5  # Number of scans to skip before processing new data
-SCAN_FREQUENCY = 50  # Frequency at which the map is published and saved
+SCAN_FREQUENCY =5  # Number of scans to skip before processing new data
+MAP_FREQUENCY = 40  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.70  # Minimum distance filter for LiDAR points to avoid noise
 MINUS_THETA = -130  # Minimum angle threshold for LiDAR points
@@ -61,7 +63,9 @@ PLUS_THETA = 130  # Maximum angle threshold for LiDAR points
 MAX_CONFIDENCE = 100  # Maximum confidence value
 CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
-LD_FILTER = 3  # Maximum distance for LiDAR points
+LD_FILTER = 4  # Maximum distance for LiDAR points
+THRESHOLD = 3.0 # Distance threshold for keyframe selection
+
 # ------------------------------------
 
 #TODO
@@ -282,28 +286,27 @@ class LidarProcessor(Node):
         #Mapping item callbacks
         #Basic Lidar callback
         self.subscription = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+
         #ICP corrected single cloud callback, should be used to create an accumulated cloud
         self.corrected_subscriber = self.create_subscription(PointCloud2, '/nth_corrected_pointcloud', self.corrected_callback, 10)
-        #ICP corrected accumulated cloud callback, used to trigger map generation based on udated accumulated cloud
-        self.final_map_subscriber = self.create_subscription(PointCloud2, '/corrected_accumulated_pointcloud', self.final_map_callback, 10)
-        #Object addition and removal callbacks
-        #self.addition_subscriber = self.create_subscription(DetectionMsg, '/detections', self.add_obj_callback, 10)
-        #self.removal_subscriber = self.create_subscription(DetectionMsg, '/remove_object', self.remove_obj_callback, 10)
-
-
-        #self.marker_subscriber = self.create_subscription(Marker, '/visualization_marker', self.marker_callback, 10)
-        # Create map_trigger subscriber to trigger the map creation
-        self.trigger_subscriber = self.create_subscription(Bool, '/map_trigger', self.map_trigger_callback, 10)
 
         #occupancy gridmap publisher
         self.grid_publisher = self.create_publisher(OccupancyGrid, '/mapper_occupancy_grid', 10)
-        #accumulated and simple pointcloud publishers
-        self.accumulated_publisher = self.create_publisher(PointCloud2, '/uncorrected_accumulated_pointcloud', 10)
+        self.accumulated_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
+        #publish the latest reference scan
+        self.reference_publisher= self.create_publisher(PointCloud2, '/reference_cloud', 1)
+
+        
+        #simple pointcloud publishers
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/nth_simple_pointcloud', 10)
         # Publisher for the workspace (latched publisher)
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
         
         self.decay_timer = self.create_timer(1.0, self.decay_callback)  # Decay every second
+
+
+        #publisher for visualising keyframes
+        self.circle_marker_pub = self.create_publisher(PolygonStamped, '/keyframe_circle', 10)
 
 
         # TF Buffer and Listener for correcting odometry drift
@@ -315,22 +318,64 @@ class LidarProcessor(Node):
         
         self.accumulated_points = []
         self.corrected_accumulated_points = []
+        self.latest_reference = None
+        self.reference_scans = []  # List to store reference scans
         
 
         self.scan_count = 0
-        self.nth_scan = SCAN_THRESHOLD
-        self.scan_freq = SCAN_FREQUENCY
+        self.nth_scan = SCAN_FREQUENCY
+        self.scan_freq = MAP_FREQUENCY
         self.d_filter= DISTANCE_FILTER
         self.minus_theta= MINUS_THETA
         self.plus_theta= PLUS_THETA
         self.ld_filter = LD_FILTER
+        self.keyf_threshold = THRESHOLD  # meters
         self.First_time=True
-        self.decay_counter=0;
+        self.decay_counter=0
+        self.scan_que_full=False
 
-    
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
         self.publish_workspace()
+   
+    def publish_reference(self, ref):
+        # Given a reference scan (dict with 'points' and 'pos'), publish it
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = "map"
+        # Flatten the points from the reference scan
+        # Each point is assumed to be a tuple (x, y, z)
+        #points_array = np.array([(p[0], p[1], p[2]) for p in ref['points']], dtype=np.float32)
+        #ref_cloud = pc2.create_cloud_xyz32(header, points_array)
+        self.reference_publisher.publish(ref['cloud'])
+        self.get_logger().info(f"Published reference scan at position: {ref['pos']}")
+
+    def publish_circle_marker(self, msg):
+        # Use the keyframe threshold as the radius
+        radius = float(self.keyf_threshold)
+
+        # Get the circle center from the latest reference scan
+        cx = float(self.latest_reference['pos'][0])
+        cy = float(self.latest_reference['pos'][1])
+
+        # Generate points along the circle's perimeter
+        num_points = 36  # More points = smoother circle
+        circle_coords = [
+            (
+                cx + radius * math.cos(2 * math.pi * i / num_points),
+                cy + radius * math.sin(2 * math.pi * i / num_points)
+            )
+            for i in range(num_points)
+        ]
+        circle_coords.append(circle_coords[0])  # Close the loop
+
+        # Create the PolygonStamped message
+        polygon_msg = create_polygon(circle_coords)
+        polygon_msg.header.stamp = msg.header.stamp
+
+        # Publish it
+        self.circle_marker_pub.publish(polygon_msg)
+
 
     def decay_callback(self):
         self.decay_counter+=1;
@@ -388,8 +433,6 @@ class LidarProcessor(Node):
             cloud = self.proj.projectLaser(msg)
             # Transform the point cloud to the 'map' frame
             transformed_cloud = do_transform_cloud(cloud, transform)
-            # Publish the accumulated point cloud
-            self.pointcloud_publisher.publish(transformed_cloud)
 
             #TODO Ensure the bellow properly adds points
             if self.First_time:
@@ -415,19 +458,76 @@ class LidarProcessor(Node):
                 self.map_builder.save_map()
                 
                 self.First_time = False
+                
+                #Create the first reference scan
+                # Get current position from the transform (only XY)
+                current_pos = (transform.transform.translation.x, transform.transform.translation.y)
+            
+                # Create a candidate reference scan from the current points
+                candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
+                
+                # First time so no reference scan exists: store and publish candidate
+                self.reference_scans.append(candidate_reference)
+                self.latest_reference = candidate_reference
+                self.publish_reference(candidate_reference)
+                #TODO Debugging for key frame selection
+                self.publish_circle_marker(msg)
             else:
                 self.First_time = False
                 self.get_logger().info(f'Published nth scan as PointCloud2')
+
+            
+            # Get current position from the transform (only XY)
+            current_pos = (transform.transform.translation.x, transform.transform.translation.y)
+            
+            # Create a candidate reference scan from the current points
+            candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
+            
+            
+   
+            # Check if current position is within threshold of latest reference
+            dist_latest = math.sqrt((current_pos[0] - self.latest_reference['pos'][0])**2 +
+                                        (current_pos[1] - self.latest_reference['pos'][1])**2)
+            if dist_latest < self.keyf_threshold:
+                # maybe Re-publish the latest reference scan to ensure it is up to date if the first message did not go through
+                #self.publish_reference(self.latest_reference)
+                pass
+            else:
+                # Search other stored references
+                found = False
+                for ref in self.reference_scans:
+                    d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
+                                      (current_pos[1] - ref['pos'][1])**2)
+                    if d < self.keyf_threshold:
+                        self.latest_reference = ref
+                        self.publish_reference(ref)
+                        #TODO Debugging for key frame selection
+                        self.publish_circle_marker(msg)
+                        found = True
+                        break
+                if not found:
+                    # None of the stored reference scans is within threshold: add candidate
+                    self.reference_scans.append(candidate_reference)
+                    self.latest_reference = candidate_reference
+                    self.publish_reference(candidate_reference)
+                    #TODO Debugging for key frame selection
+                    self.publish_circle_marker(msg)
+            
+            # Publish the current point cloud
+            self.pointcloud_publisher.publish(transformed_cloud)
 
 
         except Exception as e:
             self.get_logger().error(f"Transform error: {str(e)}")
         
     def corrected_callback(self, msg):
+        #read corrected points from the message
         points = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
+        #accumulate corrected points into a list 
         self.accumulated_points.extend(points)
         
-        if self.scan_count % self.scan_freq == 0:
+        #If the scan count is greater that the threshold, create and publish a map
+        if self.scan_count % self.scan_freq == 0: #check if map should be published
             header = Header()
             header.stamp = msg.header.stamp
             header.frame_id = "map"
@@ -438,28 +538,38 @@ class LidarProcessor(Node):
 
             self.accumulated_publisher.publish(accumulated_cloud)
             self.get_logger().info('Published accumulated PointCloud2')
-            self.accumulated_points = []  # Reset accumulation
 
-    def final_map_callback(self, msg):
-        self.get_logger().info('Received corrected accumulated point cloud for map building')
-        points = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
+            self.final_map_callback(self.accumulated_points,header.stamp) #map the accumulated points
+
+            self.get_logger().info('Published accumulated PointCloud2')
+            if self.scan_que_full==False:# first time this part of the code is called the bool is set to true, which means the que is full
+                self.scan_que_full=True
+            
+
+        if self.scan_que_full:
+            # Check if the accumulated points exceed a certain threshold
+            x=int(len(self.accumulated_points)*3*self.nth_scan/self.scan_freq)
+            self.accumulated_points = self.accumulated_points[x:]
+            
+    def final_map_callback(self, points,stamp):
+        
+        #self.get_logger().info('Received corrected accumulated point cloud for map building')
+        #points = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
         #reset accumulated points to icp corrected ones
-        self.accumulated_points.extend(points)
         
         # Here, integrate the corrected cloud into an occupancy grid map
-        # Update the map with the new points (you may call add_scan or process ICP here)
+        # Update the map with the new points
         # Filter points to keep only those inside the workspace
         filtered_points = [(x, y) for x, y, _ in points if self.is_point_inside_workspace(x, y)]
         self.map_builder.add_scan(filtered_points)
 
         #Publish the occupancy grid map every scan_freq scans
-        occupancy_grid = self.map_builder.to_occupancy_grid(msg.header.stamp)
+        occupancy_grid = self.map_builder.to_occupancy_grid(stamp)
         self.grid_publisher.publish(occupancy_grid)
         self.get_logger().info("Published occupancy grid map.")
         #Store occupancy map pgm
         self.map_builder.save_map()
         self.scan_count = 0  
-
 
     def voxelize(self, points, voxel_size=0.1):
         """ Reduce point cloud density by grouping points into 2D grid cells and filtering by workspace. """
@@ -521,11 +631,6 @@ class LidarProcessor(Node):
                 current_time = rclpy.clock.Clock().now().to_msg()
                 self.map_make_pub(current_time)
     
-    def map_trigger_callback(self, msg):
-        """ Publishes the map when triggered by an external signal. """
-        self.get_logger().info('Received map trigger message.')
-        self.map_make_pub(self,msg.header.stamp)
-    
     def map_make_pub(self,stamp):
         """ Publishes the map when triggered by an external signal. """
         self.get_logger().info('Generate and publish map.')
@@ -543,7 +648,6 @@ class LidarProcessor(Node):
         self.grid_publisher.publish(occupancy_grid)
         self.get_logger().info('Published occupancy grid map after trigger.')
         self.map_builder.save_map()
-
 
     def is_point_inside_workspace(self, x, y):
         """ Checks if a point is within the defined workspace. """
@@ -627,43 +731,7 @@ class LidarProcessor(Node):
 
         # Apply dilation using real-world coordinates
         self.map_builder.apply_dilation(affected_points)
-
-
-
-    def old_draw_line_on_map(self, x1, y1, x2, y2):
-        """ Draw a line between two points (x1, y1) and (x2, y2) on the occupancy grid, ensure everything else is 0 """
-        dx = abs(x2 - x1)
-        dy = abs(y2 - y1)
-        sx = 1 if x1 < x2 else -1
-        sy = 1 if y1 < y2 else -1
-        err = dx - dy
-
-
-        while True:
-            # Mark the current point as occupied
-            self.map_builder.map[y1, x1] = 100  # Occupied
-            
-            try:
-                self.map_builder.map[y1+1, x1+1] = 50  # Dial
-            except:
-                self.map_builder.map[y1-1, x1-1] = 50  # Dial
-
-            self.map_builder.confidence_map[y1, x1] = 100  # Max confidence
-            try:
-                self.map_builder.confidence_map[y1+1, x1+1] = 50  # Dial
-            except:
-                self.map_builder.confidence_map[y1-1, x1-1] = 50  # Dial
-
-            if x1 == x2 and y1 == y2:
-                break
-            e2 = err * 2
-            if e2 > -dy:
-                err -= dy
-                x1 += sx
-            if e2 < dx:
-                err += dx
-                y1 += sy
-        
+     
     def publish_workspace(self, file_path=None):
         if len(self.vertices)!=0:
             coordinates = self.vertices

@@ -488,7 +488,6 @@ def main(args=None):
     rclpy.init(args=args)
     exploration_controller = ExplorationController()
     exploration_controller.get_logger().info('ExplorationController node has been created.')
-
     try:
         exploration_controller.run()
     except Exception as e:
