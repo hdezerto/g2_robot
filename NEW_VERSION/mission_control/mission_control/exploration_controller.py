@@ -33,8 +33,8 @@ takes to correct the occupied cells at the position of the robot)
 Imagine the robot gets into 'stuck' state due to lidar error, but while in stuck_observing it also gets
 a detected object that ocuppies (+inflation) the desired exloration point, it would be infinitely stuck
 (no path found -> stuck_observing -> no path found -> stuck_observing -> ...)
-Another solution is adding a state that checks if the current position is still occupied (and avoiding using the path 
-planner for that). If True -> change state to stuck_observing, if False -> change state to plan_path. I've changed to this.
+Another solution is checking inside the mapper_callback if the robot is still stuck (and avoiding using the path 
+planner for that). If True -> stay in stuck_observing, if False -> change state to plan_path. I've changed to this.
 
 - The idea of appending to the list an exploration points that failed to compute a path can run into an infinite loop
 because the exploration point might be actually occupied by a detected object or obstacle. We can just add more exploration points
@@ -44,7 +44,7 @@ because the exploration point might be actually occupied by a detected object or
 CHANGES (HUGO):
 - Moved the 'stuck' detection to the lidar mapper to avoid checking 'stuck' for collisions from camera, since 
 those would never be resolved with new lidar maps.
-- Implemented the stuck logic with a CHECK_STUCK state
+- Improved stuck logic. Now it also ignores detections while in stuck_observing state (to avoid the collision check)
 
 
 """
@@ -70,7 +70,6 @@ class ExplorationState(Enum):
     PLAN_PATH = auto()
     MOVING = auto()
     STUCK_OBSERVING = auto()
-    CHECK_STUCK = auto()  # Check if the robot is still stuck
     END_EXPLORATION = auto()
 
 
@@ -89,8 +88,6 @@ class ExplorationController(Node):
                 rclpy.spin_once(self)
             elif self.state == ExplorationState.STUCK_OBSERVING:
                 self.stuck_observing(OBSERVATION_TIME)
-            elif self.state == ExplorationState.CHECK_STUCK:
-                self.check_stuck()
             elif self.state == ExplorationState.END_EXPLORATION:
                 self.end_exploration()
                 break
@@ -186,19 +183,6 @@ class ExplorationController(Node):
     
         while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
             rclpy.spin_once(self)
-    
-        self.get_logger().info('Finished stuck observing.')
-        self.state = ExplorationState.PLAN_PATH
-
-
-    def check_stuck(self):
-        # Check if the robot is still stuck
-        if self.is_stuck():
-            self.get_logger().info('Robot is still stuck. Waiting again for corrected map. CHECK_STUCK -> STUCK_OBSERVING')
-            self.state = ExplorationState.STUCK_OBSERVING
-        else:
-            self.get_logger().info('Robot is no longer stuck. Recomputing path. CHECK_STUCK -> PLAN_PATH')
-            self.state = ExplorationState.PLAN_PATH
 
 
     def get_next_exploration_point(self):
@@ -232,6 +216,9 @@ class ExplorationController(Node):
 
 
     def detections_callback(self, msg):
+        if self.state == ExplorationState.STUCK_OBSERVING: # Ignore detections while stuck
+            return
+
         #self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         # Check if the detection is inside the workspace. NOTE: objects that lie on the edge of the workspace are considered outside!
         if not self.is_inside_workspace(msg.x, msg.y):
@@ -249,15 +236,23 @@ class ExplorationController(Node):
     def mapper_occupancy_grid_callback(self, msg):
         self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
         self.latest_lidar_grid = msg # Save the latest lidar grid for detections_callback
-        # Update path planning grid with the received lidar occupancy grid and check for collision. msg is passed as lidar_occupancy_grid
-        if self.update_path_planning_grid_and_check_collision(msg):
-            if self.is_stuck():
-                self.get_logger().info('Robot is stuck. Waiting for corrected map. MOVING -> STUCK_OBSERVING')
-                self.state = ExplorationState.STUCK_OBSERVING
-            else:
-                self.get_logger().info('Collision detected from lidar. Recomputing path.')
+        # Update path planning grid with the received lidar occupancy grid and check for collision
+        is_collision = self.update_path_planning_grid_and_check_collision(msg)
+        if self.state == ExplorationState.MOVING:
+            if is_collision:
+                if self.is_stuck():
+                    self.get_logger().info('Robot is stuck. Waiting for corrected map. MOVING -> STUCK_OBSERVING')
+                    self.state = ExplorationState.STUCK_OBSERVING
+                else:
+                    self.get_logger().info('Collision detected from lidar. Recomputing path.')
+                    self.state = ExplorationState.PLAN_PATH
+        
+        if self.state == ExplorationState.STUCK_OBSERVING:
+            if not self.is_stuck():
+                self.get_logger().info('Robot is no longer stuck. Recomputing path. STUCK_OBSERVING -> PLAN_PATH')
                 self.state = ExplorationState.PLAN_PATH
-            
+            # else it will stay in state STUCK_OBSERVING until the lidar map is corrected
+
 
     def reached_destination_callback(self, msg):
         if msg.data: # msg.data is True if the destination was reached
