@@ -1,10 +1,5 @@
 # g2_robot
 
-## Overview
-
-EDIT OVERVIEW 
-
-The `g2_robot` repository contains packages and launch files for running various components of the robot, including object detection, motor encoders, camera, and more. This README provides instructions on how to set up and run the different components.
 
 ## Setup
 
@@ -76,7 +71,7 @@ On the **robot**, run the following commands:
 2. Run commands from 4 to 7 in the previous section.
 
 
-If nothibg is being published to the laptop, run on the robot and laptop:
+If nothing is being published to the laptop, run on the robot and laptop:
 ```sh
 ros2 daemon stop
 ```
