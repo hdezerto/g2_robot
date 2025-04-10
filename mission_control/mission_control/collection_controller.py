@@ -26,7 +26,8 @@ from nav_msgs.msg import Path
 from tf_transformations import quaternion_from_euler
 import numpy as np
 
-import time # DEBUG
+import time
+
 
 """
 NOTES (HUGO):
@@ -53,8 +54,6 @@ PICK_DISTANCE = 0.17 # Distance to the object for pick [m]
 #PLACE_DISTANCE = ??  # Distance to the box for drop [m]
 # ------------------------------------
 
-
-#EXPLORATION_STEP = 15 # DEBUGGING
 
 
 # ------------------------------- State class -------------------------------
@@ -177,24 +176,6 @@ class CollectionController(Node):
         self.destination_pose = None # (x, y, theta) in real world coordinates. Only for observation and drop poses
         self.detected_position = None # (x, y) in real world coordinates. To store the observed position of the object
 
-        # # ------ DEBUGGING EXPLORATION POINTS (ignore it) ------
-        # # Initialize exploration grid (workspace file and resolution defined in occupancy_grid_map.py) to:
-        # # - compute the exploration points
-        # # - check if the detected objects/boxes are inside the workspace
-        # self.exploration_occupancy_grid = initialize_occupancy_grid()
-        # inflate_occupied_cells(self.exploration_occupancy_grid)
-        # #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
-        # self.exploration_points = [(10, 45), (185, 60), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values
-        # self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
-        # self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
-        # self.publish_exploration_grid()
-        # # DEBUG:
-        # self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
-        # # real_world_points = grid_to_real_coordinates(self.exploration_points, self.exploration_occupancy_grid)
-        # # formatted_real_world_points = [(f"{x:.2f}", f"{y:.2f}") for x, y in real_world_points]
-        # # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
-        # # -----------------------------------------
-
         self.get_logger().info('Waiting 3 sec...') 
         time.sleep(3) # Wait for all nodes to be ready and the TF buffer to populate
 
@@ -268,7 +249,9 @@ class CollectionController(Node):
     def mapper_occupancy_grid_callback(self, msg):
         if self.state != State.MOVING: # Ignore lidar mapping when not moving
             return
-        # TODO : Use the same code from exploration
+        # ------------------ TODO -----------------
+        # Use the same code from exploration
+        # -----------------------------------------
  
     
     def observe_object(self, timeout):
@@ -515,11 +498,6 @@ class CollectionController(Node):
         self.get_logger().info(f"Map file '{file_name}' has been read successfully.")
 
 
-
-        # # ---------- DEBUGGING (ignore) ----------
-
-
-
     # ---------------- DEBUGGING FUNCTIONS (ignore it) ----------------   
 
     def mark_grid_path(self, occupancy_grid, grid_path):
@@ -531,19 +509,6 @@ class CollectionController(Node):
         
         self.publish_workspace_grid()  # Publish the updated grid
 
-
-    # def mark_exploration_points(self, occupancy_grid, exploration_points):
-    #     data = occupancy_grid.data
-    #     width = occupancy_grid.info.width
-
-    #     for (x, y) in exploration_points:
-    #         index = y * width + x
-    #         data[index] = 15  # Mark exploration points with a lighter shade of gray
-
-
-    # def publish_exploration_grid(self):
-    #     self.exploration_occupancy_grid.header.stamp = self.get_clock().now().to_msg()
-    #     self.exploration_grid_publisher.publish(self.exploration_occupancy_grid)
 
 
 

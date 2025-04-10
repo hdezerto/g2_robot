@@ -21,13 +21,12 @@ from tf2_ros.transform_listener import TransformListener
 from detection_interfaces.msg import DetectionMsg
 import os # To get the current directory
 
-import time # DEBUG
+import time
 
 """
 NOTES (HUGO):
 - Fix trapped inside objects
 - Fix unable to process more map callbacks and detection at the same time
-
 
 """
 
