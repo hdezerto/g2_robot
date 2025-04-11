@@ -114,7 +114,7 @@ class MotionController(Node):
         )
         self.p_translation_one = 5
         self.p_translation_two = (
-            25 #  p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
+            25  #  p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
         )
         self.p_rotation_two = (
             10  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
@@ -134,7 +134,7 @@ class MotionController(Node):
 
     def path_callback(self, msg: Path):
         self.get_logger().info("Received new path")
-        
+
         self.current_path = msg
         self.current_path.poses.pop(0)
         self.current_waypoint_index = 0
@@ -203,7 +203,6 @@ class MotionController(Node):
             self.y_g = waypoint.pose.position.y
             q = waypoint.pose.orientation
             _, _, self.theta_final = euler_from_quaternion([q.x, q.y, q.z, q.w])
-        
 
         # Get the robot's current pose
         current_pose = self.get_current_pos()
@@ -249,8 +248,10 @@ class MotionController(Node):
                 else:
                     self.stuck_check = 0
                 if self.stuck_check > 5:
-                    stuck_parameter = (self.stuck_check - 5)*0.01
-                    self.get_logger().info(f"Stuck. Increasing damping factor to {stuck_parameter}")
+                    stuck_parameter = (self.stuck_check - 5) * 0.01
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
 
                 # Set velocities
                 w = self.p_rotation_one * delta_theta
@@ -262,7 +263,7 @@ class MotionController(Node):
             # Check if the robot has reached the waypoint
             if distance < self.goal_margin_translational:
                 self.stuck_check = 0
-                
+
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
                     if self.accuracy_check > 5:
@@ -283,9 +284,25 @@ class MotionController(Node):
                 else:
                     self.stuck_check = 0
                 if self.stuck_check > 5:
-                    stuck_parameter = (self.stuck_check - 5)*0.01
-                    self.get_logger().info(f"Stuck. Increasing damping factor to {stuck_parameter}")
-                self.accuracy_check = 0
+                    stuck_parameter = (self.stuck_check - 5) * 0.02
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
+                elif self.stuck_check > 10:
+                    self.get_logger().warn(
+                        f"Could not reach destination with remaining distance: {distance}\n Moving On."
+                    )
+                    if self.current_waypoint_index == len(self.current_path.poses) - 1:
+                        self.control_phase = 3
+                        self.get_logger().info(
+                            ">Reached< final waypoint. Now correcting orientation"
+                        )
+                    else:
+                        self.get_logger().info(
+                            ">Reached< waypoint. Moving to next waypoint."
+                        )
+                        self.reached_waypoint = True
+                    self.accuracy_check = 0
 
                 # Set velocity
                 v = self.p_translation_two * (
@@ -318,8 +335,10 @@ class MotionController(Node):
                 else:
                     self.stuck_check = 0
                 if self.stuck_check > 5:
-                    stuck_parameter = (self.stuck_check - 5)*0.01
-                    self.get_logger().info(f"Stuck. Increasing damping factor to {stuck_parameter}")
+                    stuck_parameter = (self.stuck_check - 5) * 0.01
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
                 w = self.p_rotation_one * final_dtheta
                 v = 0
 
@@ -338,8 +357,12 @@ class MotionController(Node):
 
         # Convert to duty cycles
         motor_msg = DutyCycles()
-        motor_msg.duty_cycle_left = (v - 0.5 * w) * (self.cycle_damping + stuck_parameter)
-        motor_msg.duty_cycle_right = (v + 0.5 * w) * (self.cycle_damping + stuck_parameter)
+        motor_msg.duty_cycle_left = (v - 0.5 * w) * (
+            self.cycle_damping + stuck_parameter
+        )
+        motor_msg.duty_cycle_right = (v + 0.5 * w) * (
+            self.cycle_damping + stuck_parameter
+        )
         motor_msg.header.stamp = self.get_clock().now().to_msg()
 
         # Logging
@@ -403,7 +426,6 @@ def main(args=None):
     try:
         motion_controller = MotionController()
         motion_controller.get_logger().info("MotionController node has started.")
-
 
         rclpy.spin(motion_controller)
     except KeyboardInterrupt:
