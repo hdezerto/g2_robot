@@ -397,9 +397,9 @@ class CollectionController(Node):
         self.get_logger().info(f"Removed object from list: {removed_object}")
 
         # Update the planning grid to mark the object's position as free space
-        self.path_planning_grid = update_path_planning_grid(
-            self.workspace_grid, self.objects, self.boxes
-        )
+        # self.path_planning_grid = update_path_planning_grid(
+        #     self.workspace_grid, self.objects, self.boxes
+        # )
         self.publish_planning_grid()  # Publish the updated grid to RViz
 
         self.compute_closest_box()  # Select the closest box to the current position of the robot
@@ -428,7 +428,10 @@ class CollectionController(Node):
         """ msg = Int32()
         msg.data = 1  # 1 for PICK
         self.arm_command_publisher.publish(msg) """
-        request = Pickup.Request()
+        self.state = State.WAIT_FOR_ARM
+        self.arm_feedback_publisher.publish(Bool(data=True))  # Reset the feedback to False
+
+        """ request = Pickup.Request()
         object_type = "Cube"  # Retrieve from topic?
         request.object_type = object_type
         request.color = "Red" # Example color, mainly for testing/debugging
@@ -459,7 +462,7 @@ class CollectionController(Node):
             success_msg.data = future.result().success
             self.arm_feedback_publisher.publish(success_msg)
         else:
-            self.get_logger().error('Service call failed')
+            self.get_logger().error('Service call failed') """
 
 
         #self.get_logger().info("Sent arm command to PICK object. PICK -> WAIT_FOR_ARM")
@@ -819,9 +822,9 @@ class CollectionController(Node):
         collection_occupancy_grid = self.path_planning_grid
         # self.get_logger().info("got box pos")
         # Init
-        box_x, box_y = box_position[:,2]
+        box_x, box_y = box_position[:2]
         possible_positions = []
-        # self.get_logger().info(f"Make circle...")
+        self.get_logger().info(f"Make circle...")
         # positions are in a circle around the object every 30 degrees
         for i in range(0, 360, 30):
             x = box_x + drop_distance * np.cos(np.radians(i))
@@ -833,7 +836,7 @@ class CollectionController(Node):
         )
         feasible_positions = []
         feasible_grid_positions = []
-        # self.get_logger().info(f"Conversion to grid done")
+        self.get_logger().info(f"Conversion to grid done")
         # remove occupied positions or position without a clear view to the object
         for i, grid_position in enumerate(possible_grid_positions):
             # Check if the position is within bounds
