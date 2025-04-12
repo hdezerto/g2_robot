@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from geometry_msgs.msg import PolygonStamped
 from .mission_control_utils import (publish_workspace, compute_path, publish_detections_to_rviz, get_current_pose,
-                                    check_collision)
+                                    check_collision, check_valid_observation_position)
 from .occupancy_grid_map import (initialize_occupancy_grid, inflate_occupied_cells, update_path_planning_grid,
                                 grid_to_real_coordinates, real_to_grid_coordinates)
 from nav_msgs.msg import OccupancyGrid
@@ -50,7 +50,8 @@ SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 5.0  # Timeout for waiting for object detection [s]
 # NOTE: OBSERVATION_DISTANCE >= PICK_DISTANCE 
 OBSERVATION_DISTANCE = 0.30 # Distance to the object for observation [m]
-PICK_DISTANCE = 0.17 # Distance to the object for pick [m]
+PICK_DISTANCE_X = 0.17 # Distance to the object for pick [m]
+PICK_DISTANCE_Y = 0.02 # Distance to the object for pick [m]
 #PLACE_DISTANCE = ??  # Distance to the box for drop [m]
 # ------------------------------------
 
@@ -288,7 +289,11 @@ class CollectionController(Node):
         """
         self.update_current_pose()  # Update the robot's current pose
 
-        pick_path, pick_pose = self.create_pick_path(PICK_DISTANCE)
+        pick_path = self.get_pickup_path(PICK_DISTANCE_X, PICK_DISTANCE)
+        pick_pose = (pick_path.poses[-1].pose.position.x,
+                     pick_path.poses[-1].pose.position.y,
+                     pick_path.poses[-1].pose.orientation.z,
+                     pick_path.poses[-1].pose.orientation.w)
       
         # Publish the path
         self.path_publisher.publish(pick_path)
@@ -395,9 +400,58 @@ class CollectionController(Node):
         # Add start and target poses to the path
         path_msg.poses.append(self.create_pose_stamped(current_x, current_y, current_theta))
         path_msg.poses.append(self.create_pose_stamped(target_x, target_y, target_theta))
-    
+
         return path_msg, (target_x, target_y, target_theta)
     
+    def get_pickup_path(self, pickup_tf_x, pickup_tf_y) -> Path:
+        """
+        Calculate the path for the robot to pick up an object.
+
+        Direct path with only the only pose as the goal point.
+        Moves the base_link such that the pickup_place is at the object position.
+        Args:
+            pickup_tf_x (float): The x translation to go from base_link to pickup_place as an absolute value
+            pickup_tf_y (float): The y translation to go from base_link to pickup_place as an absolute value
+        Returns:
+            Path: A Path message containing the pose where the robot should move to pick up the object.
+            
+        """
+        object_position = self.detected_position
+        current_position = self.current_pose
+        
+        # Calculate the orientation of the robot towards the object
+        dx = object_position[0] - current_position[0]
+        dy = object_position[1] - current_position[1]
+        theta = np.arctan2(dy, dx)
+        q = quaternion_from_euler(0, 0, theta)
+
+        # Calculate the position of the pickup place
+        pickup_place_x = (
+            object_position[0] - pickup_tf_x * np.cos(theta) - pickup_tf_y * np.sin(theta)
+        )
+        pickup_place_y = (
+            object_position[1] - pickup_tf_x * np.sin(theta) + pickup_tf_y * np.cos(theta)
+        )
+
+        # Create the pose, where the base_link should be at
+        time = self.get_clock().now().to_msg()
+        pickup_pose = PoseStamped()
+        pickup_pose.header.stamp = time
+        pickup_pose.header.frame_id = "map"
+        pickup_pose.pose.position.x = pickup_place_x
+        pickup_pose.pose.position.y = pickup_place_y
+        pickup_pose.pose.orientation.x = q[0]
+        pickup_pose.pose.orientation.y = q[1]
+        pickup_pose.pose.orientation.z = q[2]
+        pickup_pose.pose.orientation.w = q[3]
+
+        # Create the path message
+        path = Path()
+        path.header.stamp = time
+        path.header.frame_id = "map"
+        path.poses.append(pickup_pose)
+
+        return path
 
     def create_pose_stamped(self, x, y, theta):
         pose = PoseStamped()
@@ -496,6 +550,93 @@ class CollectionController(Node):
                     self.objects.append((x, y, int(category)))
         
         self.get_logger().info(f"Map file '{file_name}' has been read successfully.")
+
+
+    def compute_observation_pose(self, observing_distance,
+    ) -> tuple[float, float, float] | None:
+        """
+        Plan the path to the position for the reobservation of the object.
+
+        1. Compute 12 points around the object with the observation distance. These are the possible positions.
+        2. Check if these positions are occupied or don't have a clear view to the object. If so, remove them.
+        3. If no possible positions are left, return False.
+        4. Compute the path to all possible positions using A* and keep the one with the lowest cost.
+        5. Simplify the path and make sure that the orientation of the last waypoint is facing towards the object.
+        
+        Args:
+            observing_distance (float): Distance to the object for observation [m].
+
+        Returns:
+            tuple[float, float, float] | None: The position (x, y, theta) of the observation point or None if no valid position is found.
+        """
+        object_position = self.next_object["position"]
+        current_grid_position = self.current_grid_position
+        collection_occupancy_grid = self.path_planning_grid
+
+        # Parameters
+        n = 10 # Number of points on the line between the object and the possible position
+
+        # Init
+        object_x, object_y = object_position
+        object_grid_position = real_to_grid_coordinates(
+            [object_position], collection_occupancy_grid
+        )[0]
+        possible_positions = []
+
+        # positions are in a circle around the object every 30 degrees
+        for i in range(0, 360, 30):
+            x = object_x + observing_distance * np.cos(np.radians(i))
+            y = object_y + observing_distance * np.sin(np.radians(i))
+            possible_positions.append((x, y))
+        possible_grid_positions = real_to_grid_coordinates(
+            possible_positions, collection_occupancy_grid
+        )
+        feasible_positions = []
+        feasible_grid_positions = []
+
+        # remove occupied positions or position without a clear view to the object
+        for i, grid_position in enumerate(possible_grid_positions):
+            if not check_valid_observation_position(collection_occupancy_grid, object_position, possible_positions[i], grid_position):
+                feasible_positions.append(possible_positions[i])
+                feasible_grid_positions.append(grid_position)
+                
+        # If no possible positions are left, return False
+        if not possible_positions:
+            self.get_logger().info("No valid observation positions found.")
+            return None
+        
+        # Calculate the path to all possible positions and keep the one with the lowest cost
+        # minimum_cost = float("inf")
+        # path = []
+        # final_position = []
+        # for i, goal_grid_position in enumerate(possible_grid_positions):
+        #     path_points, cost = compute_grid_path(
+        #         current_grid_position,
+        #         goal_grid_position,
+        #         collection_occupancy_grid,
+        #         return_cost=True,
+        #     )
+        #     if cost < minimum_cost:
+        #         minimum_cost = cost
+        #         path = path_points
+        #         final_position = possible_positions[i]
+
+        # Take closest position to current position
+        closest_distance = float("inf")
+        final_position = []
+        for i, goal_position in enumerate(possible_positions):
+            distance = np.sqrt((goal_position[0] - self.current_pose[0])**2 + (goal_position[1] - self.current_pose[1])**2)
+            if distance < closest_distance:
+                closest_distance = distance
+                final_position = possible_positions[i]
+
+        if final_position:
+            # Add final orientation
+            dx = final_position[0] - object_x
+            dy = final_position[1] - object_y
+            theta = np.arctan2(dy, dx)  # Angle to the object
+            final_position = (final_position[0], final_position[1], theta)
+            return final_position
 
 
     # ---------------- DEBUGGING FUNCTIONS (ignore it) ----------------   

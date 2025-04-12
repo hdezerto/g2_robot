@@ -263,7 +263,7 @@ def collection_path_planning(
 
     return True, path
 
-def check_valid_observation_position(self, collection_occupancy_grid, object_position, possible_position, possible_grid_position):
+def check_valid_observation_position(self, collection_occupancy_grid, object_position, possible_position, possible_grid_position, observing_distance=30, n=30):
     """
     Checks whether a given position is valid for observing an object in a grid-based environment.
     1. Check if the possible position is occupied higher than 30%. If yes, remove the possible position.
@@ -289,6 +289,9 @@ def check_valid_observation_position(self, collection_occupancy_grid, object_pos
     """
 
     object_x, object_y = object_position
+    object_grid_position = real_to_grid_coordinates(
+        [object_position], collection_occupancy_grid
+    )[0]
     # Check if the position is occupied
     if (
         collection_occupancy_grid.data[
@@ -309,69 +312,18 @@ def check_valid_observation_position(self, collection_occupancy_grid, object_pos
             x = possible_position[0] + j * np.cos(np.arctan2((object_y - possible_position[1]), (object_x - possible_position[0])))
             y = possible_position[1] + j * np.sin(np.arctan2((object_y - possible_position[1]), (object_x - possible_position[0])))
             direct_path.append((x, y))
-        direct_grid_path = real_to_grid_coordinates(direct_path, collection_occupancy_grid)
+        direct_grid_path_init = real_to_grid_coordinates(direct_path, collection_occupancy_grid)
+        direct_grid_path = []
+        for new_grid_cell in direct_grid_path_init:
+            if (not new_grid_cell in direct_grid_path) and (not new_grid_cell == object_grid_position):
+                direct_grid_path.append(new_grid_cell)
+
         for point in direct_grid_path:
             if collection_occupancy_grid.data[
                 point[1] * collection_occupancy_grid.info.width + point[0]
             ] > 30:
                 return False
         return True  
-
-def get_pickup_path(
-    object_position: tuple[float, float], current_position: tuple[float, float], clock
-) -> Path:
-    """
-    Calculate the path for the robot to pick up an object.
-
-    Direct path with only the only pose as the goal point.
-    Moves the base_link such that the pickup_place is at the object position.
-    Args:
-        object_position (tuple[float, float]): The (x, y) position of the object to be picked up.
-        current_position (tuple[float, float]): The (x, y) current position of the robot.
-        clock: A clock instance to get the current time.
-    Returns:
-        Path: A Path message containing the pose where the robot should move to pick up the object.
-    Parameters:
-        pickup_tf_x (float): The x translation to go from base_link to pickup_place as an absolute value
-        pickup_tf_y (float): The y translation to go from base_link to pickup_place as an absolute value
-    """
-
-    # Parameters
-    pickup_tf_x = 0.0  # x translation to go from base_link to pickup_place
-    pickup_tf_y = 0.0  # y translation to go from base_link to pickup_place
-
-    # Calculate the orientation of the robot towards the object
-    dx = object_position[0] - current_position[0]
-    dy = object_position[1] - current_position[1]
-    theta = np.arctan2(dy, dx)
-    q = quaternion_from_euler(0, 0, theta)
-
-    # Calculate the position of the pickup place
-    pickup_place_x = (
-        object_position[0] - pickup_tf_x * np.cos(theta) - pickup_tf_y * np.sin(theta)
-    )
-    pickup_place_y = (
-        object_position[1] - pickup_tf_x * np.sin(theta) + pickup_tf_y * np.cos(theta)
-    )
-
-    # Create the pose, where the base_link should be at
-    pickup_pose = PoseStamped()
-    pickup_pose.header.stamp = clock.now().to_msg()
-    pickup_pose.header.frame_id = "map"
-    pickup_pose.pose.position.x = pickup_place_x
-    pickup_pose.pose.position.y = pickup_place_y
-    pickup_pose.pose.orientation.x = q[0]
-    pickup_pose.pose.orientation.y = q[1]
-    pickup_pose.pose.orientation.z = q[2]
-    pickup_pose.pose.orientation.w = q[3]
-
-    # Create the path message
-    path = Path()
-    path.header.stamp = clock.now().to_msg()
-    path.header.frame_id = "map"
-    path.poses.append(pickup_pose)
-
-    return path
 
 
 # CHANGES MADE IN OTHER FUNCTIONS THAN COLLECTION_PATH_PLANNING:
