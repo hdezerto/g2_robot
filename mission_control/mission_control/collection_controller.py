@@ -501,7 +501,6 @@ class CollectionController(Node):
         dx = object_position[0] - current_position[0]
         dy = object_position[1] - current_position[1]
         theta = np.arctan2(dy, dx)
-        q = quaternion_from_euler(0, 0, theta)
 
         # Calculate the position of the pickup place
         pickup_place_x = (
@@ -514,6 +513,12 @@ class CollectionController(Node):
             - pickup_tf_x * np.sin(theta)
             + pickup_tf_y * np.cos(theta)
         )
+
+        # Calculate final orientation
+        dx = object_position[0] - pickup_place_x
+        dy = object_position[1] - pickup_place_y
+        theta = np.arctan2(dy, dx)
+        q = quaternion_from_euler(0, 0, theta)  # Convert yaw (theta) to quaternion
 
         # Create the pose, where the base_link should be at
         time = self.get_clock().now().to_msg()
@@ -744,9 +749,6 @@ class CollectionController(Node):
 
         # Init
         box_x, box_y = box_position
-        # box_grid_position = real_to_grid_coordinates(
-        #     [box_position], collection_occupancy_grid
-        # )[0]
         possible_positions = []
 
         # positions are in a circle around the object every 30 degrees
