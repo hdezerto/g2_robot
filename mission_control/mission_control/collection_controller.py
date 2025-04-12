@@ -272,6 +272,9 @@ class CollectionController(Node):
         self.task = State.PICK
         self.compute_closest_object()  # Select the closest object to the current position of the robot
 
+        objects_without = self.objects
+        objects_without.pop(self.next_object["index"])
+        self.path_planning_grid = update_path_planning_grid(self.workspace_grid, objects_without, self.boxes)
         # Compute the observation point
         observation_pose = self.compute_observation_pose(OBSERVATION_DISTANCE)
         # Returns the observation point with (x_real, y_real, final orientation)
@@ -405,15 +408,18 @@ class CollectionController(Node):
         # Remove the picked object from the objects list
         removed_object = self.objects.pop(self.next_object["index"])
         self.get_logger().info(f"Removed object from list: {removed_object}")
-
+        
         # Update the planning grid to mark the object's position as free space
-        # self.path_planning_grid = update_path_planning_grid(
-        #     self.workspace_grid, self.objects, self.boxes
-        # )
+        self.path_planning_grid = update_path_planning_grid(
+            self.workspace_grid, self.objects, self.boxes
+        )
         self.publish_planning_grid()  # Publish the updated grid to RViz
 
         self.compute_closest_box()  # Select the closest box to the current position of the robot
 
+        boxes_without = self.boxes
+        boxes_without.remove(self.closest_box)  # Remove the closest box from the list
+        self.path_planning_grid = update_path_planning_grid(self.workspace_grid, self.objects, boxes_without)
         # Compute the drop pose
         drop_pose = self.compute_drop_pose()
         # Computes the closest pose to the robot around the box that is not inflated nor occupied
@@ -438,10 +444,10 @@ class CollectionController(Node):
         """ msg = Int32()
         msg.data = 1  # 1 for PICK
         self.arm_command_publisher.publish(msg) """
-        self.state = State.WAIT_FOR_ARM
-        self.arm_feedback_publisher.publish(Bool(data=True))  # Reset the feedback to False
+        """ self.state = State.WAIT_FOR_ARM
+        self.arm_feedback_publisher.publish(Bool(data=True))  # Reset the feedback to False """
 
-        """ request = Pickup.Request()
+        request = Pickup.Request()
         object_type = "Cube"  # Retrieve from topic?
         request.object_type = object_type
         request.color = "Red" # Example color, mainly for testing/debugging
@@ -472,18 +478,53 @@ class CollectionController(Node):
             success_msg.data = future.result().success
             self.arm_feedback_publisher.publish(success_msg)
         else:
-            self.get_logger().error('Service call failed') """
+            self.get_logger().error('Service call failed')
 
 
         #self.get_logger().info("Sent arm command to PICK object. PICK -> WAIT_FOR_ARM")
         
 
     def drop(self):
-        msg = Int32()
+        """ msg = Int32()
         msg.data = 2  # 2 for DROP
         self.arm_command_publisher.publish(msg)
         self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
-        self.state = State.WAIT_FOR_ARM
+        self.state = State.WAIT_FOR_ARM """
+
+        servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
+                                    [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+                                    [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+                                    [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
+            
+        msg = Int16MultiArray()
+        msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        valid_angles = [True, True, True, True]
+        if all(valid_angles):        
+            for angles in servos_angles_times1:
+                msg.data = angles
+                print(msg.data)
+                self.servos_publisher.publish(msg)
+                #self.get_logger().info(f'Published message: {msg.data}')
+                time.sleep(3)
+
+        """ request = Trigger.Request()
+        # Call the service asynchronously and get a future  
+        future = self.dropClient.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+
+        # Handle the response
+        if future.result() is not None:
+            self.get_logger().info(f'Success: {future.result().message}')
+            #success_msg = Bool()
+            #success_msg.data = future.result().success
+            #self.arm_feedback_publisher.publish(success_msg)
+        else:
+            self.get_logger().error('Service call failed') """
+
+        self.state = State.GET_NEXT_OBJECT
+
+
+
 
     def arm_feedback_callback(self, msg):
         if msg.data:  # True indicates success
@@ -815,16 +856,15 @@ class CollectionController(Node):
         closest_distance = float("inf")
         final_position = []
         found_way = False
-        while possible_positions and (not found_way):
-            for i, goal_position in enumerate(possible_positions):
-                distance = np.sqrt(
-                    (goal_position[0] - self.current_pose[0]) ** 2
-                    + (goal_position[1] - self.current_pose[1]) ** 2
-                )
-                if distance < closest_distance:
-                    closest_distance = distance
-                    final_position = possible_positions[i]
-            if final_position:
+        # while possible_positions and (not found_way):
+        for i, goal_position in enumerate(possible_positions):
+            distance = np.sqrt(
+                (goal_position[0] - self.current_pose[0]) ** 2
+                + (goal_position[1] - self.current_pose[1]) ** 2
+            )
+            if distance < closest_distance:
+                closest_distance = distance
+                final_position = possible_positions[i]
                 
 
         if final_position:
@@ -835,7 +875,7 @@ class CollectionController(Node):
             final_position = (final_position[0], final_position[1], theta)
             return final_position
 
-    def compute_drop_pose(self, drop_distance=0.25):
+    def compute_drop_pose(self, drop_distance=0.22):
         # self.get_logger().info("Computing drop pose...")
         box_position = self.closest_box
         current_grid_position = self.current_grid_position
@@ -846,7 +886,7 @@ class CollectionController(Node):
         possible_positions = []
         self.get_logger().info(f"Make circle...")
         # positions are in a circle around the object every 30 degrees
-        for i in range(0, 360, 30):
+        for i in range(0, 360, 90):
             x = box_x + drop_distance * np.cos(np.radians(i))
             y = box_y + drop_distance * np.sin(np.radians(i))
             possible_positions.append((x, y))
@@ -869,7 +909,7 @@ class CollectionController(Node):
 
             if not (
                 (x < 0 or x >= width or y < 0 or y >= height)
-                or (collection_occupancy_grid.data[y * width + x] > 30)
+                or (collection_occupancy_grid.data[y * width + x] > 40)
             ):
                 feasible_positions.append(possible_positions[i])
                 feasible_grid_positions.append(grid_position)
@@ -878,6 +918,17 @@ class CollectionController(Node):
         if not feasible_positions:
             self.get_logger().info("No valid DropOff positions found.")
             return None
+        
+        # Visualisation
+        non_feasible_positions = []
+        for possible_position in possible_positions:
+            if possible_position not in feasible_positions:
+                non_feasible_positions.append(possible_position)
+        # If no possible positions are left, return False
+        if not feasible_positions:
+            self.get_logger().warn("No valid observation positions found.")
+            return None
+        self.visualize_observation_positions(feasible_positions, non_feasible_positions)
 
         drop_off_position = min(
             feasible_positions,
@@ -886,8 +937,8 @@ class CollectionController(Node):
             ),
         )
         # Add final orientation
-        dx = drop_off_position[0] - box_x
-        dy = drop_off_position[1] - box_y
+        dx = -drop_off_position[0] + box_x
+        dy = -drop_off_position[1] + box_y
         theta = np.arctan2(dy, dx)  # Angle to the object
 
         return (drop_off_position[0], drop_off_position[1], theta)
@@ -945,8 +996,8 @@ class CollectionController(Node):
             invalid_markers.points.append(p)
 
         # Publish both markers
-        self.publisher.publish(markers)
-        self.publisher.publish(invalid_markers)
+        self.observation_pos_marker_publisher.publish(markers)
+        self.observation_pos_marker_publisher.publish(invalid_markers)
 
     # ---------------- DEBUGGING FUNCTIONS (ignore it) ----------------
 
