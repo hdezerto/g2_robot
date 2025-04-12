@@ -41,6 +41,13 @@ import time
 
 from ament_index_python.packages import get_package_share_directory
 
+from std_msgs.msg import Int16MultiArray, MultiArrayLayout, MultiArrayDimension
+from my_custom_interfaces.srv import Pickup
+from std_srvs.srv import Trigger
+import time
+
+
+
 
 """
 NOTES (HUGO):
@@ -62,7 +69,7 @@ SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 5.0  # Timeout for waiting for object detection [s]
 # NOTE: OBSERVATION_DISTANCE >= PICK_DISTANCE
 OBSERVATION_DISTANCE = 0.60  # Distance to the object for observation [m]
-PICK_DISTANCE_X = 0.17  # Distance to the object for pick [m]
+PICK_DISTANCE_X = 0.12  # Distance to the object for pick [m]
 PICK_DISTANCE_Y = 0.02  # Distance to the object for pick [m]
 # PLACE_DISTANCE = ??  # Distance to the box for drop [m]
 # ------------------------------------
@@ -171,9 +178,16 @@ class CollectionController(Node):
         self.stop_publisher = self.create_publisher(Bool, "/stop_motion", 10)
         # Interface with arm:
         self.arm_command_publisher = self.create_publisher(Int32, "/arm_controller", 10)
+        self.arm_feedback_publisher = self.create_publisher(
+            Bool, "/arm_controller_feedback", 10
+        )
         self.arm_feedback_subscriber = self.create_subscription(
             Bool, "/arm_controller_feedback", self.arm_feedback_callback, 10
         )
+
+        self.pickupClient = self.create_client(Pickup, 'pickup')
+        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
+        self.dropClient = self.create_client(Trigger, 'drop')
         # TODO: change arm interface if needed
 
         # Initialize TransformListener to get current position of the robot
@@ -210,7 +224,7 @@ class CollectionController(Node):
         self.closest_box = None  # (x, y, theta) in real world coordinates
         self.destination_pose = None  # (x, y, theta) in real world coordinates. Only for observation and drop poses
         self.detected_position = None  # (x, y) in real world coordinates. To store the observed position of the object
-
+        
         self.get_logger().info("Waiting 3 sec...")
         time.sleep(3)  # Wait for all nodes to be ready and the TF buffer to populate
 
@@ -411,11 +425,45 @@ class CollectionController(Node):
             )  # DEBUG since it should in principle find a drop pose
 
     def pick(self):
-        msg = Int32()
+        """ msg = Int32()
         msg.data = 1  # 1 for PICK
-        self.arm_command_publisher.publish(msg)
-        self.get_logger().info("Sent arm command to PICK object. PICK -> WAIT_FOR_ARM")
+        self.arm_command_publisher.publish(msg) """
+        request = Pickup.Request()
+        object_type = "Cube"  # Retrieve from topic?
+        request.object_type = object_type
+        request.color = "Red" # Example color, mainly for testing/debugging
+        angles = [12000,10000,18500,2500]
+        servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
+                            [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
+
+        msg1 = Int16MultiArray()
+        msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+
+        for angles in servos_angles_times1:
+            self.get_logger().info(f'Angles: {angles}')
+            msg1.data = angles
+            self.servos_publisher.publish(msg1)
+            self.get_logger().info(f'Published message: {msg1.data}')
+            time.sleep(3)
+
+        # Call the service asynchronously and get a future
+        future = self.pickupClient.call_async(request)
         self.state = State.WAIT_FOR_ARM
+        # Wait for the response from the service
+        rclpy.spin_until_future_complete(self, future)
+
+        # Handle the response
+        if future.result() is not None:
+            self.get_logger().info(f'Success: {future.result().message}')
+            success_msg = Bool()
+            success_msg.data = future.result().success
+            self.arm_feedback_publisher.publish(success_msg)
+        else:
+            self.get_logger().error('Service call failed')
+
+
+        #self.get_logger().info("Sent arm command to PICK object. PICK -> WAIT_FOR_ARM")
+        
 
     def drop(self):
         msg = Int32()
@@ -441,6 +489,7 @@ class CollectionController(Node):
             self.state = State.END_COLLECTION  # DEBUG. Improve how to handle failure
 
     def reached_destination_callback(self, msg):
+        self.get_logger().info(f"msg.data")
         if msg.data:  # msg.data is True if the destination was reached
             if self.state == State.MOVING and self.task == State.PICK:
                 self.get_logger().info(
@@ -764,32 +813,34 @@ class CollectionController(Node):
             return final_position
 
     def compute_drop_pose(self, drop_distance=0.25):
+        # self.get_logger().info("Computing drop pose...")
         box_position = self.closest_box
         current_grid_position = self.current_grid_position
         collection_occupancy_grid = self.path_planning_grid
-
+        # self.get_logger().info("got box pos")
         # Init
-        box_x, box_y = box_position
+        box_x, box_y = box_position[:,2]
         possible_positions = []
-
+        # self.get_logger().info(f"Make circle...")
         # positions are in a circle around the object every 30 degrees
         for i in range(0, 360, 30):
             x = box_x + drop_distance * np.cos(np.radians(i))
             y = box_y + drop_distance * np.sin(np.radians(i))
             possible_positions.append((x, y))
+        # self.get_logger().info(f"Possible drop positions: {possible_positions}")
         possible_grid_positions = real_to_grid_coordinates(
             possible_positions, collection_occupancy_grid
         )
         feasible_positions = []
         feasible_grid_positions = []
-
+        # self.get_logger().info(f"Conversion to grid done")
         # remove occupied positions or position without a clear view to the object
         for i, grid_position in enumerate(possible_grid_positions):
             # Check if the position is within bounds
             width = collection_occupancy_grid.info.width
             height = collection_occupancy_grid.info.height
             x, y = grid_position
-            # logger.info(
+            # self.get_logger().info(
             #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
             # )
 
@@ -799,7 +850,7 @@ class CollectionController(Node):
             ):
                 feasible_positions.append(possible_positions[i])
                 feasible_grid_positions.append(grid_position)
-
+        # self.get_logger().info(f"Feasible positions: {feasible_positions}")
         # If no possible positions are left, return False
         if not feasible_positions:
             self.get_logger().info("No valid DropOff positions found.")

@@ -9,6 +9,8 @@ ros2 topic pub /arm_controller std_msgs/msg/String "{data: 'PICK'}" --once
 # NEW TESTING::
 ros2 service call /pickup my_custom_interfaces/srv/Pickup "{object_type: 'Cube', color: 'Green'}"
 
+ros2 service call /drop std_srvs/srv/Trigger
+
 
 #OLD TESTING:
 ros2 topic pub --once /object_position geometry_msgs/PointStamped "{

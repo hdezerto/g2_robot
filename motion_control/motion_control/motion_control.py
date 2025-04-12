@@ -168,12 +168,11 @@ class MotionController(Node):
                 self.reached_waypoint = False
                 self.reached_waypoint_publisher.publish(Bool(data=True))
         elif self.current_waypoint_index == len(self.current_path.poses):
-            if not self.obstacle_detected and not self.stop_robot:
+            if not self.stop_robot:
                 self.notify_reached_destination(True)
                 self.get_logger().info("Path execution finished")
+                self.stop_robot = True
 
-            else:
-                self.notify_reached_destination(False)
 
     def move_to_waypoint(self, waypoint):
         """
