@@ -133,14 +133,17 @@ class MotionController(Node):
         self.cycle_damping = 0.1
 
     def path_callback(self, msg: Path):
-        self.get_logger().info("Received new path")
-
+        if not msg.poses:
+            self.get_logger().warn("Received empty path")
+            return
         self.current_path = msg
         self.current_path.poses.pop(0)
         self.current_waypoint_index = 0
         self.obstacle_detected = False
         self.stop_robot = False
         self.reached_waypoint = False
+
+        self.get_logger().info(f"Received new path: {msg.poses}")
         self.follow_path()
 
     def stop_callback(self, msg):
@@ -150,7 +153,7 @@ class MotionController(Node):
             self.stop()
 
     def follow_path(self):
-        if self.current_path is None:
+        if (self.current_path is None) or (self.reached_waypoint):
             return
 
         if (
@@ -167,9 +170,10 @@ class MotionController(Node):
         elif self.current_waypoint_index == len(self.current_path.poses):
             if not self.obstacle_detected and not self.stop_robot:
                 self.notify_reached_destination(True)
+                self.get_logger().info("Path execution finished")
+
             else:
                 self.notify_reached_destination(False)
-            self.get_logger().info("Path execution finished")
 
     def move_to_waypoint(self, waypoint):
         """

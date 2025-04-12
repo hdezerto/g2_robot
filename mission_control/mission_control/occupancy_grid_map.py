@@ -174,7 +174,7 @@ def update_path_planning_grid(lidar_occupancy_grid, obstacles_list, boxes_list):
     for grid_x, grid_y in object_grid_points:
         if 0 <= grid_x < width and 0 <= grid_y < height:
             index = grid_y * width + grid_x
-            data[index] = 100  # Mark as occupied
+            data[index] = 99  # Mark as occupied
 
     # Mark detected boxes and their neighboring cells as occupied
     for grid_x, grid_y in box_grid_points:

@@ -41,14 +41,14 @@ def compute_path(start, goal, exploration_occupancy_grid, clock, logger=None):
     # logger.info(
     #     f"Start cell: {start_cell}, Start real: {start_real}, Goal cell: {goal_cell}, Goal real: {goal_real}")
     path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid)
-    logger.info(f"Path points: {path_points}")
+    # logger.info(f"Path points: {path_points}")
     if not path_points:
         return None, None
-    logger.info(f"Create Path Message")
+    # logger.info(f"Create Path Message")
     path = create_path_message(
         path_points, start_real, goal_real, clock, exploration_occupancy_grid, logger=logger
     )
-    logger.info(f"Path message: {path}")
+    # logger.info(f"Path message: {path}")
     return path_points, path
 
 
@@ -347,14 +347,14 @@ def check_valid_observation_position(
     # )
 
     if x < 0 or x >= width or y < 0 or y >= height:
-        logger.info(f"Possible Position {possible_grid_position} is out of bounds.")
+        # logger.info(f"Possible Position {possible_grid_position} is out of bounds.")
         return False  # Out of bounds
 
     # Check if the position is occupied
     if collection_occupancy_grid.data[y * width + x] != 0:
-        logger.info(
-            f"Possible Position {possible_grid_position} is occupied. Occupancy: {collection_occupancy_grid.data[y * width + x]}"
-        )
+        # logger.info(
+            # f"Possible Position {possible_grid_position} is occupied. Occupancy: {collection_occupancy_grid.data[y * width + x]}"
+        # )
         return False
 
     # Check whether the view is clear
@@ -391,14 +391,14 @@ def check_valid_observation_position(
         for point in direct_grid_path:
             px, py = point
             if px < 0 or px >= width or py < 0 or py >= height:
-                logger.info(f"Point {point} is out of bounds.")
+                # logger.info(f"Point {point} is out of bounds.")
                 return False  # Out of bounds
             if (
-                collection_occupancy_grid.data[py * width + px] > 99
+                collection_occupancy_grid.data[py * width + px] > 30
             ):  # Check for obstacles
-                logger.info(
-                    f"Obstacle detected at {point} between {possible_position} and {object_grid_position}. Occupancy: {collection_occupancy_grid.data[py * width + px]}"
-                )
+                # logger.info(
+                    # f"Obstacle detected at {point} between {possible_position} and {object_grid_position}. Occupancy: {collection_occupancy_grid.data[py * width + px]}"
+                # )
                 return False
 
         return True
@@ -496,34 +496,34 @@ def compute_grid_path(start, goal, grid):
 
 
 def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid, logger=None):
-    logger.info(
-        f"Creating path message with grid_path_points"
-    )
+    # logger.info(
+    #     f"Creating path message with grid_path_points"
+    # )
     grid_path_points = simplify_grid_path(
         grid_path_points
     )  # Simplify the path by removing redundant points
-    logger.info(f"Grid path points calculated")
+    # logger.info(f"Grid path points calculated")
     grid_path_points = grid_path_points[
         1:-1
     ]  # Remove the start and goal points from the path (the exact ones will be added later)
-    logger.info(f"Grid path points simplified")
+    # logger.info(f"Grid path points simplified")
 
     # Convert path grid coordinates to real-world coordinates
     real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
-    logger.info(f"Grid path points converted to real-world coordinates")
+    # logger.info(f"Grid path points converted to real-world coordinates")
     # Add start_real and goal_real as the first and last points
     real_path_points.insert(0, start_real[:2])
     real_path_points.append(goal_real[:2])
-    logger.info(f"Start and goal points added to the path")
+    # logger.info(f"Start and goal points added to the path")
     # Smooth the path using cubic interpolation
     # path_points = bezier_smooth_path(path_points)
-    logger.info(f"Path smoothed")
+    # logger.info(f"Path smoothed")
     path = Path()
     path.header.stamp = clock.now().to_msg()
     path.header.frame_id = "map"
-    logger.info(f"{real_path_points}")
+    # logger.info(f"{real_path_points}")
     for x, y in real_path_points:
-        logger.info(f"Adding start and goal points to the path")
+        # logger.info(f"Adding start and goal points to the path")
         pose = PoseStamped()
         pose.header.stamp = clock.now().to_msg()
         pose.header.frame_id = "map"
@@ -531,7 +531,7 @@ def create_path_message(grid_path_points, start_real, goal_real, clock, occupanc
         pose.pose.position.y = y
         pose.pose.orientation.w = 1.0  # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation
         path.poses.append(pose)
-    logger.info(f"Path points added to the path message")
+    # logger.info(f"Path points added to the path message")
     if (
         goal_real[2] is None
     ):  # If no yaw is provided for the goal, set it to match the direction of the path

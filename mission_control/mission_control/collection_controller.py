@@ -61,7 +61,7 @@ MAP_FILE_NAME = "map_1.tsv"  # Name of the map file to read
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 5.0  # Timeout for waiting for object detection [s]
 # NOTE: OBSERVATION_DISTANCE >= PICK_DISTANCE
-OBSERVATION_DISTANCE = 0.30  # Distance to the object for observation [m]
+OBSERVATION_DISTANCE = 0.60  # Distance to the object for observation [m]
 PICK_DISTANCE_X = 0.17  # Distance to the object for pick [m]
 PICK_DISTANCE_Y = 0.02  # Distance to the object for pick [m]
 # PLACE_DISTANCE = ??  # Distance to the box for drop [m]
@@ -337,14 +337,16 @@ class CollectionController(Node):
             rclpy.spin_once(self)  # Process callbacks
             elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
             if elapsed_time > timeout:
+                self.detected_position = (0.85, -0.2094)
                 self.get_logger().info(
                     "Timeout reached while waiting for object detection. OBSERVE_OBJECT -> END_COLLECTION"
                 )
-                self.state = (
-                    State.END_COLLECTION
-                )  # Transition to END_COLLECTION if no detection is received
-                self.detections_subscriber.destroy()  # Stop listening to detections
-                break
+                self.state = State.MOVE_TO_PICK
+                # self.state = (
+                #     State.END_COLLECTION
+                # )  # Transition to END_COLLECTION if no detection is received
+                # self.detections_subscriber.destroy()  # Stop listening to detections
+                # break
 
     def move_to_pick(self):
         """
@@ -363,11 +365,15 @@ class CollectionController(Node):
 
         # Publish the path
         self.path_publisher.publish(pick_path)
+        self.path_publisher.publish(pick_path)
+        self.path_publisher.publish(pick_path)
+        self.path_publisher.publish(pick_path)
         self.get_logger().info(
             f"Path to pick position published: Start {self.current_pose} | Goal{pick_pose}. MOVE_TO_PICK -> MOVING_BLINDLY"
         )
 
         self.state = State.MOVING_BLINDLY
+        
 
     def move_to_box(self):
         self.task = State.DROP
@@ -539,6 +545,9 @@ class CollectionController(Node):
         path = Path()
         path.header.stamp = time
         path.header.frame_id = "map"
+        path.poses.append(
+            self.create_pose_stamped(current_position[0], current_position[1], theta)
+        )
         path.poses.append(pickup_pose)
 
         return path
@@ -691,7 +700,7 @@ class CollectionController(Node):
         possible_positions = []
 
         # positions are in a circle around the object every 30 degrees
-        for i in range(0, 360, 30):
+        for i in range(0, 360, 90):
             x = object_x + observing_distance * np.cos(np.radians(i))
             y = object_y + observing_distance * np.sin(np.radians(i))
             possible_positions.append((x, y))
@@ -748,8 +757,8 @@ class CollectionController(Node):
 
         if final_position:
             # Add final orientation
-            dx = final_position[0] - object_x
-            dy = final_position[1] - object_y
+            dx = - final_position[0] + object_x
+            dy = - final_position[1] + object_y
             theta = np.arctan2(dy, dx)  # Angle to the object
             final_position = (final_position[0], final_position[1], theta)
             return final_position

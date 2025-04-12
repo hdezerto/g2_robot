@@ -87,7 +87,8 @@ class ExplorationController(Node):
         self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
         self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5) # CHECK if 5 is not too much here
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
-        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 1)
+        #TODO change back to process maps
+        # self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 1)
         self.planning_grid_publisher = self.create_publisher(OccupancyGrid, '/planning_grid', latched_qos)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
         self.reached_destination_subscriber = self.create_subscription(Bool, '/reached_destination', self.reached_destination_callback, 10)
@@ -120,7 +121,7 @@ class ExplorationController(Node):
 
         # Initilizate variables for exploration
         self.current_pose = (0, 0, 0)  # Initial position (x, y, yaw) in real world coordinates
-        self.current_grid_position = real_to_grid_coordinates([self.current_pose], self.exploration_occupancy_grid)[0]
+        self.current_grid_position = real_to_grid_coordinates([self.current_pose[:2]], self.exploration_occupancy_grid)[0]
         self.exploration_point_index = 0
         self.exploration_point = None
         self.detections = []  # Unified list for all detections
