@@ -380,7 +380,6 @@ class CollectionController(Node):
 
         self.compute_closest_box()  # Select the closest box to the current position of the robot
 
-        # ---------------------- TODO -------------------
         # Compute the drop pose
         drop_pose = self.compute_drop_pose()
         # Computes the closest pose to the robot around the box that is not inflated nor occupied
