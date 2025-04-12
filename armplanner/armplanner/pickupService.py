@@ -90,7 +90,7 @@ class PickupService(Node):
             self.get_logger().info(f'Published message: {msg1.data}')
             time.sleep(3) """
 
-        position = self.arm_detection3(request.object_type, request.color)
+        position = self.arm_detection3(request.object_type)
         #print(position)
         if position == None:
             self.get_logger().error("Object detection failed!")
