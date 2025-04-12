@@ -40,6 +40,8 @@ import numpy as np
 import time
 
 from ament_index_python.packages import get_package_share_directory
+from visualization_msgs.msg import Marker
+from geometry_msgs.msg import Point
 
 
 """
@@ -155,6 +157,9 @@ class CollectionController(Node):
         self.tf_broadcaster = TransformBroadcaster(self)  # For publishing objects/boxes
         self.planning_grid_publisher = self.create_publisher(
             OccupancyGrid, "/planning_grid", latched_qos
+        )
+        self.observation_pos_marker_publisher = self.create_publisher(
+            Marker, "/observation_pos", 10
         )
         # Interface with mapper:
         self.mapper_occupancy_grid_subscriber = self.create_subscription(
@@ -275,17 +280,23 @@ class CollectionController(Node):
         self.update_current_pose()  # Update the current pose of the robot
         start = (self.current_grid_position, self.current_pose)
         # self.get_logger().info(f'Start: {start}')  # DEBUG
-        goal_grid = real_to_grid_coordinates([self.destination_pose[:2]], self.path_planning_grid)[0]
+        goal_grid = real_to_grid_coordinates(
+            [self.destination_pose[:2]], self.path_planning_grid
+        )[0]
         # self.get_logger().info(f'Goal grid: {goal_grid}')  # DEBUG
         goal = (
             goal_grid,
             self.destination_pose,
         )
-        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+        self.get_logger().info(f"Start: {start} | Goal: {goal}")  # DEBUG
         self.grid_path, path = compute_path(
-            start, goal, self.path_planning_grid, self.get_clock(), logger=self.get_logger()
+            start,
+            goal,
+            self.path_planning_grid,
+            self.get_clock(),
+            logger=self.get_logger(),
         )
-        self.get_logger().info(f'Path computed?')  # DEBUG
+        self.get_logger().info(f"Path computed?")  # DEBUG
         if path:  # Path found
             self.path_publisher.publish(
                 path
@@ -373,7 +384,6 @@ class CollectionController(Node):
         )
 
         self.state = State.MOVING_BLINDLY
-        
 
     def move_to_box(self):
         self.task = State.DROP
@@ -643,7 +653,7 @@ class CollectionController(Node):
         """
         Reads the map file and populates the objects and boxes lists.
         """
-        package_share_dir = get_package_share_directory('mission_control')
+        package_share_dir = get_package_share_directory("mission_control")
         file_path = os.path.join(
             get_package_share_directory("mission_control"), "workspaces", "map_1.tsv"
         )
@@ -722,10 +732,16 @@ class CollectionController(Node):
                 feasible_positions.append(possible_positions[i])
                 feasible_grid_positions.append(grid_position)
 
+        # Visualisation
+        non_feasible_positions = []
+        for possible_position in possible_positions:
+            if possible_position not in feasible_positions:
+                non_feasible_positions.append(possible_position)
         # If no possible positions are left, return False
         if not feasible_positions:
             self.get_logger().warn("No valid observation positions found.")
             return None
+        self.visualize_observation_positions(feasible_positions, non_feasible_positions)
 
         # Calculate the path to all possible positions and keep the one with the lowest cost
         # minimum_cost = float("inf")
@@ -746,19 +762,23 @@ class CollectionController(Node):
         # Take closest position to current position
         closest_distance = float("inf")
         final_position = []
-        for i, goal_position in enumerate(possible_positions):
-            distance = np.sqrt(
-                (goal_position[0] - self.current_pose[0]) ** 2
-                + (goal_position[1] - self.current_pose[1]) ** 2
-            )
-            if distance < closest_distance:
-                closest_distance = distance
-                final_position = possible_positions[i]
+        found_way = False
+        while possible_positions and (not found_way):
+            for i, goal_position in enumerate(possible_positions):
+                distance = np.sqrt(
+                    (goal_position[0] - self.current_pose[0]) ** 2
+                    + (goal_position[1] - self.current_pose[1]) ** 2
+                )
+                if distance < closest_distance:
+                    closest_distance = distance
+                    final_position = possible_positions[i]
+            if final_position:
+                
 
         if final_position:
             # Add final orientation
-            dx = - final_position[0] + object_x
-            dy = - final_position[1] + object_y
+            dx = -final_position[0] + object_x
+            dy = -final_position[1] + object_y
             theta = np.arctan2(dy, dx)  # Angle to the object
             final_position = (final_position[0], final_position[1], theta)
             return final_position
@@ -817,6 +837,62 @@ class CollectionController(Node):
         theta = np.arctan2(dy, dx)  # Angle to the object
 
         return (drop_off_position[0], drop_off_position[1], theta)
+
+    def visualize_observation_positions(
+        self, feasible_positions, non_feasible_positions
+    ):
+        """
+        Visualize the observation positions in RViz using markers.
+        Args:
+            feasible_positions (list): List of feasible observation positions.
+            non_feasible_positions (list): List of non-feasible observation positions.
+        """
+        markers = Marker()
+        markers.header.frame_id = "map"
+        markers.header.stamp = self.get_clock().now().to_msg()
+        markers.ns = "observation_positions"
+        markers.id = 0
+        markers.type = Marker.POINTS
+        markers.action = Marker.ADD
+        markers.scale.x = 0.1
+        markers.scale.y = 0.1
+        markers.color.a = 1.0
+
+        # Example valid and invalid positions (Replace with actual data)
+        valid_positions = feasible_positions
+        invalid_positions = non_feasible_positions
+
+        # Mark valid positions with blue
+        markers.color.r = 0.0
+        markers.color.g = 0.0
+        markers.color.b = 1.0
+        for pos in valid_positions:
+            p = Point()
+            p.x, p.y, p.z = pos[0], pos[1], 0.0
+            markers.points.append(p)
+
+        # Mark invalid positions with black
+        invalid_markers = Marker()
+        invalid_markers.header = markers.header
+        invalid_markers.ns = markers.ns
+        invalid_markers.id = 1
+        invalid_markers.type = Marker.POINTS
+        invalid_markers.action = Marker.ADD
+        invalid_markers.scale.x = markers.scale.x
+        invalid_markers.scale.y = markers.scale.y
+        invalid_markers.color.a = 1.0
+        invalid_markers.color.r = 0.0
+        invalid_markers.color.g = 0.0
+        invalid_markers.color.b = 0.0
+
+        for pos in invalid_positions:
+            p = Point()
+            p.x, p.y, p.z = pos[0], pos[1], 0.0
+            invalid_markers.points.append(p)
+
+        # Publish both markers
+        self.publisher.publish(markers)
+        self.publisher.publish(invalid_markers)
 
     # ---------------- DEBUGGING FUNCTIONS (ignore it) ----------------
 
