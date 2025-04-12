@@ -112,6 +112,15 @@ def inflate_occupied_cells(occupancy_grid, expansion_radius=EXPANSION_RADIUS):
                         if 0 <= nx < width and 0 <= ny < height:
                             if data[ny * width + nx] == 0:  # Only inflate free cells
                                 data[ny * width + nx] = 30  # Mark as dilated space
+            if data[index] == 98:  # If the cell is occupied by an object
+                # Mark the neighboring cells as dilated by 30%
+                for dy in range(-expansion_radius, expansion_radius + 1):
+                    for dx in range(-expansion_radius, expansion_radius + 1):
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < width and 0 <= ny < height:
+                            if data[ny * width + nx] == 0:  # Only inflate free cells
+                                data[ny * width + nx] = 40  # Mark as dilated space
+
 
 
 def grid_to_real_coordinates(grid_points, occupancy_grid):
@@ -186,7 +195,7 @@ def update_path_planning_grid(lidar_occupancy_grid, obstacles_list, boxes_list):
                     if 0 <= neighbor_x < width and 0 <= neighbor_y < height:
                         neighbor_index = neighbor_y * width + neighbor_x
                         if data[neighbor_index] == 0:  # Only mark free cells
-                            data[neighbor_index] = 100  # Mark as occupied
+                            data[neighbor_index] = 98  # Mark as occupied
 
     path_planning_grid.data = data
     inflate_occupied_cells(path_planning_grid)
