@@ -39,6 +39,8 @@ import numpy as np
 
 import time
 
+from ament_index_python.packages import get_package_share_directory
+
 
 """
 NOTES (HUGO):
@@ -55,7 +57,7 @@ otherwise A* fails. I also assume the closest uninflated point to a box is good 
 
 
 # -------- Tunable parameters --------
-MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
+MAP_FILE_NAME = "map_1.tsv"  # Name of the map file to read
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 5.0  # Timeout for waiting for object detection [s]
 # NOTE: OBSERVATION_DISTANCE >= PICK_DISTANCE
@@ -183,11 +185,6 @@ class CollectionController(Node):
         # Publish the workspace to RViz
         publish_workspace(self.workspace_publisher, self.get_clock())
 
-        # Timer to periodically publish objects/boxes to RViz
-        self.detections_timer = self.create_timer(
-            0.5, self.publish_transforms_periodically
-        )
-
         # Clean grid with workspace boundaries. Used to initialize planning grid and to mark the grid path.
         # Only published inside mark_grid_path()
         self.workspace_grid = initialize_occupancy_grid()
@@ -199,7 +196,7 @@ class CollectionController(Node):
             0,
         )  # Initial position (x, y, yaw) in real world coordinates
         self.current_grid_position = real_to_grid_coordinates(
-            [self.current_pose], self.workspace_grid
+            [(self.current_pose[0], self.current_pose[1])], self.workspace_grid
         )[0]
         self.objects = []
         self.boxes = []
@@ -222,6 +219,11 @@ class CollectionController(Node):
         # self.state = State.TESTING # DEBUGGING
         # self.state = State.SCANNING
         self.state = State.GET_NEXT_OBJECT
+
+        # Timer to periodically publish objects/boxes to RViz
+        self.detections_timer = self.create_timer(
+            0.5, self.publish_transforms_periodically
+        )
 
     # ------------------- STATE FUNCTIONS -------------------
     # MIGHT BE REMOVED!
@@ -272,16 +274,18 @@ class CollectionController(Node):
     def plan_path(self):
         self.update_current_pose()  # Update the current pose of the robot
         start = (self.current_grid_position, self.current_pose)
+        # self.get_logger().info(f'Start: {start}')  # DEBUG
+        goal_grid = real_to_grid_coordinates([self.destination_pose[:2]], self.path_planning_grid)[0]
+        # self.get_logger().info(f'Goal grid: {goal_grid}')  # DEBUG
         goal = (
-            real_to_grid_coordinates([self.destination_pose], self.path_planning_grid)[
-                0
-            ],
+            goal_grid,
             self.destination_pose,
         )
-        # self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(
-            start, goal, self.path_planning_grid, self.get_clock()
+            start, goal, self.path_planning_grid, self.get_clock(), logger=self.get_logger()
         )
+        self.get_logger().info(f'Path computed?')  # DEBUG
         if path:  # Path found
             self.path_publisher.publish(
                 path
@@ -349,7 +353,7 @@ class CollectionController(Node):
         """
         self.update_current_pose()  # Update the robot's current pose
 
-        pick_path = self.get_pickup_path(PICK_DISTANCE_X, PICK_DISTANCE)
+        pick_path = self.get_pickup_path(PICK_DISTANCE_X, PICK_DISTANCE_Y)
         pick_pose = (
             pick_path.poses[-1].pose.position.x,
             pick_path.poses[-1].pose.position.y,
@@ -630,11 +634,19 @@ class CollectionController(Node):
         """
         Reads the map file and populates the objects and boxes lists.
         """
-        if not os.path.exists(file_name):
-            self.get_logger().error(f"Map file '{file_name}' does not exist.")
+        package_share_dir = get_package_share_directory('mission_control')
+        file_path = os.path.join(
+            get_package_share_directory("mission_control"), "workspaces", "map_1.tsv"
+        )
+        # file_path = os.path.join(package_share_dir, 'resource', file_name)
+        self.get_logger().info(f"Reading map file '{file_name}'...")
+        if not os.path.exists(file_path):
+            self.get_logger().error(f"Map file '{file_path}' does not exist.")
             return
+        # else:
+        #     self.get_logger().info(f"Map file '{file_path}' exists.")
 
-        with open(file_name, "r") as file:
+        with open(file_path, "r") as file:
             for line in file:
                 parts = line.strip().split("\t")[:4]  # Only consider the first 4 parts
                 category, x, y, angle = parts
@@ -696,6 +708,7 @@ class CollectionController(Node):
                 object_position,
                 possible_positions[i],
                 grid_position,
+                logger=self.get_logger(),
             ):
                 feasible_positions.append(possible_positions[i])
                 feasible_grid_positions.append(grid_position)

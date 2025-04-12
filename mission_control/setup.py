@@ -7,7 +7,7 @@ data_files = []
 data_files.append(('share/ament_index/resource_index/packages', ['resource/' + package_name]))
 data_files.append(('share/' + package_name, ['package.xml']))
 data_files.append((os.path.join('share', package_name, 'workspaces'), glob(os.path.join('workspaces', '*.tsv'))))
-
+data_files.append(('share/your_package/resource', ['resource/map_1.tsv']))
 
 setup(
     name=package_name,
