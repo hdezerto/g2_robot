@@ -251,12 +251,9 @@ class CollectionController(Node):
         self.task = State.PICK
         self.compute_closest_object()  # Select the closest object to the current position of the robot
 
-        # --------------------- TODO -------------------
         # Compute the observation point
         observation_pose = self.compute_observation_pose(OBSERVATION_DISTANCE)
         # Returns the observation point with (x_real, y_real, final orientation)
-        # Mattias wants a distance of 17 cm relative to the base_link
-        # ---------------------------------------------
 
         if observation_pose:
             self.destination_pose = observation_pose  # (x, y, theta) in real world coordinates, where theta is the final orientation to observe
@@ -670,9 +667,6 @@ class CollectionController(Node):
         current_grid_position = self.current_grid_position
         collection_occupancy_grid = self.path_planning_grid
 
-        # Parameters
-        n = 10  # Number of points on the line between the object and the possible position
-
         # Init
         object_x, object_y = object_position
         object_grid_position = real_to_grid_coordinates(
@@ -693,7 +687,7 @@ class CollectionController(Node):
 
         # remove occupied positions or position without a clear view to the object
         for i, grid_position in enumerate(possible_grid_positions):
-            if not check_valid_observation_position(
+            if check_valid_observation_position(
                 collection_occupancy_grid,
                 object_position,
                 possible_positions[i],
@@ -703,8 +697,8 @@ class CollectionController(Node):
                 feasible_grid_positions.append(grid_position)
 
         # If no possible positions are left, return False
-        if not possible_positions:
-            self.get_logger().info("No valid observation positions found.")
+        if not feasible_positions:
+            self.get_logger().warn("No valid observation positions found.")
             return None
 
         # Calculate the path to all possible positions and keep the one with the lowest cost
@@ -742,6 +736,64 @@ class CollectionController(Node):
             theta = np.arctan2(dy, dx)  # Angle to the object
             final_position = (final_position[0], final_position[1], theta)
             return final_position
+
+    def compute_drop_pose(self, drop_distance=0.25):
+        box_position = self.closest_box
+        current_grid_position = self.current_grid_position
+        collection_occupancy_grid = self.path_planning_grid
+
+        # Init
+        box_x, box_y = box_position
+        # box_grid_position = real_to_grid_coordinates(
+        #     [box_position], collection_occupancy_grid
+        # )[0]
+        possible_positions = []
+
+        # positions are in a circle around the object every 30 degrees
+        for i in range(0, 360, 30):
+            x = box_x + drop_distance * np.cos(np.radians(i))
+            y = box_y + drop_distance * np.sin(np.radians(i))
+            possible_positions.append((x, y))
+        possible_grid_positions = real_to_grid_coordinates(
+            possible_positions, collection_occupancy_grid
+        )
+        feasible_positions = []
+        feasible_grid_positions = []
+
+        # remove occupied positions or position without a clear view to the object
+        for i, grid_position in enumerate(possible_grid_positions):
+            # Check if the position is within bounds
+            width = collection_occupancy_grid.info.width
+            height = collection_occupancy_grid.info.height
+            x, y = grid_position
+            # logger.info(
+            #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
+            # )
+
+            if not (
+                (x < 0 or x >= width or y < 0 or y >= height)
+                or (collection_occupancy_grid.data[y * width + x] > 30)
+            ):
+                feasible_positions.append(possible_positions[i])
+                feasible_grid_positions.append(grid_position)
+
+        # If no possible positions are left, return False
+        if not feasible_positions:
+            self.get_logger().info("No valid DropOff positions found.")
+            return None
+
+        drop_off_position = min(
+            feasible_positions,
+            key=lambda pos: np.linalg.norm(
+                np.array(pos) - np.array(self.current_pose[:2])
+            ),
+        )
+        # Add final orientation
+        dx = drop_off_position[0] - box_x
+        dy = drop_off_position[1] - box_y
+        theta = np.arctan2(dy, dx)  # Angle to the object
+
+        return (drop_off_position[0], drop_off_position[1], theta)
 
     # ---------------- DEBUGGING FUNCTIONS (ignore it) ----------------
 
