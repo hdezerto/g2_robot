@@ -1,0 +1,1 @@
+/home/robot/dd2419_ws/src/my_custom_interfaces/build/my_custom_interfaces/rosidl_generator_c/my_custom_interfaces/srv/detail/pickup__type_support.h

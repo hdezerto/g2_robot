@@ -1,0 +1,6 @@
+string object_type
+string color
+---
+geometry_msgs/PointStamped pose
+bool success
+string message

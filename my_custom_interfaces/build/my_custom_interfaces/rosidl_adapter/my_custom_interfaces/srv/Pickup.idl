@@ -1,0 +1,21 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from my_custom_interfaces/srv/Pickup.srv
+// generated code does not contain a copyright notice
+
+
+module my_custom_interfaces {
+  module srv {
+    struct Pickup_Request {
+      @verbatim (language="comment", text=
+        "e.g., \"Pick\" or \"Drop\"")
+      string command;
+    };
+    struct Pickup_Response {
+      boolean success;
+
+      @verbatim (language="comment", text=
+        "optional feedback like \"Picked successfully\"")
+      string message;
+    };
+  };
+};
