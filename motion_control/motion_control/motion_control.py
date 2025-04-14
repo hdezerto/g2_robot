@@ -115,6 +115,7 @@ class MotionController(Node):
         self.p_translation_one = 5
         self.p_translation_two = (
             25  #  p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
+            25  #  p_translation !< 2/(h*radius) = 40.642/h h:=sampling time
         )
         self.p_rotation_two = (
             10  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
@@ -141,6 +142,8 @@ class MotionController(Node):
         self.obstacle_detected = False
         self.stop_robot = False
         self.reached_waypoint = False
+
+        self.get_logger().info(f"Received new path: {msg.poses}")
         self.follow_path()
 
     def stop_callback(self, msg):
@@ -148,6 +151,8 @@ class MotionController(Node):
         if msg.data:
             self.get_logger().info("Stop command received")
             self.stop()
+            self.notify_reached_destination(False)
+            self.get_logger().info("Robot stopped")
 
     def follow_path(self):
         if self.current_path is None:
@@ -165,11 +170,10 @@ class MotionController(Node):
                 self.reached_waypoint = False
                 self.reached_waypoint_publisher.publish(Bool(data=True))
         elif self.current_waypoint_index == len(self.current_path.poses):
-            if not self.obstacle_detected and not self.stop_robot:
+            if not self.stop_robot:
                 self.notify_reached_destination(True)
-            else:
-                self.notify_reached_destination(False)
-            self.get_logger().info("Path execution finished")
+                self.get_logger().info("Path execution finished")
+                self.stop_robot = True
 
     def move_to_waypoint(self, waypoint):
         """
@@ -252,6 +256,10 @@ class MotionController(Node):
                     self.get_logger().info(
                         f"Stuck. Increasing damping factor to {stuck_parameter}"
                     )
+                    stuck_parameter = (self.stuck_check - 5) * 0.01
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
 
                 # Set velocities
                 w = self.p_rotation_one * delta_theta
@@ -263,6 +271,7 @@ class MotionController(Node):
             # Check if the robot has reached the waypoint
             if distance < self.goal_margin_translational:
                 self.stuck_check = 0
+
 
                 # If the robot has reached the final waypoint, move to phase 3
                 if self.current_waypoint_index == len(self.current_path.poses) - 1:
@@ -284,6 +293,25 @@ class MotionController(Node):
                 else:
                     self.stuck_check = 0
                 if self.stuck_check > 5:
+                    stuck_parameter = (self.stuck_check - 5) * 0.02
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
+                elif self.stuck_check > 10:
+                    self.get_logger().warn(
+                        f"Could not reach destination with remaining distance: {distance}\n Moving On."
+                    )
+                    if self.current_waypoint_index == len(self.current_path.poses) - 1:
+                        self.control_phase = 3
+                        self.get_logger().info(
+                            ">Reached< final waypoint. Now correcting orientation"
+                        )
+                    else:
+                        self.get_logger().info(
+                            ">Reached< waypoint. Moving to next waypoint."
+                        )
+                        self.reached_waypoint = True
+                    self.accuracy_check = 0
                     stuck_parameter = (self.stuck_check - 5) * 0.02
                     self.get_logger().info(
                         f"Stuck. Increasing damping factor to {stuck_parameter}"
@@ -339,6 +367,10 @@ class MotionController(Node):
                     self.get_logger().info(
                         f"Stuck. Increasing damping factor to {stuck_parameter}"
                     )
+                    stuck_parameter = (self.stuck_check - 5) * 0.01
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
                 w = self.p_rotation_one * final_dtheta
                 v = 0
 
@@ -357,6 +389,12 @@ class MotionController(Node):
 
         # Convert to duty cycles
         motor_msg = DutyCycles()
+        motor_msg.duty_cycle_left = (v - 0.5 * w) * (
+            self.cycle_damping + stuck_parameter
+        )
+        motor_msg.duty_cycle_right = (v + 0.5 * w) * (
+            self.cycle_damping + stuck_parameter
+        )
         motor_msg.duty_cycle_left = (v - 0.5 * w) * (
             self.cycle_damping + stuck_parameter
         )
@@ -415,7 +453,7 @@ class MotionController(Node):
         if False:
             self.obstacle_detected = True
             self.get_logger().info("Obstacle detected")
-            self.stop_robot()
+            self.stop_callback(Bool(data=True))
             return
         pass
 

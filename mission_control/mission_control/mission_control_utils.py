@@ -15,31 +15,40 @@ from geometry_msgs.msg import TransformStamped
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 from tf2_ros import TransformException
 
-from .occupancy_grid_map import read_workspace, grid_to_real_coordinates, real_to_grid_coordinates
+from .occupancy_grid_map import (
+    read_workspace,
+    grid_to_real_coordinates,
+    real_to_grid_coordinates,
+)
 
 
 # ------------ External functions ------------
+
 
 def publish_workspace(publisher, clock, file_path=None):
     if file_path:
         coordinates = read_workspace(file_path)
     else:
-        coordinates = read_workspace() # Default file path
+        coordinates = read_workspace()  # Default file path
     polygon = create_polygon(coordinates)
     polygon.header.stamp = clock.now().to_msg()
     publisher.publish(polygon)
 
 
-def compute_path(start, goal, exploration_occupancy_grid, clock):
+def compute_path(start, goal, exploration_occupancy_grid, clock, logger=None):
     start_cell, start_real = start
     goal_cell, goal_real = goal
-
+    # logger.info(
+    #     f"Start cell: {start_cell}, Start real: {start_real}, Goal cell: {goal_cell}, Goal real: {goal_real}")
     path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid)
-
+    # logger.info(f"Path points: {path_points}")
     if not path_points:
         return None, None
-    
-    path = create_path_message(path_points, start_real, goal_real, clock, exploration_occupancy_grid)
+    # logger.info(f"Create Path Message")
+    path = create_path_message(
+        path_points, start_real, goal_real, clock, exploration_occupancy_grid, logger=logger
+    )
+    # logger.info(f"Path message: {path}")
     return path_points, path
 
 
@@ -59,7 +68,12 @@ def get_current_pose(tf_buffer, logger, occupancy_grid):
     """
     try:
         # Lookup the latest available transform from 'map' to 'base_link'
-        transform = tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time(seconds=0), timeout=rclpy.duration.Duration(seconds=1.0))
+        transform = tf_buffer.lookup_transform(
+            "map",
+            "base_link",
+            rclpy.time.Time(seconds=0),
+            timeout=rclpy.duration.Duration(seconds=1.0),
+        )
 
         # Extract translation (x, y) and rotation (yaw)
         x = transform.transform.translation.x
@@ -74,10 +88,10 @@ def get_current_pose(tf_buffer, logger, occupancy_grid):
         grid_position = real_to_grid_coordinates([(x, y)], occupancy_grid)[0]
 
         return real_pose, grid_position
-    
+
     except TransformException as e:
-            logger.error(f"Failed to get current pose: {e}")
-            return None, None
+        logger.error(f"Failed to get current pose: {e}")
+        return None, None
 
 
 def check_collision(path_planning_grid, grid_path, current_grid_position):
@@ -98,7 +112,11 @@ def check_collision(path_planning_grid, grid_path, current_grid_position):
 
     # Find the closest point on the grid_path to the current position
     # This is to account for the fact that the robot might deviate slightly from the path
-    closest_point = min(grid_path, key=lambda point: (point[0] - current_grid_position[0])**2 + (point[1] - current_grid_position[1])**2)
+    closest_point = min(
+        grid_path,
+        key=lambda point: (point[0] - current_grid_position[0]) ** 2
+        + (point[1] - current_grid_position[1]) ** 2,
+    )
 
     # Get the index of the closest point in the grid_path
     start_index = grid_path.index(closest_point)
@@ -134,11 +152,9 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         transform = TransformStamped()
         transform.header.stamp = current_time
         transform.header.frame_id = "map"
-        label = {
-            1: 'C',  # Cube
-            2: 'S',  # Sphere
-            3: 'P'   # Plushie
-        }.get(category, '?')  # Default to '?' if category is unknown
+        label = {1: "C", 2: "S", 3: "P"}.get(  # Cube  # Sphere  # Plushie
+            category, "?"
+        )  # Default to '?' if category is unknown
         transform.child_frame_id = f"obj_{idx}_{label}"  # Include label in the frame ID
         transform.transform.translation.x = x
         transform.transform.translation.y = y
@@ -172,6 +188,7 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
 
 ### ------- Collection ------- ###
 
+
 def collection_path_planning(
     object_position: tuple,
     current_grid_position: tuple,
@@ -186,7 +203,7 @@ def collection_path_planning(
     3. If no possible positions are left, return False.
     4. Compute the path to all possible positions using A* and keep the one with the lowest cost.
     5. Simplify the path and make sure that the orientation of the last waypoint is facing towards the object.
-    
+
     Args:
         object_position (tuple): The (x, y) coordinates of the object to be collected.
         current_grid_position (tuple): The current grid position (x, y) of the robot.
@@ -199,7 +216,7 @@ def collection_path_planning(
 
     # Parameters
     observing_distance = 30
-    n = 10 # Number of points on the line between the object and the possible position
+    n = 10  # Number of points on the line between the object and the possible position
 
     # Init
     object_x, object_y = object_position
@@ -219,14 +236,19 @@ def collection_path_planning(
 
     # remove occupied positions or position without a clear view to the object
     for i, grid_position in enumerate(possible_grid_positions):
-        if not check_valid_observation_position(collection_occupancy_grid, object_position, possible_positions[i], grid_position):
+        if not check_valid_observation_position(
+            collection_occupancy_grid,
+            object_position,
+            possible_positions[i],
+            grid_position,
+        ):
             possible_positions.pop(i)
             possible_grid_positions.pop(i)
-             
+
     # If no possible positions are left, return False
     if possible_positions:
         return False, None
-    
+
     # Calculate the path to all possible positions and keep the one with the lowest cost
     minimum_cost = float("inf")
     path = []
@@ -263,41 +285,78 @@ def collection_path_planning(
 
     return True, path
 
-def check_valid_observation_position(self, collection_occupancy_grid, object_position, possible_position, possible_grid_position):
+
+def check_valid_observation_position(
+    collection_occupancy_grid,
+    object_position,
+    possible_position,
+    possible_grid_position,
+    observing_distance=0.3,
+    n=30,
+    logger=None,
+):
     """
     Checks whether a given position is valid for observing an object in a grid-based environment.
-    1. Check if the possible position is occupied higher than 30%. If yes, remove the possible position.
+    1. Check if the is occupied higher than 30%. If yes, remove the possible position.
     2. Check if from the possible positions you have a clear vision of the object.
         Idea:
         - Create n points on the line between the object and the possible position.
         - Convert them to the cell position and check if they are occupied higher than 30%.
         - If any of them is occupied, remove the possible position.
     Args:
-        collection_occupancy_grid (OccupancyGrid): The occupancy grid representing the environment. 
+        collection_occupancy_grid (OccupancyGrid): The occupancy grid representing the environment.
             It contains information about which cells are occupied.
         object_position (tuple): The (x, y) coordinates of the object to be observed.
         possible_position (tuple): The (x, y) coordinates of the position to be validated.
         possible_grid_position (tuple): The (x, y) grid cell indices corresponding to the possible position.
     Returns:
-        bool: True if the position is valid for observation (not occupied and has a clear line of sight to the object), 
+        bool: True if the position is valid for observation (not occupied and has a clear line of sight to the object),
               False otherwise.
     Notes:
         - The function checks if the grid cell corresponding to the possible position is occupied.
-        - It also verifies that there is a clear line of sight between the possible position and the object by 
+        - It also verifies that there is a clear line of sight between the possible position and the object by
           sampling points along the direct path and ensuring they are not obstructed.
         - The function assumes that the occupancy grid data uses a threshold value (e.g., >30) to indicate obstruction.
     """
+    # Debugging: Ensure the function is being called
+    # print("check_valid_observation_position called")
+
+    # Use a default logger if none is provided
+    # if logger is None:
+    #     logger = rclpy.logging.get_logger("check_valid_observation_position")
+    #     rclpy.logging.set_logger_level(
+    #         "check_valid_observation_position", rclpy.logging.LoggingSeverity.INFO
+    #     )
+
+    # logger.info("Logger is working in check_valid_observation_position.")
+    # logger.info(
+    #     f"Object position: {object_position}, Possible position: {possible_position}"
+    # )
 
     object_x, object_y = object_position
+    object_grid_position = real_to_grid_coordinates(
+        [object_position], collection_occupancy_grid
+    )[0]
+
+    # Check if the position is within bounds
+    width = collection_occupancy_grid.info.width
+    height = collection_occupancy_grid.info.height
+    x, y = possible_grid_position
+    # logger.info(
+    #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
+    # )
+
+    if x < 0 or x >= width or y < 0 or y >= height:
+        # logger.info(f"Possible Position {possible_grid_position} is out of bounds.")
+        return False  # Out of bounds
+
     # Check if the position is occupied
-    if (
-        collection_occupancy_grid.data[
-            possible_grid_position[1] * collection_occupancy_grid.info.width
-            + possible_grid_position[0]
-        ]
-        != 0
-    ):
+    if collection_occupancy_grid.data[y * width + x] != 0:
+        # logger.info(
+            # f"Possible Position {possible_grid_position} is occupied. Occupancy: {collection_occupancy_grid.data[y * width + x]}"
+        # )
         return False
+
     # Check whether the view is clear
     else:
         # Create a direct path from the position to the object
@@ -305,73 +364,44 @@ def check_valid_observation_position(self, collection_occupancy_grid, object_pos
         path_resolution = observing_distance / n
 
         # Create n points on the line between the object and the possible position
-        for j in range(path_resolution, observing_distance, path_resolution):
-            x = possible_position[0] + j * np.cos(np.arctan2((object_y - possible_position[1]), (object_x - possible_position[0])))
-            y = possible_position[1] + j * np.sin(np.arctan2((object_y - possible_position[1]), (object_x - possible_position[0])))
+        for j in range(1, n - 1, 1):
+            dist = j * path_resolution
+            x = possible_position[0] + dist * np.cos(
+                np.arctan2(
+                    (object_y - possible_position[1]), (object_x - possible_position[0])
+                )
+            )
+            y = possible_position[1] + dist * np.sin(
+                np.arctan2(
+                    (object_y - possible_position[1]), (object_x - possible_position[0])
+                )
+            )
             direct_path.append((x, y))
-        direct_grid_path = real_to_grid_coordinates(direct_path, collection_occupancy_grid)
+
+        direct_grid_path_init = real_to_grid_coordinates(
+            direct_path, collection_occupancy_grid
+        )
+        direct_grid_path = []
+        for new_grid_cell in direct_grid_path_init:
+            if (not new_grid_cell in direct_grid_path) and (
+                not new_grid_cell == object_grid_position
+            ):
+                direct_grid_path.append(new_grid_cell)
+
         for point in direct_grid_path:
-            if collection_occupancy_grid.data[
-                point[1] * collection_occupancy_grid.info.width + point[0]
-            ] > 30:
+            px, py = point
+            if px < 0 or px >= width or py < 0 or py >= height:
+                # logger.info(f"Point {point} is out of bounds.")
+                return False  # Out of bounds
+            if (
+                collection_occupancy_grid.data[py * width + px] > 30
+            ):  # Check for obstacles
+                # logger.info(
+                    # f"Obstacle detected at {point} between {possible_position} and {object_grid_position}. Occupancy: {collection_occupancy_grid.data[py * width + px]}"
+                # )
                 return False
-        return True  
 
-def get_pickup_path(
-    object_position: tuple[float, float], current_position: tuple[float, float], clock
-) -> Path:
-    """
-    Calculate the path for the robot to pick up an object.
-
-    Direct path with only the only pose as the goal point.
-    Moves the base_link such that the pickup_place is at the object position.
-    Args:
-        object_position (tuple[float, float]): The (x, y) position of the object to be picked up.
-        current_position (tuple[float, float]): The (x, y) current position of the robot.
-        clock: A clock instance to get the current time.
-    Returns:
-        Path: A Path message containing the pose where the robot should move to pick up the object.
-    Parameters:
-        pickup_tf_x (float): The x translation to go from base_link to pickup_place as an absolute value
-        pickup_tf_y (float): The y translation to go from base_link to pickup_place as an absolute value
-    """
-
-    # Parameters
-    pickup_tf_x = 0.0  # x translation to go from base_link to pickup_place
-    pickup_tf_y = 0.0  # y translation to go from base_link to pickup_place
-
-    # Calculate the orientation of the robot towards the object
-    dx = object_position[0] - current_position[0]
-    dy = object_position[1] - current_position[1]
-    theta = np.arctan2(dy, dx)
-    q = quaternion_from_euler(0, 0, theta)
-
-    # Calculate the position of the pickup place
-    pickup_place_x = (
-        object_position[0] - pickup_tf_x * np.cos(theta) - pickup_tf_y * np.sin(theta)
-    )
-    pickup_place_y = (
-        object_position[1] - pickup_tf_x * np.sin(theta) + pickup_tf_y * np.cos(theta)
-    )
-
-    # Create the pose, where the base_link should be at
-    pickup_pose = PoseStamped()
-    pickup_pose.header.stamp = clock.now().to_msg()
-    pickup_pose.header.frame_id = "map"
-    pickup_pose.pose.position.x = pickup_place_x
-    pickup_pose.pose.position.y = pickup_place_y
-    pickup_pose.pose.orientation.x = q[0]
-    pickup_pose.pose.orientation.y = q[1]
-    pickup_pose.pose.orientation.z = q[2]
-    pickup_pose.pose.orientation.w = q[3]
-
-    # Create the path message
-    path = Path()
-    path.header.stamp = clock.now().to_msg()
-    path.header.frame_id = "map"
-    path.poses.append(pickup_pose)
-
-    return path
+        return True
 
 
 # CHANGES MADE IN OTHER FUNCTIONS THAN COLLECTION_PATH_PLANNING:
@@ -381,8 +411,8 @@ def get_pickup_path(
 # - Measure parameters observing_distance, pickup_tf_x and pickup_tf_y.
 
 
-
 # ------------ Internal functions (auxiliary) ------------
+
 
 def create_polygon(coordinates):
     polygon = PolygonStamped()
@@ -396,49 +426,67 @@ def create_polygon(coordinates):
 
 # A* pathfinding algorithm
 def compute_grid_path(start, goal, grid):
-    diagonal_cost = 1.414 # Cost to move diagonally ~= sqrt(2)
+    diagonal_cost = 1.414  # Cost to move diagonally ~= sqrt(2)
+
     # Octile distance heuristic
     def heuristic(a, b):
         dx = abs(a[0] - b[0])
         dy = abs(a[1] - b[1])
         return max(dx, dy) + (diagonal_cost - 1) * min(dx, dy)
-    
-    neighbors = [(0, 1),  (1, 0),  (0, -1),  (-1, 0),  # Cardinal directions
-                 (1, 1),  (1, -1), (-1, 1), (-1, -1)   # Diagonal directions
-                ]
-    close_set = set() # Set of visited cells
-    came_from = {} # Dictionary to store the path
-    gscore = {start: 0} # Cost from start to current cell
-    fscore = {start: heuristic(start, goal)} # Estimated cost from start to goal through current cell (using heuristic)
-    oheap = [] # Priority queue to store the cells to visit
 
-    heapq.heappush(oheap, (fscore[start], start)) # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
+    neighbors = [
+        (0, 1),
+        (1, 0),
+        (0, -1),
+        (-1, 0),  # Cardinal directions
+        (1, 1),
+        (1, -1),
+        (-1, 1),
+        (-1, -1),  # Diagonal directions
+    ]
+    close_set = set()  # Set of visited cells
+    came_from = {}  # Dictionary to store the path
+    gscore = {start: 0}  # Cost from start to current cell
+    fscore = {
+        start: heuristic(start, goal)
+    }  # Estimated cost from start to goal through current cell (using heuristic)
+    oheap = []  # Priority queue to store the cells to visit
+
+    heapq.heappush(
+        oheap, (fscore[start], start)
+    )  # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
 
     while oheap:
-        current = heapq.heappop(oheap)[1] # Get the cell with the lowest fscore
+        current = heapq.heappop(oheap)[1]  # Get the cell with the lowest fscore
 
         if current == goal:
             data = []
             while current in came_from:
                 data.append(current)
                 current = came_from[current]
-            return [start] + data[::-1] # Return reversed path (start to goal)
+            return [start] + data[::-1]  # Return reversed path (start to goal)
 
         close_set.add(current)
         for i, j in neighbors:
             neighbor = current[0] + i, current[1] + j
-            tentative_g_score = gscore[current] + (diagonal_cost if abs(i) + abs(j) == 2 else 1)
+            tentative_g_score = gscore[current] + (
+                diagonal_cost if abs(i) + abs(j) == 2 else 1
+            )
 
             # Check if the neighbor is not a free cell
             if grid.data[neighbor[1] * grid.info.width + neighbor[0]] != 0:
                 continue
-            
+
             # Check if the neighbor has been visited and if the cost to reach it is higher than the current cost
-            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, float('inf')):
+            if neighbor in close_set and tentative_g_score >= gscore.get(
+                neighbor, float("inf")
+            ):
                 continue
-            
+
             # If the cost to reach the neighbor is lower than the current cost or not in the queue, update the path
-            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [
+                i[1] for i in oheap
+            ]:
                 came_from[neighbor] = current
                 gscore[neighbor] = tentative_g_score
                 fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
@@ -447,46 +495,60 @@ def compute_grid_path(start, goal, grid):
     return False
 
 
-
-def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
-    grid_path_points = simplify_grid_path(grid_path_points) # Simplify the path by removing redundant points
-
-    grid_path_points = grid_path_points[1:-1] # Remove the start and goal points from the path (the exact ones will be added later)
+def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid, logger=None):
+    # logger.info(
+    #     f"Creating path message with grid_path_points"
+    # )
+    grid_path_points = simplify_grid_path(
+        grid_path_points
+    )  # Simplify the path by removing redundant points
+    # logger.info(f"Grid path points calculated")
+    grid_path_points = grid_path_points[
+        1:-1
+    ]  # Remove the start and goal points from the path (the exact ones will be added later)
+    # logger.info(f"Grid path points simplified")
 
     # Convert path grid coordinates to real-world coordinates
     real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
-
+    # logger.info(f"Grid path points converted to real-world coordinates")
     # Add start_real and goal_real as the first and last points
-    real_path_points.insert(0, start_real)
-    real_path_points.append(goal_real)
-
+    real_path_points.insert(0, start_real[:2])
+    real_path_points.append(goal_real[:2])
+    # logger.info(f"Start and goal points added to the path")
     # Smooth the path using cubic interpolation
-    #path_points = bezier_smooth_path(path_points)
-
+    # path_points = bezier_smooth_path(path_points)
+    # logger.info(f"Path smoothed")
     path = Path()
     path.header.stamp = clock.now().to_msg()
-    path.header.frame_id = 'map'
-
-    for (x, y) in real_path_points:
+    path.header.frame_id = "map"
+    # logger.info(f"{real_path_points}")
+    for x, y in real_path_points:
+        # logger.info(f"Adding start and goal points to the path")
         pose = PoseStamped()
         pose.header.stamp = clock.now().to_msg()
-        pose.header.frame_id = 'map'
+        pose.header.frame_id = "map"
         pose.pose.position.x = x
         pose.pose.position.y = y
-        pose.pose.orientation.w = 1.0 # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation 
+        pose.pose.orientation.w = 1.0  # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation
         path.poses.append(pose)
-
-    if goal_real[2] is None: # If no yaw is provided for the goal, set it to match the direction of the path
+    # logger.info(f"Path points added to the path message")
+    if (
+        goal_real[2] is None
+    ):  # If no yaw is provided for the goal, set it to match the direction of the path
         dx = path.poses[-1].pose.position.x - path.poses[-2].pose.position.x
         dy = path.poses[-1].pose.position.y - path.poses[-2].pose.position.y
         yaw = np.arctan2(dy, dx)
-    else: # Yaw is given, useful for collection
+    else:  # Yaw is given, useful for collection
         yaw = goal_real[2]
-    
+
     q = quaternion_from_euler(0, 0, yaw)
-    path.poses[-1].pose.orientation.x, path.poses[-1].pose.orientation.y, \
-    path.poses[-1].pose.orientation.z, path.poses[-1].pose.orientation.w = q
-    
+    (
+        path.poses[-1].pose.orientation.x,
+        path.poses[-1].pose.orientation.y,
+        path.poses[-1].pose.orientation.z,
+        path.poses[-1].pose.orientation.w,
+    ) = q
+
     return path
 
 
@@ -496,13 +558,15 @@ def simplify_grid_path(path_points):
 
     simplified_path = [path_points[0]]
     for i in range(1, len(path_points) - 1):
-        prev_point = simplified_path[-1] # x1, y1
-        curr_point = path_points[i] # x2, y2
-        next_point = path_points[i + 1] # x3, y3
+        prev_point = simplified_path[-1]  # x1, y1
+        curr_point = path_points[i]  # x2, y2
+        next_point = path_points[i + 1]  # x3, y3
 
         # Check if the current point is redundant (i.e., lies on a straight line)
         # (x3-x2)*(y2-y1) != (y3-y2)*(x2-x1)
-        if (next_point[0] - curr_point[0]) * (curr_point[1] - prev_point[1]) != (next_point[1] - curr_point[1]) * (curr_point[0] - prev_point[0]):
+        if (next_point[0] - curr_point[0]) * (curr_point[1] - prev_point[1]) != (
+            next_point[1] - curr_point[1]
+        ) * (curr_point[0] - prev_point[0]):
             simplified_path.append(curr_point)
 
     simplified_path.append(path_points[-1])
@@ -514,7 +578,7 @@ def bezier_smooth_path(path_points):
     """Applies cubic interpolation to smooth the path."""
     path_points = np.array(path_points)
     t = np.linspace(0, 1, len(path_points))
-    
+
     x_spline = CubicSpline(t, path_points[:, 0])
     y_spline = CubicSpline(t, path_points[:, 1])
 

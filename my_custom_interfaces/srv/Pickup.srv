@@ -1,0 +1,5 @@
+string object_type
+string color
+---
+bool success
+string message  # optional feedback like "Picked successfully"
