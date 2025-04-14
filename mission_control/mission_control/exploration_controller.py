@@ -88,7 +88,7 @@ class ExplorationController(Node):
         self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5) # CHECK if 5 is not too much here
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
         #TODO change back to process maps
-        # self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 1)
+        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 1)
         self.planning_grid_publisher = self.create_publisher(OccupancyGrid, '/planning_grid', latched_qos)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
         self.reached_destination_subscriber = self.create_subscription(Bool, '/reached_destination', self.reached_destination_callback, 10)
@@ -108,8 +108,8 @@ class ExplorationController(Node):
         inflate_occupied_cells(self.exploration_occupancy_grid)
         
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
-        #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
+        #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()

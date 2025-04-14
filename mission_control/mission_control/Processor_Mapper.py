@@ -54,7 +54,7 @@ WORKSPACE_FILE_PATH = os.path.join(
 
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
-SCAN_FREQUENCY =5  # Number of scans to skip before processing new data
+SCAN_FREQUENCY = 5  # Number of scans to skip before processing new data
 MAP_FREQUENCY = 40  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.70  # Minimum distance filter for LiDAR points to avoid noise
@@ -63,8 +63,8 @@ PLUS_THETA = 130  # Maximum angle threshold for LiDAR points
 MAX_CONFIDENCE = 100  # Maximum confidence value
 CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
-LD_FILTER = 4  # Maximum distance for LiDAR points
-THRESHOLD = 3.0 # Distance threshold for keyframe selection
+LD_FILTER = 5  # Maximum distance for LiDAR points
+THRESHOLD = 4.0 # Distance threshold for keyframe selection
 
 # ------------------------------------
 
@@ -379,13 +379,13 @@ class LidarProcessor(Node):
 
 
     def decay_callback(self):
-        self.decay_counter+=1;
+        self.decay_counter+=1
         self.map_builder.decay_map(decay_factor=0.90, threshold=20)
         # Optionally, republish the updated occupancy grid.
         # No publishing here; just update the internal state.
         self.get_logger().debug("Map decayed.")
         if  self.decay_counter==2:
-            self.decay_counter=0;
+            self.decay_counter=0
             current_time = rclpy.clock.Clock().now().to_msg()
             self.map_make_pub(current_time)
 
