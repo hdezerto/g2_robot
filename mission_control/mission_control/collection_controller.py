@@ -997,7 +997,7 @@ class CollectionController(Node):
             # )
 
             if not (
-                (x < 0 or x >= width or y < 0 or y >= height)
+                (collection_occupancy_grid.data[y * width + x] < 0)
                 or (collection_occupancy_grid.data[y * width + x] > 40)
             ):
                 feasible_positions.append(possible_positions[i])

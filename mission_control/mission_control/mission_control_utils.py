@@ -347,16 +347,16 @@ def check_valid_observation_position(
     width = collection_occupancy_grid.info.width
     height = collection_occupancy_grid.info.height
     x, y = possible_grid_position
+    occupancy = collection_occupancy_grid.data[y * width + x]
     # logger.info(
     #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
     # )
 
-    if x < 0 or x >= width or y < 0 or y >= height:
+    if occupancy == -1:
         # logger.info(f"Possible Position {possible_grid_position} is out of bounds.")
         return False  # Out of bounds
-
     # Check if the position is occupied
-    if collection_occupancy_grid.data[y * width + x] != 0:
+    elif occupancy > 0:
         # logger.info(
         # f"Possible Position {possible_grid_position} is occupied. Occupancy: {collection_occupancy_grid.data[y * width + x]}"
         # )
@@ -395,7 +395,9 @@ def check_valid_observation_position(
 
         for point in direct_grid_path:
             px, py = point
-            if px < 0 or px >= width or py < 0 or py >= height:
+            if (
+                collection_occupancy_grid.data[py * width + px] == -1
+            ):  # Check if the point is out of bounds
                 # logger.info(f"Point {point} is out of bounds.")
                 return False  # Out of bounds
             if (
