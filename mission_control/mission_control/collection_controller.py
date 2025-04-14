@@ -36,13 +36,9 @@ NOTES (HUGO):
 - I assume the observation point and drop point (near a box) are not inflated on the planning map,
 otherwise A* fails. I also assume the closest uninflated point to a box is good enough for dropping.
 
-
 """
 
-
 #self.get_logger().info('HERE DEBUG!!!')  # DEBUG
-
-
 
 # -------- Tunable parameters --------
 MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
@@ -53,7 +49,6 @@ OBSERVATION_DISTANCE = 0.30 # Distance to the object for observation [m]
 PICK_DISTANCE = 0.17 # Distance to the object for pick [m]
 #PLACE_DISTANCE = ??  # Distance to the box for drop [m]
 # ------------------------------------
-
 
 
 # ------------------------------- State class -------------------------------
