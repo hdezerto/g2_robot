@@ -63,17 +63,21 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_lin_;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr reference_cloud_{std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()};
+    // Store the reference keyframes
+    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> reference_keyframes_;
+
+    
     pcl::PointCloud<pcl::PointXYZ>::Ptr prev_cloud {nullptr};
 
-    const float MAX_TRANSLATION = 0.5;    // Maximum translation threshold (meters)
-    const float MAX_ROTATION = 0.5;    // Maximum rotation threshold (radians) ~ 10 degrees
+    const float MAX_TRANSLATION = 1.0;    // Maximum translation threshold (meters)
+    const float MAX_ROTATION = 1.0;    // Maximum rotation threshold (radians) ~ 10 degrees
 
     
     float previous_yaw_{0.0f}; // Initialize to zero or a valid starting value
     float yaw_rate_{0.0f};     // Yaw rate (radians per second)
     float linv_{0.0f};     // linear velocity (m/s)
 
-    const float smoothing_std = 0.25f; 
+    const float smoothing_std = 0.35f; 
     // Check yaw rate threshold before running ICP.
     const float YAW_RATE_THRESHOLD = 0.6; // Example threshold in rad/s
     int counter=0;
@@ -86,6 +90,9 @@ private:
     void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
         // Convert the incoming PointCloud2 message into a PCL point cloud and store it.
         pcl::fromROSMsg(*msg, *reference_cloud_);
+        if (!reference_cloud_->empty()) {
+            reference_keyframes_.push_back(reference_cloud_);
+        }
         RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", reference_cloud_->size());
     }
 
@@ -162,7 +169,9 @@ private:
             smoothing_factor = smoothing_std;  // Reset to default value
         }
         counter=0;
-        if (std::abs(linv_) < 0.01) {
+        
+        
+        /*if (std::abs(linv_) < 0.01) {
             stationary_counter++;
             if (stationary_counter%3 == 0) {
                 RCLCPP_WARN(this->get_logger(), "Robot has been stationary for three collections (%.2f m/s): performing ICP.", linv_);
@@ -176,9 +185,11 @@ private:
         else {
             stationary_counter=0;  // Reset to default value
         }
+        */
 
         
 
+       
         // Check reference cloud availability
         if (reference_cloud_ && !reference_cloud_->empty()) {
             //target_cloud = reference_cloud_;
@@ -206,7 +217,10 @@ private:
         icp.align(aligned);
     
         if (icp.hasConverged()) {
-            float icpfitness = icp.getFitnessScore();
+            
+            /*
+                        float icpfitness = icp.getFitnessScore();
+            
             //RCLCPP_INFO(this->get_logger(), "Fittness score: %f,", icpfitness);
             if (icpfitness < 0.1) {
                 RCLCPP_WARN(this->get_logger(), "ICP fitness score is too low: %f, skipping update.", icpfitness);
@@ -214,6 +228,9 @@ private:
                 publish_previous_cloud(output_topic, msg, cloud);
                 return; // Skip ICP processing
             }
+
+            */
+
 
             // Get the new ICP transformation.
             Eigen::Matrix4f transformation = icp.getFinalTransformation();
