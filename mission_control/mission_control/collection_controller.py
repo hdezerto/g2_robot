@@ -39,15 +39,6 @@ import numpy as np
 
 import time
 
-from ament_index_python.packages import get_package_share_directory
-from visualization_msgs.msg import Marker
-from geometry_msgs.msg import Point
-
-from std_msgs.msg import Int16MultiArray, MultiArrayLayout, MultiArrayDimension
-from my_custom_interfaces.srv import Pickup
-from std_srvs.srv import Trigger
-import time
-
 
 """
 NOTES (HUGO):
@@ -61,12 +52,12 @@ otherwise A* fails. I also assume the closest uninflated point to a box is good 
 #self.get_logger().info('HERE DEBUG!!!')  # DEBUG
 
 # -------- Tunable parameters --------
-MAP_FILE_NAME = "map_1.tsv"  # Name of the map file to read
+MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 5.0  # Timeout for waiting for object detection [s]
 # NOTE: OBSERVATION_DISTANCE >= PICK_DISTANCE
-OBSERVATION_DISTANCE = 0.60  # Distance to the object for observation [m]
-PICK_DISTANCE_X = 0.12  # Distance to the object for pick [m]
+OBSERVATION_DISTANCE = 0.30  # Distance to the object for observation [m]
+PICK_DISTANCE_X = 0.17  # Distance to the object for pick [m]
 PICK_DISTANCE_Y = 0.02  # Distance to the object for pick [m]
 # PLACE_DISTANCE = ??  # Distance to the box for drop [m]
 # ------------------------------------
@@ -160,9 +151,6 @@ class CollectionController(Node):
         self.planning_grid_publisher = self.create_publisher(
             OccupancyGrid, "/planning_grid", latched_qos
         )
-        self.observation_pos_marker_publisher = self.create_publisher(
-            Marker, "/observation_pos", 10
-        )
         # Interface with mapper:
         self.mapper_occupancy_grid_subscriber = self.create_subscription(
             OccupancyGrid,
@@ -178,18 +166,9 @@ class CollectionController(Node):
         self.stop_publisher = self.create_publisher(Bool, "/stop_motion", 10)
         # Interface with arm:
         self.arm_command_publisher = self.create_publisher(Int32, "/arm_controller", 10)
-        self.arm_feedback_publisher = self.create_publisher(
-            Bool, "/arm_controller_feedback", 10
-        )
         self.arm_feedback_subscriber = self.create_subscription(
             Bool, "/arm_controller_feedback", self.arm_feedback_callback, 10
         )
-
-        self.pickupClient = self.create_client(Pickup, "pickup")
-        self.servos_publisher = self.create_publisher(
-            Int16MultiArray, "multi_servo_cmd_sub", 10
-        )
-        self.dropClient = self.create_client(Trigger, "drop")
         # TODO: change arm interface if needed
 
         # Initialize TransformListener to get current position of the robot
@@ -200,6 +179,11 @@ class CollectionController(Node):
 
         # Publish the workspace to RViz
         publish_workspace(self.workspace_publisher, self.get_clock())
+
+        # Timer to periodically publish objects/boxes to RViz
+        self.detections_timer = self.create_timer(
+            0.5, self.publish_transforms_periodically
+        )
 
         # Clean grid with workspace boundaries. Used to initialize planning grid and to mark the grid path.
         # Only published inside mark_grid_path()
@@ -212,7 +196,7 @@ class CollectionController(Node):
             0,
         )  # Initial position (x, y, yaw) in real world coordinates
         self.current_grid_position = real_to_grid_coordinates(
-            [(self.current_pose[0], self.current_pose[1])], self.workspace_grid
+            [self.current_pose], self.workspace_grid
         )[0]
         self.objects = []
         self.boxes = []
@@ -235,11 +219,6 @@ class CollectionController(Node):
         # self.state = State.TESTING # DEBUGGING
         # self.state = State.SCANNING
         self.state = State.GET_NEXT_OBJECT
-
-        # Timer to periodically publish objects/boxes to RViz
-        self.detections_timer = self.create_timer(
-            0.5, self.publish_transforms_periodically
-        )
 
     # ------------------- STATE FUNCTIONS -------------------
     # MIGHT BE REMOVED!
@@ -269,11 +248,6 @@ class CollectionController(Node):
         self.task = State.PICK
         self.compute_closest_object()  # Select the closest object to the current position of the robot
 
-        objects_without = self.objects
-        objects_without.pop(self.next_object["index"])
-        self.path_planning_grid = update_path_planning_grid(
-            self.workspace_grid, objects_without, self.boxes
-        )
         # Compute the observation point
         observation_pose = self.compute_observation_pose(OBSERVATION_DISTANCE)
         # Returns the observation point with (x_real, y_real, final orientation)
@@ -295,24 +269,16 @@ class CollectionController(Node):
     def plan_path(self):
         self.update_current_pose()  # Update the current pose of the robot
         start = (self.current_grid_position, self.current_pose)
-        # self.get_logger().info(f'Start: {start}')  # DEBUG
-        goal_grid = real_to_grid_coordinates(
-            [self.destination_pose[:2]], self.path_planning_grid
-        )[0]
-        # self.get_logger().info(f'Goal grid: {goal_grid}')  # DEBUG
         goal = (
-            goal_grid,
+            real_to_grid_coordinates([self.destination_pose], self.path_planning_grid)[
+                0
+            ],
             self.destination_pose,
         )
-        self.get_logger().info(f"Start: {start} | Goal: {goal}")  # DEBUG
+        # self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(
-            start,
-            goal,
-            self.path_planning_grid,
-            self.get_clock(),
-            logger=self.get_logger(),
+            start, goal, self.path_planning_grid, self.get_clock()
         )
-        self.get_logger().info(f"Path computed?")  # DEBUG
         if path:  # Path found
             self.path_publisher.publish(
                 path
@@ -364,16 +330,14 @@ class CollectionController(Node):
             rclpy.spin_once(self)  # Process callbacks
             elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
             if elapsed_time > timeout:
-                self.detected_position = (0.85, -0.2094)
                 self.get_logger().info(
                     "Timeout reached while waiting for object detection. OBSERVE_OBJECT -> END_COLLECTION"
                 )
-                self.state = State.MOVE_TO_PICK
-                # self.state = (
-                #     State.END_COLLECTION
-                # )  # Transition to END_COLLECTION if no detection is received
-                # self.detections_subscriber.destroy()  # Stop listening to detections
-                # break
+                self.state = (
+                    State.END_COLLECTION
+                )  # Transition to END_COLLECTION if no detection is received
+                self.detections_subscriber.destroy()  # Stop listening to detections
+                break
 
     def move_to_pick(self):
         """
@@ -382,7 +346,7 @@ class CollectionController(Node):
         """
         self.update_current_pose()  # Update the robot's current pose
 
-        pick_path = self.get_pickup_path(PICK_DISTANCE_X, PICK_DISTANCE_Y)
+        pick_path = self.get_pickup_path(PICK_DISTANCE_X, PICK_DISTANCE)
         pick_pose = (
             pick_path.poses[-1].pose.position.x,
             pick_path.poses[-1].pose.position.y,
@@ -391,9 +355,6 @@ class CollectionController(Node):
         )
 
         # Publish the path
-        self.path_publisher.publish(pick_path)
-        self.path_publisher.publish(pick_path)
-        self.path_publisher.publish(pick_path)
         self.path_publisher.publish(pick_path)
         self.get_logger().info(
             f"Path to pick position published: Start {self.current_pose} | Goal{pick_pose}. MOVE_TO_PICK -> MOVING_BLINDLY"
@@ -416,11 +377,6 @@ class CollectionController(Node):
 
         self.compute_closest_box()  # Select the closest box to the current position of the robot
 
-        boxes_without = self.boxes
-        boxes_without.remove(self.closest_box)  # Remove the closest box from the list
-        self.path_planning_grid = update_path_planning_grid(
-            self.workspace_grid, self.objects, boxes_without
-        )
         # Compute the drop pose
         drop_pose = self.compute_drop_pose()
         # Computes the closest pose to the robot around the box that is not inflated nor occupied
@@ -442,158 +398,18 @@ class CollectionController(Node):
             )  # DEBUG since it should in principle find a drop pose
 
     def pick(self):
-        """msg = Int32()
+        msg = Int32()
         msg.data = 1  # 1 for PICK
-        self.arm_command_publisher.publish(msg)"""
-        """ self.state = State.WAIT_FOR_ARM
-        self.arm_feedback_publisher.publish(Bool(data=True))  # Reset the feedback to False """
-
-        request = Pickup.Request()
-        object_type = "Cube"  # Retrieve from topic?
-        request.object_type = object_type
-        request.color = "Red"  # Example color, mainly for testing/debugging
-        angles = [12000, 10000, 18500, 2500]
-        servos_angles_times1 = [
-            [
-                3000,
-                12000,
-                12000,
-                12000,
-                12000,
-                12000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-            ],
-            [
-                3000,
-                12000,
-                angles[3],
-                angles[2],
-                angles[1],
-                angles[0],
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-            ],
-        ]
-
-        msg1 = Int16MultiArray()
-        msg1.layout = MultiArrayLayout(
-            dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0
-        )
-
-        for angles in servos_angles_times1:
-            self.get_logger().info(f"Angles: {angles}")
-            msg1.data = angles
-            self.servos_publisher.publish(msg1)
-            self.get_logger().info(f"Published message: {msg1.data}")
-            time.sleep(3)
-
-        # Call the service asynchronously and get a future
-        future = self.pickupClient.call_async(request)
+        self.arm_command_publisher.publish(msg)
+        self.get_logger().info("Sent arm command to PICK object. PICK -> WAIT_FOR_ARM")
         self.state = State.WAIT_FOR_ARM
-        # Wait for the response from the service
-        rclpy.spin_until_future_complete(self, future)
-
-        # Handle the response
-        if future.result() is not None:
-            self.get_logger().info(f"Success: {future.result().message}")
-            success_msg = Bool()
-            success_msg.data = future.result().success
-            self.arm_feedback_publisher.publish(success_msg)
-        else:
-            self.get_logger().error("Service call failed")
-
-        # self.get_logger().info("Sent arm command to PICK object. PICK -> WAIT_FOR_ARM")
 
     def drop(self):
-        """msg = Int32()
+        msg = Int32()
         msg.data = 2  # 2 for DROP
         self.arm_command_publisher.publish(msg)
         self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
-        self.state = State.WAIT_FOR_ARM"""
-
-        servos_angles_times1 = [
-            [
-                11000,
-                12000,
-                12000,
-                12000,
-                12000,
-                12000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-            ],
-            [
-                11000,
-                12000,
-                3000,
-                12116,
-                6683,
-                11999,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-            ],
-            [3000, 12000, 3000, 12116, 6683, 11999, 2000, 2000, 2000, 2000, 2000, 2000],
-            [
-                11000,
-                12000,
-                12000,
-                12000,
-                12000,
-                12000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-                2000,
-            ],
-        ]
-
-        msg = Int16MultiArray()
-        msg.layout = MultiArrayLayout(
-            dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0
-        )
-        valid_angles = [True, True, True, True]
-        if all(valid_angles):
-            for angles in servos_angles_times1:
-                msg.data = angles
-                print(msg.data)
-                self.servos_publisher.publish(msg)
-                # self.get_logger().info(f'Published message: {msg.data}')
-                time.sleep(3)
-
-        """ request = Trigger.Request()
-        # Call the service asynchronously and get a future  
-        future = self.dropClient.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-
-        # Handle the response
-        if future.result() is not None:
-            self.get_logger().info(f'Success: {future.result().message}')
-            #success_msg = Bool()
-            #success_msg.data = future.result().success
-            #self.arm_feedback_publisher.publish(success_msg)
-        else:
-            self.get_logger().error('Service call failed') """
-
-        self.state = State.GET_NEXT_OBJECT
+        self.state = State.WAIT_FOR_ARM
 
     def arm_feedback_callback(self, msg):
         if msg.data:  # True indicates success
@@ -612,7 +428,6 @@ class CollectionController(Node):
             self.state = State.END_COLLECTION  # DEBUG. Improve how to handle failure
 
     def reached_destination_callback(self, msg):
-        self.get_logger().info(f"msg.data")
         if msg.data:  # msg.data is True if the destination was reached
             if self.state == State.MOVING and self.task == State.PICK:
                 self.get_logger().info(
@@ -717,9 +532,6 @@ class CollectionController(Node):
         path = Path()
         path.header.stamp = time
         path.header.frame_id = "map"
-        path.poses.append(
-            self.create_pose_stamped(current_position[0], current_position[1], theta)
-        )
         path.poses.append(pickup_pose)
 
         return path
@@ -815,19 +627,11 @@ class CollectionController(Node):
         """
         Reads the map file and populates the objects and boxes lists.
         """
-        package_share_dir = get_package_share_directory("mission_control")
-        file_path = os.path.join(
-            get_package_share_directory("mission_control"), "workspaces", "map_1.tsv"
-        )
-        # file_path = os.path.join(package_share_dir, 'resource', file_name)
-        self.get_logger().info(f"Reading map file '{file_name}'...")
-        if not os.path.exists(file_path):
-            self.get_logger().error(f"Map file '{file_path}' does not exist.")
+        if not os.path.exists(file_name):
+            self.get_logger().error(f"Map file '{file_name}' does not exist.")
             return
-        # else:
-        #     self.get_logger().info(f"Map file '{file_path}' exists.")
 
-        with open(file_path, "r") as file:
+        with open(file_name, "r") as file:
             for line in file:
                 parts = line.strip().split("\t")[:4]  # Only consider the first 4 parts
                 category, x, y, angle = parts
@@ -872,7 +676,7 @@ class CollectionController(Node):
         possible_positions = []
 
         # positions are in a circle around the object every 30 degrees
-        for i in range(0, 360, 90):
+        for i in range(0, 360, 30):
             x = object_x + observing_distance * np.cos(np.radians(i))
             y = object_y + observing_distance * np.sin(np.radians(i))
             possible_positions.append((x, y))
@@ -889,21 +693,14 @@ class CollectionController(Node):
                 object_position,
                 possible_positions[i],
                 grid_position,
-                logger=self.get_logger(),
             ):
                 feasible_positions.append(possible_positions[i])
                 feasible_grid_positions.append(grid_position)
 
-        # Visualisation
-        non_feasible_positions = []
-        for possible_position in possible_positions:
-            if possible_position not in feasible_positions:
-                non_feasible_positions.append(possible_position)
         # If no possible positions are left, return False
         if not feasible_positions:
             self.get_logger().warn("No valid observation positions found.")
             return None
-        self.visualize_observation_positions(feasible_positions, non_feasible_positions)
 
         # Calculate the path to all possible positions and keep the one with the lowest cost
         # minimum_cost = float("inf")
@@ -924,8 +721,6 @@ class CollectionController(Node):
         # Take closest position to current position
         closest_distance = float("inf")
         final_position = []
-        found_way = False
-        # while possible_positions and (not found_way):
         for i, goal_position in enumerate(possible_positions):
             distance = np.sqrt(
                 (goal_position[0] - self.current_pose[0]) ** 2
@@ -937,84 +732,53 @@ class CollectionController(Node):
 
         if final_position:
             # Add final orientation
-            dx = -final_position[0] + object_x
-            dy = -final_position[1] + object_y
+            dx = final_position[0] - object_x
+            dy = final_position[1] - object_y
             theta = np.arctan2(dy, dx)  # Angle to the object
             final_position = (final_position[0], final_position[1], theta)
             return final_position
 
-    def compute_drop_pose(self, drop_distance=0.22):
-        # self.get_logger().info("Computing drop pose...")
+    def compute_drop_pose(self, drop_distance=0.25):
         box_position = self.closest_box
-        drop_distance_long = drop_distance + 0.05
-        drop_distance_short = drop_distance
         current_grid_position = self.current_grid_position
         collection_occupancy_grid = self.path_planning_grid
-        # self.get_logger().info("got box pos")
+
         # Init
-        box_x, box_y = box_position[:2]
-        self.get_logger().info(f"Make circle...")
-        up = (
-            box_x + drop_distance_long * np.cos(theta),
-            box_y + drop_distance_long * np.sin(theta),
-        )
-        down = (
-            box_x + drop_distance_long * np.cos(theta + np.pi),
-            box_y + drop_distance_long * np.sin(theta + np.pi),
-        )
-        left = (
-            box_x + drop_distance_short * np.cos(theta + np.pi / 2),
-            box_y + drop_distance_short * np.sin(theta + np.pi / 2),
-        )
-        right = (
-            box_x + drop_distance_short * np.cos(theta - np.pi / 2),
-            box_y + drop_distance_short * np.sin(theta - np.pi / 2),
-        )
-        possible_positions = [up, down, left, right]
+        box_x, box_y = box_position
+        possible_positions = []
+
         # positions are in a circle around the object every 30 degrees
-        # for i in range(0, 360, 30):
-        #     x = box_x + drop_distance * np.cos(np.radians(i))
-        #     y = box_y + drop_distance * np.sin(np.radians(i))
-        #     possible_positions.append((x, y))
-        # self.get_logger().info(f"Possible drop positions: {possible_positions}")
+        for i in range(0, 360, 30):
+            x = box_x + drop_distance * np.cos(np.radians(i))
+            y = box_y + drop_distance * np.sin(np.radians(i))
+            possible_positions.append((x, y))
         possible_grid_positions = real_to_grid_coordinates(
             possible_positions, collection_occupancy_grid
         )
         feasible_positions = []
         feasible_grid_positions = []
-        self.get_logger().info(f"Conversion to grid done")
-        # remove occupied positions
+
+        # remove occupied positions or position without a clear view to the object
         for i, grid_position in enumerate(possible_grid_positions):
             # Check if the position is within bounds
             width = collection_occupancy_grid.info.width
             height = collection_occupancy_grid.info.height
             x, y = grid_position
-            # self.get_logger().info(
+            # logger.info(
             #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
             # )
 
             if not (
-                (collection_occupancy_grid.data[y * width + x] < 0)
-                or (collection_occupancy_grid.data[y * width + x] > 40)
+                (x < 0 or x >= width or y < 0 or y >= height)
+                or (collection_occupancy_grid.data[y * width + x] > 30)
             ):
                 feasible_positions.append(possible_positions[i])
                 feasible_grid_positions.append(grid_position)
-        # self.get_logger().info(f"Feasible positions: {feasible_positions}")
+
         # If no possible positions are left, return False
         if not feasible_positions:
             self.get_logger().info("No valid DropOff positions found.")
             return None
-
-        # Visualisation
-        non_feasible_positions = []
-        for possible_position in possible_positions:
-            if possible_position not in feasible_positions:
-                non_feasible_positions.append(possible_position)
-        # If no possible positions are left, return False
-        if not feasible_positions:
-            self.get_logger().warn("No valid observation positions found.")
-            return None
-        self.visualize_observation_positions(feasible_positions, non_feasible_positions)
 
         drop_off_position = min(
             feasible_positions,
@@ -1023,67 +787,11 @@ class CollectionController(Node):
             ),
         )
         # Add final orientation
-        dx = -drop_off_position[0] + box_x
-        dy = -drop_off_position[1] + box_y
+        dx = drop_off_position[0] - box_x
+        dy = drop_off_position[1] - box_y
         theta = np.arctan2(dy, dx)  # Angle to the object
 
         return (drop_off_position[0], drop_off_position[1], theta)
-
-    def visualize_observation_positions(
-        self, feasible_positions, non_feasible_positions
-    ):
-        """
-        Visualize the observation positions in RViz using markers.
-        Args:
-            feasible_positions (list): List of feasible observation positions.
-            non_feasible_positions (list): List of non-feasible observation positions.
-        """
-        markers = Marker()
-        markers.header.frame_id = "map"
-        markers.header.stamp = self.get_clock().now().to_msg()
-        markers.ns = "observation_positions"
-        markers.id = 0
-        markers.type = Marker.POINTS
-        markers.action = Marker.ADD
-        markers.scale.x = 0.1
-        markers.scale.y = 0.1
-        markers.color.a = 1.0
-
-        # Example valid and invalid positions (Replace with actual data)
-        valid_positions = feasible_positions
-        invalid_positions = non_feasible_positions
-
-        # Mark valid positions with blue
-        markers.color.r = 0.0
-        markers.color.g = 0.0
-        markers.color.b = 1.0
-        for pos in valid_positions:
-            p = Point()
-            p.x, p.y, p.z = pos[0], pos[1], 0.0
-            markers.points.append(p)
-
-        # Mark invalid positions with black
-        invalid_markers = Marker()
-        invalid_markers.header = markers.header
-        invalid_markers.ns = markers.ns
-        invalid_markers.id = 1
-        invalid_markers.type = Marker.POINTS
-        invalid_markers.action = Marker.ADD
-        invalid_markers.scale.x = markers.scale.x
-        invalid_markers.scale.y = markers.scale.y
-        invalid_markers.color.a = 1.0
-        invalid_markers.color.r = 0.0
-        invalid_markers.color.g = 0.0
-        invalid_markers.color.b = 0.0
-
-        for pos in invalid_positions:
-            p = Point()
-            p.x, p.y, p.z = pos[0], pos[1], 0.0
-            invalid_markers.points.append(p)
-
-        # Publish both markers
-        self.observation_pos_marker_publisher.publish(markers)
-        self.observation_pos_marker_publisher.publish(invalid_markers)
 
     # ---------------- DEBUGGING FUNCTIONS (ignore it) ----------------
 
