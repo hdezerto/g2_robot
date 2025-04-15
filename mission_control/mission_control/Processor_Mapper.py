@@ -54,7 +54,7 @@ WORKSPACE_FILE_PATH = os.path.join(
 
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
-SCAN_FREQUENCY =5  # Number of scans to skip before processing new data
+SCAN_FREQUENCY = 5  # Number of scans to skip before processing new data
 MAP_FREQUENCY = 40  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.70  # Minimum distance filter for LiDAR points to avoid noise
@@ -63,8 +63,8 @@ PLUS_THETA = 130  # Maximum angle threshold for LiDAR points
 MAX_CONFIDENCE = 100  # Maximum confidence value
 CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
-LD_FILTER = 4  # Maximum distance for LiDAR points
-THRESHOLD = 3.0 # Distance threshold for keyframe selection
+LD_FILTER = 5  # Maximum distance for LiDAR points
+THRESHOLD = 4.0 # Distance threshold for keyframe selection
 
 # ------------------------------------
 
@@ -333,6 +333,7 @@ class LidarProcessor(Node):
         self.First_time=True
         self.decay_counter=0
         self.scan_que_full=False
+        self.locked_high_x = False  # Flag to track when x > 8.1
 
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
@@ -378,13 +379,13 @@ class LidarProcessor(Node):
 
 
     def decay_callback(self):
-        self.decay_counter+=1;
+        self.decay_counter+=1
         self.map_builder.decay_map(decay_factor=0.90, threshold=20)
         # Optionally, republish the updated occupancy grid.
         # No publishing here; just update the internal state.
         self.get_logger().debug("Map decayed.")
         if  self.decay_counter==2:
-            self.decay_counter=0;
+            self.decay_counter=0
             current_time = rclpy.clock.Clock().now().to_msg()
             self.map_make_pub(current_time)
 
@@ -483,36 +484,48 @@ class LidarProcessor(Node):
             # Create a candidate reference scan from the current points
             candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
             
-            
-   
-            # Check if current position is within threshold of latest reference
-            dist_latest = math.sqrt((current_pos[0] - self.latest_reference['pos'][0])**2 +
-                                        (current_pos[1] - self.latest_reference['pos'][1])**2)
-            if dist_latest < self.keyf_threshold:
-                # maybe Re-publish the latest reference scan to ensure it is up to date if the first message did not go through
-                #self.publish_reference(self.latest_reference)
-                pass
-            else:
-                # Search other stored references
-                found = False
-                for ref in self.reference_scans:
-                    d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
-                                      (current_pos[1] - ref['pos'][1])**2)
-                    if d < self.keyf_threshold:
-                        self.latest_reference = ref
-                        self.publish_reference(ref)
-                        #TODO Debugging for key frame selection
-                        self.publish_circle_marker(msg)
-                        found = True
-                        break
-                if not found:
-                    # None of the stored reference scans is within threshold: add candidate
+            # === Force new keyframe if x > 8.1 and lock updates ===
+            if current_pos[0] > 8.12:
+                if not self.locked_high_x:
+                    self.get_logger().info(f"Entering high-x {current_pos[0]} zone (>8.1m). Forcing new keyframe.")
                     self.reference_scans.append(candidate_reference)
                     self.latest_reference = candidate_reference
                     self.publish_reference(candidate_reference)
-                    #TODO Debugging for key frame selection
                     self.publish_circle_marker(msg)
-            
+                    self.locked_high_x = True
+                else:
+                    self.get_logger().info("Still in high-x zone. Skipping keyframe update.")
+                            # Publish the current point cloud
+                self.pointcloud_publisher.publish(transformed_cloud)
+                return  # Don’t continue to update anything
+
+            # === If x has gone back under 8.1, unlock keyframe updates ===
+            if self.locked_high_x and current_pos[0] <= 8.1:
+                self.get_logger().info("Exited high-x zone. Re-enabling keyframe updates.")
+                self.locked_high_x = False
+
+   
+            # Find all keyframes within threshold
+            matching_refs = []
+            for ref in self.reference_scans:
+                d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
+                            (current_pos[1] - ref['pos'][1])**2)
+                if d < self.keyf_threshold:
+                    matching_refs.append(ref)
+
+            if matching_refs:
+                # Pick the oldest matching keyframe (earliest in list)
+                chosen_ref = matching_refs[0]
+                self.latest_reference = chosen_ref
+                self.publish_reference(chosen_ref)
+                self.publish_circle_marker(msg)
+            else:
+                # No close keyframes — add this one
+                self.reference_scans.append(candidate_reference)
+                self.latest_reference = candidate_reference
+                self.publish_reference(candidate_reference)
+                self.publish_circle_marker(msg)
+                        
             # Publish the current point cloud
             self.pointcloud_publisher.publish(transformed_cloud)
 
