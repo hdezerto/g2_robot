@@ -104,7 +104,7 @@ private:
         // Apply voxel grid filtering
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
         voxel_filter.setInputCloud(cloud);
-        voxel_filter.setLeafSize(0.01f, 0.01f, 100.0f);
+        voxel_filter.setLeafSize(0.05f, 0.05f, 100.0f);
         voxel_filter.filter(*cloud);
 
         if (reference_cloud_->size()==cloud->size()){
