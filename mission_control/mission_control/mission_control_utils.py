@@ -35,25 +35,18 @@ def publish_workspace(publisher, clock, file_path=None):
     publisher.publish(polygon)
 
 
-def compute_path(start, goal, exploration_occupancy_grid, clock, logger=None):
+def compute_path(start, goal, exploration_occupancy_grid, clock):
     start_cell, start_real = start
     goal_cell, goal_real = goal
-    # logger.info(
-    #     f"Start cell: {start_cell}, Start real: {start_real}, Goal cell: {goal_cell}, Goal real: {goal_real}")
+
     path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid)
-    # logger.info(f"Path points: {path_points}")
+
     if not path_points:
         return None, None
-    # logger.info(f"Create Path Message")
+
     path = create_path_message(
-        path_points,
-        start_real,
-        goal_real,
-        clock,
-        exploration_occupancy_grid,
-        logger=logger,
+        path_points, start_real, goal_real, clock, exploration_occupancy_grid
     )
-    # logger.info(f"Path message: {path}")
     return path_points, path
 
 
@@ -298,11 +291,11 @@ def check_valid_observation_position(
     possible_grid_position,
     observing_distance=0.3,
     n=30,
-    logger=None,
+    # logger=None,
 ):
     """
     Checks whether a given position is valid for observing an object in a grid-based environment.
-    1. Check if the is occupied higher than 30%. If yes, remove the possible position.
+    1. Check if the possible position is occupied higher than 30%. If yes, remove the possible position.
     2. Check if from the possible positions you have a clear vision of the object.
         Idea:
         - Create n points on the line between the object and the possible position.
@@ -347,18 +340,18 @@ def check_valid_observation_position(
     width = collection_occupancy_grid.info.width
     height = collection_occupancy_grid.info.height
     x, y = possible_grid_position
-    occupancy = collection_occupancy_grid.data[y * width + x]
     # logger.info(
     #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
     # )
 
-    if occupancy == -1:
+    if x < 0 or x >= width or y < 0 or y >= height:
         # logger.info(f"Possible Position {possible_grid_position} is out of bounds.")
         return False  # Out of bounds
+
     # Check if the position is occupied
-    elif occupancy > 0:
+    if collection_occupancy_grid.data[y * width + x] != 0:
         # logger.info(
-        # f"Possible Position {possible_grid_position} is occupied. Occupancy: {collection_occupancy_grid.data[y * width + x]}"
+        #     f"Possible Position {possible_grid_position} is occupied. Occupancy: {collection_occupancy_grid.data[y * width + x]}"
         # )
         return False
 
@@ -395,16 +388,14 @@ def check_valid_observation_position(
 
         for point in direct_grid_path:
             px, py = point
-            if (
-                collection_occupancy_grid.data[py * width + px] == -1
-            ):  # Check if the point is out of bounds
+            if px < 0 or px >= width or py < 0 or py >= height:
                 # logger.info(f"Point {point} is out of bounds.")
                 return False  # Out of bounds
             if (
                 collection_occupancy_grid.data[py * width + px] > 30
             ):  # Check for obstacles
                 # logger.info(
-                # f"Obstacle detected at {point} between {possible_position} and {object_grid_position}. Occupancy: {collection_occupancy_grid.data[py * width + px]}"
+                #     f"Obstacle detected at {point} between {possible_position} and {object_position}"
                 # )
                 return False
 
@@ -499,100 +490,33 @@ def compute_grid_path(start, goal, grid):
                 fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
                 heapq.heappush(oheap, (fscore[neighbor], neighbor))
 
-    return a_star_backup(start, goal, grid)
-
-
-def a_star_backup(start: tuple[int, int], goal: tuple[int, int], grid) -> list | bool:
-    """
-    A* algorithm which allows moving into occupied cells at high cost.
-
-    Backup for when the other A* algorithm fails to find a path.
-
-    Args:
-        start (tuple[int, int]): _description_
-        goal (tuple[int, int]): _description_
-        grid (OccupancyGrid): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    open_list = []
-    closed_list = set()
-
-    start_node = (0, start, None)
-    heapq.heappush(open_list, start_node)
-
-    while open_list:
-        current_node = heapq.heappop(open_list)
-        current_f, current_position, parent = current_node
-
-        if current_position in closed_list:
-            continue
-
-        closed_list.add(current_position)
-
-        if current_position == goal:
-            path = []
-            node = current_position
-            while current_node:
-                path.append(node[1])
-                node[1] = node[2]
-            return path[::-1]
-
-        x, y = current_position
-        neighbours = []
-        for dx, dy in [(-1, 0), (1, 0), (0, 1), (0, -1)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < grid.info.width and 0 <= ny < grid.info.height:
-                if grid.data[nx * grid.info.width + ny] < 100:
-                    neighbours.append((nx, ny))
-        for neighbour in neighbours:
-            if neighbour in closed_list:
-                continue
-            occupancy = grid.data[neighbour[1] * grid.info.width + neighbour[0]]
-            occupancy = occupancy if occupancy < 50 else occupancy * 10
-            g = current_f + 1 + occupancy**2  # Cost to move to the neighbour
-            h = (neighbour[0] - goal[0]) ** 2 + (neighbour[1] - goal[1]) ** 2
-            f = g + h
-            neighbour_node = (f, neighbour, current_node)
-
-            heapq.heappush(open_list, neighbour_node)
-
     return False
 
 
-def create_path_message(
-    grid_path_points, start_real, goal_real, clock, occupancy_grid, logger=None
-):
-    # logger.info(
-    #     f"Creating path message with grid_path_points"
-    # )
+def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
     grid_path_points = simplify_grid_path(
         grid_path_points
     )  # Simplify the path by removing redundant points
-    grid_path_points = simplify_grid_path_further(grid_path_points, occupancy_grid)
-    # logger.info(f"Grid path points calculated")
+
     grid_path_points = grid_path_points[
         1:-1
     ]  # Remove the start and goal points from the path (the exact ones will be added later)
-    # logger.info(f"Grid path points simplified")
 
     # Convert path grid coordinates to real-world coordinates
     real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
-    # logger.info(f"Grid path points converted to real-world coordinates")
+
     # Add start_real and goal_real as the first and last points
-    real_path_points.insert(0, start_real[:2])
-    real_path_points.append(goal_real[:2])
-    # logger.info(f"Start and goal points added to the path")
+    real_path_points.insert(0, start_real)
+    real_path_points.append(goal_real)
+
     # Smooth the path using cubic interpolation
     # path_points = bezier_smooth_path(path_points)
-    # logger.info(f"Path smoothed")
+
     path = Path()
     path.header.stamp = clock.now().to_msg()
     path.header.frame_id = "map"
-    # logger.info(f"{real_path_points}")
+
     for x, y in real_path_points:
-        # logger.info(f"Adding start and goal points to the path")
         pose = PoseStamped()
         pose.header.stamp = clock.now().to_msg()
         pose.header.frame_id = "map"
@@ -600,7 +524,7 @@ def create_path_message(
         pose.pose.position.y = y
         pose.pose.orientation.w = 1.0  # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation
         path.poses.append(pose)
-    # logger.info(f"Path points added to the path message")
+
     if (
         goal_real[2] is None
     ):  # If no yaw is provided for the goal, set it to match the direction of the path
@@ -640,88 +564,6 @@ def simplify_grid_path(path_points):
 
     simplified_path.append(path_points[-1])
     return simplified_path
-
-
-def simplify_grid_path_further(path_points, grid):
-    whole_path = path_points
-    new_path = whole_path
-    j = 0
-    while j < len(whole_path) - 1:
-        for i in range(j + 1, len(whole_path)):
-            if straight_path_valid(whole_path[j], whole_path[i], grid):
-                new_path = whole_path[: j + 1] + whole_path[i:]
-                # print(f"Move from {new_path[j]} to {new_path[i]} valid.")
-                # print(f"whole = {whole}")
-            else:
-                # print(f"Move from {new_path[j]} to {new_path[i]} not valid.")
-                break
-        whole_path = new_path
-        # print(f"new = {new_path}")
-        j += 1
-    return whole_path
-
-
-def straight_path_valid(start: tuple[int, int], goal: tuple[int, int], grid):
-    # Check if both start and goal are unoccupied
-    if grid.data[start[1] * grid.info.width + start[0]] != 0:
-        return False
-    elif grid.data[goal[1] * grid.info.width + goal[0]] != 0:
-        return False
-
-    distance = (goal[0] - start[0]) ** 2 + (goal[1] - start[1]) ** 2
-    # Create a direct path from the position to the object
-    direct_path = []
-    path_resolution = 1 / 3
-    n = int(distance / path_resolution)
-
-    # Create n points on the line between the object and the possible position
-    for j in range(1, n, 1):
-        dist = j * path_resolution
-        x = start[0] + dist * np.cos(
-            np.arctan2((goal[1] - start[1]), (goal[0] - start[0]))
-        )
-        x_down = int(x)
-        x_up = int(x) + 1
-        y = start[1] + dist * np.sin(
-            np.arctan2((goal[1] - start[1]), (goal[0] - start[0]))
-        )
-        y_down = int(y)
-        y_up = int(y) + 1
-        if not (
-            ((x_down, y_down) in direct_path)
-            or ((x_down, y_down) == goal)
-            or ((x_down, y_down) == start)
-        ):
-            direct_path.append((x_down, y_down))
-        if not (
-            ((x_up, y_down) in direct_path)
-            or ((x_up, y_down) == goal)
-            or ((x_up, y_down) == start)
-        ):
-            direct_path.append((x_up, y_down))
-        if (
-            not ((x_down, y_up) in direct_path)
-            or ((x_down, y_up) == goal)
-            or ((x_down, y_up) == start)
-        ):
-            direct_path.append((x_down, y_up))
-        if not (
-            ((x_up, y_up) in direct_path)
-            or ((x_up, y_up) == goal)
-            or ((x_up, y_up) == start)
-        ):
-            direct_path.append((x_up, y_up))
-
-    direct_grid_path = direct_path
-
-    for point in direct_grid_path:
-        px, py = point
-        if grid.data[py * grid.info.width + px] != 0:  # Check for obstacles
-            # logger.info(
-            # f"Obstacle detected at {point} between {possible_position} and {object_grid_position}. Occupancy: {collection_occupancy_grid.data[py * width + px]}"
-            # )
-            return False
-    return True
 
 
 # CHECK THIS LATER
