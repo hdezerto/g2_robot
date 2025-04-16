@@ -186,9 +186,9 @@ class Odometry(Node):
         
         
         # Compute quaternion once and reuse
-        q = quaternion_from_euler(0.0, 0.0, self._yaw)
+        #q = quaternion_from_euler(0.0, 0.0, self._yaw)
         #IMU_version
-        #q= quaternion_from_euler(0.0, 0.0, self.dif_yaw)
+        q= quaternion_from_euler(0.0, 0.0, self.dif_yaw)
 
         stamp = msg.header.stamp
 
