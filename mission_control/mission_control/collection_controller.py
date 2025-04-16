@@ -36,11 +36,6 @@ from std_srvs.srv import Trigger
 
 """
 NOTES (HUGO):
-- Check how the motion controller executes the yaw from the PoseStamped() of the Path()
-
-- I assume the observation point and drop point (near a box) are not inflated on the planning map,
-otherwise A* fails. I also assume the closest uninflated point to a box is good enough for dropping.
-
 
 DONT FORGET TO UNCOMMENT ALL: self.update_current_pose() 
 
@@ -51,11 +46,11 @@ colcon build --symlink-install
 rviz2
 fastdds discovery -i 0 -t 192.168.128.110 -q 42100
 ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/hiwonder_arm -v6
-ros2 run arm simple_arm_controller 
+ros2 run arm simple_arm_controller
+
 ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
 ros2 run motion_control motion_control
 ros2 run detection detection
-
 IN ~/dd2419_ws    ros2 run mission_control collection_controller
 
 
@@ -74,7 +69,7 @@ DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
 
 OBSERVATION_DISTANCE = 0.37 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
 PICK_DISTANCE = 0.20 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
-DROP_DISTANCE = 0.40  # Distance to the box for drop [m] NOT TUNED!
+DROP_DISTANCE = 0.30  # Distance to the box for drop [m] NOT TUNED!
 # ------------------------------------
 
 
@@ -173,9 +168,9 @@ class CollectionController(Node):
         self.arm_feedback_subscriber = self.create_subscription(Bool, "/arm_controller_feedback", self.arm_feedback_callback, 10)
         
         # MATTIAS ADDED:
-        self.pickupClient = self.create_client(Pickup, 'pickup')
-        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
-        self.dropClient = self.create_client(Trigger, 'drop')
+        # self.pickupClient = self.create_client(Pickup, 'pickup')
+        # self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
+        # self.dropClient = self.create_client(Trigger, 'drop')
 
 
         # Initialize TransformListener to get current position of the robot
@@ -265,7 +260,7 @@ class CollectionController(Node):
         self.update_current_pose()  # Update the current pose of the robot
         start = (self.current_grid_position, self.current_pose)
         goal = (real_to_grid_coordinates([self.destination_pose], self.path_planning_grid)[0], self.destination_pose)
-        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+        #self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
         if path: # Path found
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
@@ -287,39 +282,6 @@ class CollectionController(Node):
         # -----------------------------------------
  
 
-    # PREVIOUS VERSIONS WITH UNSUBSCRIBED CALLBACKS THAT DOES NOT WORK (can be deleted later)
-    # def observe_object(self, timeout):
-    #     self.get_logger().info(f"Observing for object category {self.next_object['category']} for {timeout} seconds...")
-    
-    #     start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
-    
-    #     # Callback to process detections
-    #     def detection_callback(msg):
-    #         if self.state != State.OBSERVE_OBJECT:
-    #             return # To avoid accessing the destroyed subscriber because of the messages left in the queue
-    #         self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
-    #         if msg.cat == self.next_object["category"]:  # Check if the detection matches the desired category
-    #             self.get_logger().info(f"Detected desired object: category {msg.cat} at ({msg.x}, {msg.y}). OBSERVE_OBJECT -> MOVE_TO_PICK")
-    #             self.detected_position = (msg.x, msg.y)
-    #             self.state = State.MOVE_TO_PICK
-    
-    #     # Subscribe to the /detections topic
-    #     self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', detection_callback, 5)
-    
-    #     # Wait for the detection or timeout
-    #     while self.state == State.OBSERVE_OBJECT:
-    #         rclpy.spin_once(self) # Process callbacks
-    #         elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
-    #         if elapsed_time > timeout:
-    #             self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> END_COLLECTION")
-    #             self.state = State.END_COLLECTION  # Transition to END_COLLECTION if no detection is received
-    #             break
-        
-    #     self.detections_subscriber.destroy()  # Destroy the subscriber
-    #     self.detections_subscriber = None  # Clear the reference
-    #     self.get_logger().info("Detection subscriber destroyed.")  # DEBUG
-
-
     def observe_object(self, timeout):
         self.get_logger().info(f"Observing for object category {self.next_object['category']} for {timeout} seconds...")
         start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
@@ -329,8 +291,8 @@ class CollectionController(Node):
             rclpy.spin_once(self) # Process callbacks
             elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
             if elapsed_time > timeout:
-                self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> END_COLLECTION")
-                self.state = State.END_COLLECTION  # Transition to END_COLLECTION if no detection is received
+                self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> GET_NEXT_OBJECT")
+                self.state = State.GET_NEXT_OBJECT
                 break
 
     
@@ -382,8 +344,6 @@ class CollectionController(Node):
         
         # Using dummy function for debugging
         drop_pose = self.compute_best_pose(self.closest_box[:2], DROP_DISTANCE) # DEBUG
-
-        # drop_pose = self.compute_drop_pose(DROP_DISTANCE) # DEBUG (MATTIAS ADDED)
         # ---------------------------------------------
         if drop_pose:
             self.destination_pose = drop_pose  # Set the drop pose as the destination
@@ -396,85 +356,85 @@ class CollectionController(Node):
 
     def pick(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        # msg = Int32()
-        # msg.data = 1 # 1 for PICK
-        # self.arm_command_publisher.publish(msg)
-        # self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
-        # self.state = State.WAIT_FOR_ARM
+        msg = Int32()
+        msg.data = 1 # 1 for PICK
+        self.arm_command_publisher.publish(msg)
+        self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
+        self.state = State.WAIT_FOR_ARM
      
         # --- MATTIAS VERSION:
-        request = Pickup.Request()
-        object_type = "Cube"  # Retrieve from topic?
-        request.object_type = object_type
-        request.color = "Red" # Example color, mainly for testing/debugging
-        angles = [12000,10000,18500,2500]
-        servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
-                            [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
+        # request = Pickup.Request()
+        # object_type = "Cube"  # Retrieve from topic?
+        # request.object_type = object_type
+        # request.color = "Red" # Example color, mainly for testing/debugging
+        # angles = [12000,10000,18500,2500]
+        # servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
+        #                     [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
 
-        msg1 = Int16MultiArray()
-        msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        # msg1 = Int16MultiArray()
+        # msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
 
-        for angles in servos_angles_times1:
-            self.get_logger().info(f'Angles: {angles}')
-            msg1.data = angles
-            self.servos_publisher.publish(msg1)
-            self.get_logger().info(f'Published message: {msg1.data}')
-            time.sleep(3)
+        # for angles in servos_angles_times1:
+        #     self.get_logger().info(f'Angles: {angles}')
+        #     msg1.data = angles
+        #     self.servos_publisher.publish(msg1)
+        #     self.get_logger().info(f'Published message: {msg1.data}')
+        #     time.sleep(3)
 
-        # Call the service asynchronously and get a future
-        future = self.pickupClient.call_async(request)
-        # Wait for the response from the service
-        rclpy.spin_until_future_complete(self, future)
+        # # Call the service asynchronously and get a future
+        # future = self.pickupClient.call_async(request)
+        # # Wait for the response from the service
+        # rclpy.spin_until_future_complete(self, future)
 
-        # Handle the response
-        if future.result() is not None:
-            self.get_logger().info(f'Success: {future.result().message}')
-            self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
-            self.state = State.MOVE_TO_BOX
-        else:
-            self.get_logger().error('Service call failed')
+        # # Handle the response
+        # if future.result() is not None:
+        #     self.get_logger().info(f'Success: {future.result().message}')
+        #     self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
+        #     self.state = State.MOVE_TO_BOX
+        # else:
+        #     self.get_logger().error('Service call failed')
       
 
     def drop(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        # msg = Int32()
-        # msg.data = 2  # 2 for DROP
-        # self.arm_command_publisher.publish(msg)
-        # self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
-        # self.state = State.WAIT_FOR_ARM
+        msg = Int32()
+        msg.data = 2  # 2 for DROP
+        self.arm_command_publisher.publish(msg)
+        self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
+        self.state = State.WAIT_FOR_ARM
 
         # --- MATTIAS VERSION:
-        servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
-                                    [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
-                                    [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
-                                    [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
+        # servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
+        #                             [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+        #                             [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+        #                             [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
             
-        msg = Int16MultiArray()
-        msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
-        valid_angles = [True, True, True, True]
-        if all(valid_angles):        
-            for angles in servos_angles_times1:
-                msg.data = angles
-                print(msg.data)
-                self.servos_publisher.publish(msg)
-                #self.get_logger().info(f'Published message: {msg.data}')
-                time.sleep(3)
+        # msg = Int16MultiArray()
+        # msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        # valid_angles = [True, True, True, True]
+        # if all(valid_angles):        
+        #     for angles in servos_angles_times1:
+        #         msg.data = angles
+        #         print(msg.data)
+        #         self.servos_publisher.publish(msg)
+        #         #self.get_logger().info(f'Published message: {msg.data}')
+        #         time.sleep(3)
 
-        """ request = Trigger.Request()
-        # Call the service asynchronously and get a future  
-        future = self.dropClient.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        # """ request = Trigger.Request()
+        # # Call the service asynchronously and get a future  
+        # future = self.dropClient.call_async(request)
+        # rclpy.spin_until_future_complete(self, future)
 
-        # Handle the response
-        if future.result() is not None:
-            self.get_logger().info(f'Success: {future.result().message}')
-            #success_msg = Bool()
-            #success_msg.data = future.result().success
-            #self.arm_feedback_publisher.publish(success_msg)
-        else:
-            self.get_logger().error('Service call failed') """
+        # # Handle the response
+        # if future.result() is not None:
+        #     self.get_logger().info(f'Success: {future.result().message}')
+        #     #success_msg = Bool()
+        #     #success_msg.data = future.result().success
+        #     #self.arm_feedback_publisher.publish(success_msg)
+        # else:
+        #     self.get_logger().error('Service call failed') """
 
-        self.state = State.GET_NEXT_OBJECT
+        # self.state = State.GET_NEXT_OBJECT
 
 
     def arm_feedback_callback(self, msg):
@@ -508,77 +468,7 @@ class CollectionController(Node):
 
     # ------------------- UTILS ------------------- 
 
-    # --- MATTIAS ADDED:
-    def compute_drop_pose(self, drop_distance=0.22):
-        # self.get_logger().info("Computing drop pose...")
-        box_position = self.closest_box
-        current_grid_position = self.current_grid_position
-        collection_occupancy_grid = self.path_planning_grid
-        # self.get_logger().info("got box pos")
-        # Init
-        box_x, box_y = box_position[:2]
-        possible_positions = []
-        self.get_logger().info(f"Make circle...")
-        # positions are in a circle around the object every 30 degrees
-        for i in range(0, 360, 90):
-            x = box_x + drop_distance * np.cos(np.radians(i))
-            y = box_y + drop_distance * np.sin(np.radians(i))
-            possible_positions.append((x, y))
-        # self.get_logger().info(f"Possible drop positions: {possible_positions}")
-        possible_grid_positions = real_to_grid_coordinates(
-            possible_positions, collection_occupancy_grid
-        )
-        feasible_positions = []
-        feasible_grid_positions = []
-        self.get_logger().info(f"Conversion to grid done")
-        # remove occupied positions or position without a clear view to the object
-        for i, grid_position in enumerate(possible_grid_positions):
-            # Check if the position is within bounds
-            width = collection_occupancy_grid.info.width
-            height = collection_occupancy_grid.info.height
-            x, y = grid_position
-            # self.get_logger().info(
-            #     f"Possible Position {possible_position} with grid position {possible_grid_position}."
-            # )
-
-            if not (
-                collection_occupancy_grid.data(y * width + x) == -1
-                or (collection_occupancy_grid.data[y * width + x] > 40)
-            ):
-                feasible_positions.append(possible_positions[i])
-                feasible_grid_positions.append(grid_position)
-        # self.get_logger().info(f"Feasible positions: {feasible_positions}")
-        # If no possible positions are left, return False
-        if not feasible_positions:
-            self.get_logger().info("No valid DropOff positions found.")
-            return None
-        
-        # Visualisation
-        non_feasible_positions = []
-        for possible_position in possible_positions:
-            if possible_position not in feasible_positions:
-                non_feasible_positions.append(possible_position)
-        # If no possible positions are left, return False
-        if not feasible_positions:
-            self.get_logger().warn("No valid observation positions found.")
-            return None
-        self.visualize_observation_positions(feasible_positions, non_feasible_positions)
-
-        drop_off_position = min(
-            feasible_positions,
-            key=lambda pos: np.linalg.norm(
-                np.array(pos) - np.array(self.current_pose[:2])
-            ),
-        )
-        # Add final orientation
-        dx = -drop_off_position[0] + box_x
-        dy = -drop_off_position[1] + box_y
-        theta = np.arctan2(dy, dx)  # Angle to the object
-
-        return (drop_off_position[0], drop_off_position[1], theta)
-
-
-    def compute_best_pose(self, target_type):
+    def NEW_compute_best_pose(self, target_type):
         # Update the current pose of the robot
         self.update_current_pose() # Uncomment only when testing on the robot
 

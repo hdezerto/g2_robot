@@ -54,9 +54,12 @@ class ArmController(Node):
                                    [12500, 12000, 12000, 12000, 12000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000]] # Go up
             
         else: # DROP (action == 2)
-            servos_angles_times = [[12500, 12000, 3500, 12800, 6000, 12000, 2000, 2000, 2000, 2000, 2000, 2000], # Go down
-                                   [3000, 12000, 3500, 12800, 6000, 12000, 2000, 2000, 2000, 2000, 2000, 2000], # Open gripper
-                                   [3000, 12000, 12000, 12000, 12000, 12000, 2000, 2000, 2000, 2000, 2000, 2000]] # Reset arm
+            # servos_angles_times = [[12500, 12000, 3500, 12800, 6000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Go down
+            #                        [3000, 12000, 3500, 12800, 6000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Open gripper
+            #                        [3000, 12000, 12000, 12000, 12000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000]] # Reset arm
+            servos_angles_times = [[12500, 12000, 12000, 12000, 4500, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Go down
+                                   [3000, 12000, 12000, 12000, 4500, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Open gripper
+                                   [3000, 12000, 12000, 12000, 12000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000]] # Reset arm
 
         msg = Int16MultiArray()
         msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
@@ -71,7 +74,7 @@ class ArmController(Node):
         feedback_msg = Bool()
         feedback_msg.data = True  # True for success
         self.feedback_publisher.publish(feedback_msg)
-        self.get_logger().info('Published feedback message: SUCCESS')
+        self.get_logger().info('Published feedback message.')
 
 
 
