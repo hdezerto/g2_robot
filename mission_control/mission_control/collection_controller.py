@@ -30,7 +30,7 @@ import time
 
 # MATTIAS IMPORTS:
 from std_msgs.msg import Int16MultiArray, MultiArrayLayout, MultiArrayDimension
-#from my_custom_interfaces.srv import Pickup
+from my_custom_interfaces.srv import Pickup
 from std_srvs.srv import Trigger
 
 
