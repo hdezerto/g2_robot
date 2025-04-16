@@ -67,7 +67,10 @@ class PickupService(Node):
 
     def pickup_callback(self, request, response):
         self.get_logger().info(f'Received pickup request for: {request.object_type}, {request.color}')
-
+        if request.object_type == 'Cube' or request.object_type == 'Sphere':
+            pass
+        elif request.object_type == 'Plushie':
+            self.backup.point.z = -0.09
         # Dummy position, ideally use detection logic
         obj_pos = PointStamped()
         obj_pos.point.x = 0.2
@@ -151,6 +154,7 @@ class PickupService(Node):
         # Crop the undistorted image
         x, y, w, h = roi
         cropped_img = imgUndist[y:y+h-34, x:x+w]
+        cv2.imwrite('/home/happy/img.png', cropped_img)
 
         if object_type == 'Cube' or object_type == 'Sphere':
             
@@ -158,12 +162,17 @@ class PickupService(Node):
 
             # Convert the image to grayscale
             gray_img = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(16, 16))
+            gray_img = clahe.apply(gray_img)
 
             # Apply Canny edge detection
             kernel = np.ones((5, 5), np.uint8)
             edges = cv2.Canny(gray_img, threshold1=50, threshold2=150)
             inverted_edges = cv2.bitwise_not(edges)
             maskk = cv2.erode(inverted_edges, kernel, iterations=1)
+
+            cv2.imwrite('/home/happy/edges.png', inverted_edges)
+
 
             # Optionally, visualize the edges
             cv2.imwrite('/home/happy/maskk.png', maskk)
@@ -188,20 +197,25 @@ class PickupService(Node):
 
                 for label in valid_labels:
                     cluster_points = points[clustering.labels_ == label]
-                    print(label)
+                    #print(label)
                     ys, xs = cluster_points[:, 0], cluster_points[:, 1]
                     width = xs.max() - xs.min()
                     height = ys.max() - ys.min()
                     #width < 80 and height < 80 and 
                     # Example condition: must be roughly square and not too thin
-                    if 0.7 < (width / height) < 1.5:
-                        filtered_clusters.append((label, len(cluster_points)))
+                    if object_type == 'Sphere':
+                        if 0.8 < (width / height) < 1.2 and len(cluster_points) > 2000 and len(cluster_points) < 4000:
+                            filtered_clusters.append((label, len(cluster_points)))
+                    elif object_type == 'Cube':
+                        if 0.8 < (width / height) < 1.2 and len(cluster_points) > 1000 and len(cluster_points) < 2500:
+                            filtered_clusters.append((label, len(cluster_points)))
 
                 if filtered_clusters:
                     # Choose largest valid cluster from filtered
                     best_label = max(filtered_clusters, key=lambda x: x[1])[0]
                     largest_cluster_points = points[clustering.labels_ == best_label]
                     cluster_size = len(largest_cluster_points)
+                    print('cluster size',cluster_size)
 
                     # Compute centroid
                     avg_point = np.mean(largest_cluster_points, axis=0)
@@ -225,8 +239,27 @@ class PickupService(Node):
             #return msg
 
         if object_type == 'Plushie':
+            start = time.time()
+            img = cropped_img.copy()
+            Z = img.reshape((-1,3))
+            # convert to np.float32
+            Z = np.float32(Z)
+            # define criteria, number of clusters(K) and apply kmeans()
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+            K = 3
+            ret,label,center=cv2.kmeans(Z,K,None,criteria,10,cv2.KMEANS_RANDOM_CENTERS)
+            # Now convert back into uint8, and make original image
+            center = np.uint8(center)
+            res = center[label.flatten()]
+            res2 = res.reshape((img.shape))
+            end = time.time()
+            print('kmeans time:', end-start)
+            
+            print('Plushie')
             # Implement Plushie detection logic here
-            gray_img = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)
+            gray_img = cv2.cvtColor(res2, cv2.COLOR_BGR2GRAY)
+            #gray_img = cv2.erode(res2, np.ones((5, 5), np.uint8), iterations=1)
+            cv2.imwrite('/home/happy/res2.png', gray_img)
 
             # Apply Canny edge detection
             kernel = np.ones((5, 5), np.uint8)
@@ -235,9 +268,43 @@ class PickupService(Node):
             maskk = cv2.erode(inverted_edges, kernel, iterations=1)
 
             # Optionally, visualize the edges
+            cv2.imwrite('/home/happy/edges.png', inverted_edges)
+
             cv2.imwrite('/home/happy/maskk.png', maskk)
 
+            """ num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(maskk, connectivity=8)
+            print('num_labels', num_labels, 'labels',labels, 'stats', stats, 'centroids', centroids) """
 
+            
+            # Assuming maskk is your binary mask image
+            max_solidity = 0
+            contours, _ = cv2.findContours(maskk, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            # Create a copy of the mask to draw contours on
+            contours, _ = cv2.findContours(maskk, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            high_solidity_mask = np.zeros_like(maskk)
+            
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if area < 100:  # Skip tiny areas
+                    continue
+                    
+                hull = cv2.convexHull(cnt)
+                hull_area = cv2.contourArea(hull)
+                
+                if hull_area == 0:
+                    continue
+                    
+                solidity = float(area) / hull_area
+                print(f"scontour solidity: {solidity}, area: {area}")
+                
+                if solidity > 0.65:  # High solidity threshold
+                    cv2.drawContours(high_solidity_mask, [cnt], -1, 255, thickness=cv2.FILLED)
+                    if solidity > max_solidity:
+                        max_solidity = solidity
+
+            maskk = high_solidity_mask
+            cv2.imwrite('/home/happy/highmask.png', high_solidity_mask)
             points = np.column_stack(np.where(maskk > 0))
             cx,cy = 0, 0 # maybe change this
             avg_point = 0
@@ -261,13 +328,15 @@ class PickupService(Node):
                     ys, xs = cluster_points[:, 0], cluster_points[:, 1]
                     width = xs.max() - xs.min()
                     height = ys.max() - ys.min()
+                    print(len(cluster_points), 'width', width, 'height', height)
+                    #print('density', density, 'width/height', width/height, len(cluster_points))
                     #width < 80 and height < 80 and 
                     # Example condition: must be roughly square and not too thin
                     iteration += 1
-                    if True:   
+                    if 0.65 < (width / height) < 1.5 and len(cluster_points) > 1000 and len(cluster_points) < 8000:   
                         filtered_clusters.append((label, len(cluster_points)))
                     if 0.7 < (width / height) < 1.5 and len(cluster_points) > 500:
-                        plush_orientation[label] = 'SIDE'
+                        plush_orientation[label] = 'DEFAULT'
                     else:
                         plush_orientation[label] = 'DEFAULT'
 
@@ -277,6 +346,7 @@ class PickupService(Node):
                     largest_cluster_points = points[clustering.labels_ == best_label]
                     cluster_size = len(largest_cluster_points)
                     self.plush_orientation = plush_orientation[best_label]
+                    print('cluster size',cluster_size)
 
                     # Compute centroid
                     avg_point = np.mean(largest_cluster_points, axis=0)
@@ -303,19 +373,25 @@ class PickupService(Node):
         pos_x = xnew/h * 17.5/100 + 10/100  # KANSKE BORDE VARA TYP 17.6-17.7 ish
         pos_y = ynew/(w/2) * 25/200 
         if object_type == 'Cube' or object_type == 'Sphere':
+            pos_z = -0.13
             if pos_y < 0:
                 pos_y = pos_y + 1/100
             elif pos_y > 0:
                 pos_y = pos_y - 1/100
         elif object_type == 'Plushie':
-            pos_x = pos_x - 1/100
+            pos_x = pos_x - 2/100
+            if pos_y < 0:
+                pos_y = pos_y + 1/100
+            elif pos_y > 0:
+                pos_y = pos_y - 1/100
+            pos_z = -0.09
 
 
         # Return the position of the object
         msg = PointStamped()
         msg.point.x = float(pos_x)
         msg.point.y = float(pos_y)
-        msg.point.z = -0.13 # placeholder value
+        msg.point.z = pos_z # placeholder value
         self.get_logger().info(f"Object detected at: {msg.point.x}, {msg.point.y}, {msg.point.z}")
 
 
@@ -363,29 +439,30 @@ class PickupService(Node):
             valid_angles[3] = False
         angles = [int(angle * 100) for angle in angles]
         # 12000
-        if all (valid_angles) and self.plush_orientation != 'SIDE':
-            self.get_logger().info(f'Angles: {angles}')
-            upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
-            grab_pos = [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
-            grab = [11000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
-            upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
-            sequence = [upright_open, grab_pos, grab, upright_hold]
-        elif all(valid_angles) and self.plush_orientation == 'SIDE':
-            self.get_logger().info(f'Angles: {angles}')
-            print('SIDE')
-            upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]         
-            grab_pos = [3000,3000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
-            grab = [11000,3000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
-            upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
-            sequence = [upright_open, grab_pos, grab, upright_hold]
+        if all (valid_angles):
+            if self.plush_orientation != 'SIDE':
+                self.get_logger().info(f'Angles: {angles}')
+                upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
+                grab_pos = [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
+                grab = [11000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
+                upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
+                sequence = [upright_open, grab_pos, grab, upright_hold]
+            elif self.plush_orientation == 'SIDE':
+                self.get_logger().info(f'Angles: {angles}')
+                print('SIDE')
+                upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]         
+                grab_pos = [3000,3000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
+                grab = [11000,3000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
+                upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
+                sequence = [upright_open, grab_pos, grab, upright_hold]
 
-        msg = Int16MultiArray()
-        msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+            msg = Int16MultiArray()
+            msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
 
-        for step in sequence:
-            msg.data = step
-            self.servos_publisher.publish(msg)
-            time.sleep(3)
+            for step in sequence:
+                msg.data = step
+                self.servos_publisher.publish(msg)
+                time.sleep(3)
 
         #self.feedback_publisher.publish(String(data='SUCCESS'))'
 

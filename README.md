@@ -58,6 +58,12 @@ On the **remote laptop**, run the following commands:
     rviz2
     ```
 
+For the arm:
+```sh
+ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/hiwonder_arm -v6
+```
+
+
 
 ### Using the Robot (avoid it!)
 

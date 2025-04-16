@@ -1,18 +1,14 @@
-    
-    
+<?xml version="1.0"?>
+<launch>
+
+
     <!-- Run micro_ros_agent for the arm -->
     <node pkg="micro_ros_agent" exec="micro_ros_agent" name="micro_ros_agent_node" output="screen"
         args="serial --dev /dev/ttyUSB1 -v6"/>
-    
-    
+
     <!--  Run the arm camera  -->
     <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
 
 
 
-    <!--  Run Lidar  -->
-    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
-  
-
-
-
+</launch>

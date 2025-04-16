@@ -22,6 +22,7 @@ from detection_interfaces.msg import DetectionMsg
 import os # To get the current directory
 
 import time
+import numpy as np
 
 """
 NOTES (HUGO):
@@ -32,14 +33,14 @@ NOTES (HUGO):
 
 
 #self.get_logger().info('HERE DEBUG!!!')  # DEBUG
-
+# print("-------------------- DEBUG HERE") # DEBUG
 
 
 # -------- Tunable parameters --------
 #EXPLORATION_STEP = 7  # Step size for generating exploration points [cells]
 EXPLORATION_STEP = 15 # DEBUGGING
 POSITION_THRESHOLD = 0.13  # Threshold for considering two detections as the same [m]
-MAP_FILE_NAME = "map_file.tsv"  # Name of the map file to save
+MAP_FILE_NAME = "map_exploration.tsv"  # Name of the map file to save
 OBSERVATION_TIME = 3.0  # Time to observe the environment [s]
 # ------------------------------------
 
@@ -87,7 +88,6 @@ class ExplorationController(Node):
         self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, '/exploration_occupancy_grid', latched_qos)
         self.detections_subscriber = self.create_subscription(DetectionMsg, '/detections', self.detections_callback, 5) # CHECK if 5 is not too much here
         self.tf_broadcaster = TransformBroadcaster(self) # For publishing detected objects/boxes to RViz
-        #TODO change back to process maps
         self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, '/mapper_occupancy_grid', self.mapper_occupancy_grid_callback, 1)
         self.planning_grid_publisher = self.create_publisher(OccupancyGrid, '/planning_grid', latched_qos)
         self.path_publisher = self.create_publisher(Path, '/planned_path', 10)
@@ -108,8 +108,8 @@ class ExplorationController(Node):
         inflate_occupied_cells(self.exploration_occupancy_grid)
         
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
-        self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
+        self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()
@@ -120,8 +120,8 @@ class ExplorationController(Node):
         # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
 
         # Initilizate variables for exploration
-        self.current_pose = (0, 0, 0)  # Initial position (x, y, yaw) in real world coordinates
-        self.current_grid_position = real_to_grid_coordinates([self.current_pose[:2]], self.exploration_occupancy_grid)[0]
+        self.current_pose = (0.0, 0.0, 0.0)  # Initial position (x, y, yaw) in real world coordinates
+        self.current_grid_position = real_to_grid_coordinates([self.current_pose], self.exploration_occupancy_grid)[0]
         self.exploration_point_index = 0
         self.exploration_point = None
         self.detections = []  # Unified list for all detections
@@ -133,8 +133,7 @@ class ExplorationController(Node):
 
         self.publish_planning_grid() # Publish the initial grid to RViz
         self.grid_path = []  # Path in grid coordinates
-        self.latest_lidar_grid = initialize_occupancy_grid() # Just in case detections_callback is called before the lidar grid is received
-
+        self.latest_lidar_grid = initialize_occupancy_grid() # In case detections_callback is called before the mapper callback OR when testing without lidar
         # Timer to periodically publish detections to RViz
         self.detections_timer = self.create_timer(0.5, self.publish_detections_periodically)
 
@@ -183,8 +182,12 @@ class ExplorationController(Node):
     def plan_path(self):
         self.update_current_pose()  # Update the current pose of the robot
         start = (self.current_grid_position, self.current_pose)
-        goal = (self.exploration_point, (*grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0], None))
-        #self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
+
+        #start_yaw_debug = self.current_pose[2] * 180 / np.pi # DEBUG
+        #self.get_logger().info(f'----- start_yaw_debug: {start_yaw_debug} degrees')  # DEBUG
+
+        goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
+        self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
         if path: # Path found
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
@@ -331,7 +334,7 @@ class ExplorationController(Node):
         Check if the given coordinates (x, y) are inside the workspace (including the border).
         """
         # Convert real-world coordinates to grid coordinates
-        grid_x, grid_y = real_to_grid_coordinates([(x, y)], self.exploration_occupancy_grid)[0]
+        grid_x, grid_y = real_to_grid_coordinates([(x, y, None)], self.exploration_occupancy_grid)[0]
 
         # Get the grid dimensions
         width = self.exploration_occupancy_grid.info.width

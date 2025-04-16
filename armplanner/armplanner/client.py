@@ -36,7 +36,8 @@ class PickupClient(Node):
             msg1.data = angles
             self.servos_publisher.publish(msg1)
             self.get_logger().info(f'Published message: {msg1.data}')
-            time.sleep(3)
+            time.sleep(4)
+
         
         # Call the service asynchronously and get a future
         future = self.client.call_async(request)
@@ -57,7 +58,7 @@ def main(args=None):
     client_node = PickupClient()
 
     # Example usage: Request pickup of a Green Cube
-    client_node.send_request('Cube', 'Red')
+    client_node.send_request('Plushie', 'Red')
 
     # Spin the client node to process the request
     rclpy.spin(client_node)

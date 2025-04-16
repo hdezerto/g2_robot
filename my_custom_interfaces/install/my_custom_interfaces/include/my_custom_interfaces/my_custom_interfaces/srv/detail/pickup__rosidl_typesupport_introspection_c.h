@@ -1,1 +1,0 @@
-/home/robot/dd2419_ws/src/my_custom_interfaces/build/my_custom_interfaces/rosidl_typesupport_introspection_c/my_custom_interfaces/srv/detail/pickup__rosidl_typesupport_introspection_c.h

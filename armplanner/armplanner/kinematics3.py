@@ -43,6 +43,14 @@ def compute_penalty(joint_angles):
             penalty += (lower - angle) ** 2
         elif angle > upper:
             penalty += (angle - upper) ** 2
+
+    # Experimental penalty for wrist orientation
+    """ desired_orientation_deg = np.radians(-90)
+    ee_angle = np.radians(joint_angles[1] - joint_angles[2] - joint_angles[3])
+    print('ee_angle',ee_angle)
+    print(ee_angle - desired_orientation_deg)
+    # Penalize deviation from desired orientation
+    penalty += (ee_angle - desired_orientation_deg) ** 2 """
     return penalty
 
 def compute_fk(joint_angles):
@@ -82,6 +90,7 @@ def compute_fk(joint_angles):
     theta22 = rad2deg(theta2)
     theta33 = rad2deg(theta3)
     #print(theta11, theta22, theta33)
+    #print(np.rad2deg(theta2-theta3-phi))
 
     return x3_rot, y3_rot, z3
 

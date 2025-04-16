@@ -36,8 +36,8 @@ from detection_interfaces.msg import DetectionMsg
 # ---------- TUNABLE PARAMETERS ----------
 
 N_THRESHOLD = 8  # Process every N_THRESHOLD messages (to reduce processing load) TEST
-MAX_DISTANCE = 0.9 # Maximum distance from the sensor [m] TEST
-MIN_DISTANCE = 0.04 # Minimum distance from the sensor [m] TEST
+MAX_DISTANCE = 0.9 # Maximum distance from the camera [m] TEST
+MIN_DISTANCE = 0.04 # Minimum distance from the camera [m] TEST
 
 MAX_HEIGHT = 0.09 # Maximum height from the floor [m] TEST
 MIN_HEIGHT = -0.065 # Minimum height from the floor [m] TEST
@@ -329,8 +329,6 @@ class PointCloudDetection(Node):
         except TransformException as e:
             self.get_logger().error(f"Failed to transform coordinates: {e}")
             return None, None, None
-
-
 
 
     def create_object(self, id, x, z, angle, stamp):

@@ -17,9 +17,6 @@
     <!--  Run camera to initiate pointcloud  -->
     <include file="$(find-pkg-share robp_launch)/launch/rs_d435i_launch.py"/>
 
-        <!--  Run Lidar  -->
-    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
-
 
     <!--  Run joystick teleop  -->
     <include file="$(find-pkg-share teleop_twist_joy)/launch/teleop-launch.py"> 
@@ -31,12 +28,6 @@
     So DO NOT publishing to /cmd_vel from other nodes to avoid errors. -->
     <node pkg="motion_control" exec="joystick_motor_controller" name="controller_node" output="screen"/>
 
-    <!-- Run micro_ros_agent for the arm -->
-    <node pkg="micro_ros_agent" exec="micro_ros_agent" name="micro_ros_agent_node" output="screen"
-        args="serial --dev /dev/ttyUSB1 -v6"/>
-
-    <!--  Run the arm camera  -->
-    <include file="$(find-pkg-share robp_launch)/launch/arm_camera_launch.yaml"/>
 
 
 </launch>

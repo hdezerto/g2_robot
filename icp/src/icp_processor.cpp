@@ -63,14 +63,10 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_lin_;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr reference_cloud_{std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()};
-    // Store the reference keyframes
-    std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> reference_keyframes_;
-
-    
     pcl::PointCloud<pcl::PointXYZ>::Ptr prev_cloud {nullptr};
 
-    const float MAX_TRANSLATION = 0.9;    // Maximum translation threshold (meters)
-    const float MAX_ROTATION = 1.0;    // Maximum rotation threshold (radians) ~ 10 degrees
+    const float MAX_TRANSLATION = 0.5;    // Maximum translation threshold (meters)
+    const float MAX_ROTATION = 0.5;    // Maximum rotation threshold (radians) ~ 10 degrees
 
     
     float previous_yaw_{0.0f}; // Initialize to zero or a valid starting value
@@ -79,7 +75,7 @@ private:
 
     const float smoothing_std = 0.25f; 
     // Check yaw rate threshold before running ICP.
-    const float YAW_RATE_THRESHOLD = 0.2; // Example threshold in rad/s
+    const float YAW_RATE_THRESHOLD = 0.6; // Example threshold in rad/s
     int counter=0;
     int stationary_counter=0;
     
@@ -89,56 +85,7 @@ private:
     // Callback for the reference cloud subscriber.
     void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
         // Convert the incoming PointCloud2 message into a PCL point cloud and store it.
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-        pcl::fromROSMsg(*msg, *cloud);
-        if (cloud->empty()) {
-            return; // Skip if the cloud is empty
-        }
-
-        if (!reference_cloud_) {
-            *reference_cloud_ = *cloud;
-            RCLCPP_INFO(this->get_logger(), "Stored first cloud for reference, skipping ICP on first pass.");
-            return;
-        }
-
-        // Apply voxel grid filtering
-        pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
-        voxel_filter.setInputCloud(cloud);
-        voxel_filter.setLeafSize(0.05f, 0.05f, 100.0f);
-        voxel_filter.filter(*cloud);
-
-        if (reference_cloud_->size()==cloud->size()){
-            RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to the new cloud size: %zu points.", reference_cloud_->size());
-            return;
-        }
-        else{
-            RCLCPP_WARN(this->get_logger(), "New reference cloud of size : %zu points, recieved.", reference_cloud_->size());
-            *reference_cloud_ = *cloud;
-        }
-    
-        
-        /*// Run ICP
-        pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-        icp.setInputSource(cloud);
-        icp.setInputTarget(reference_cloud_);
-        icp.setRANSACIterations(50);
-        icp.setMaxCorrespondenceDistance(0.5);
-        icp.setMaximumIterations(500);
-        icp.setTransformationEpsilon(1e-8);
-    
-        pcl::PointCloud<pcl::PointXYZ> aligned;
-        icp.align(aligned);
-
-        if (icp.hasConverged()) {
-            *reference_cloud_=aligned;
-        } else {
-            pcl::fromROSMsg(*msg, *reference_cloud_);
-        }*/
-
-
-        if (!reference_cloud_->empty()) {
-            reference_keyframes_.push_back(reference_cloud_);
-        }
+        pcl::fromROSMsg(*msg, *reference_cloud_);
         RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", reference_cloud_->size());
     }
 
@@ -197,11 +144,25 @@ private:
             RCLCPP_WARN(this->get_logger(), "Yaw rate (%.2f rad/s) exceeds threshold or robot stationary(%.2f m/s): skipping ICP.", yaw_rate_, linv_);
             // For accumulated clouds:
             publish_previous_cloud(output_topic, msg, prev_cloud);
+            
+            if (std::abs(yaw_rate_) > abs(YAW_RATE_THRESHOLD)) {
+                /*
+                                                smoothing_factor = 0.01*counter;  // Disable smoothing for large yaw rates
+                counter+=1;
+                if (smoothing_factor > 0.5) {
+                    smoothing_factor = 0.5;  // Cap the smoothing factor
+                }
+                */
+
+            }
             return; // Skip ICP processing
+            
         }
-        
-        
-        /*if (std::abs(linv_) < 0.01) {
+        else {
+            smoothing_factor = smoothing_std;  // Reset to default value
+        }
+        counter=0;
+        if (std::abs(linv_) < 0.01) {
             stationary_counter++;
             if (stationary_counter%3 == 0) {
                 RCLCPP_WARN(this->get_logger(), "Robot has been stationary for three collections (%.2f m/s): performing ICP.", linv_);
@@ -215,11 +176,9 @@ private:
         else {
             stationary_counter=0;  // Reset to default value
         }
-        */
 
         
 
-       
         // Check reference cloud availability
         if (reference_cloud_ && !reference_cloud_->empty()) {
             //target_cloud = reference_cloud_;
@@ -227,15 +186,11 @@ private:
             return;
         }
 
-        for (auto& pt : cloud->points) {
-            pt.z = 0.0f;
-        }
-
     
         // Apply voxel grid filtering
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
         voxel_filter.setInputCloud(cloud);
-        voxel_filter.setLeafSize(0.05f, 0.05f, 1000.0f);
+        voxel_filter.setLeafSize(0.01f, 0.01f, 100.0f);
         voxel_filter.filter(*cloud);
     
         // Run ICP
@@ -243,7 +198,7 @@ private:
         icp.setInputSource(cloud);
         icp.setInputTarget(reference_cloud_);
         icp.setRANSACIterations(50);
-        icp.setMaxCorrespondenceDistance(0.2);
+        icp.setMaxCorrespondenceDistance(0.4);
         icp.setMaximumIterations(500);
         icp.setTransformationEpsilon(1e-8);
     
@@ -251,10 +206,7 @@ private:
         icp.align(aligned);
     
         if (icp.hasConverged()) {
-            
-            /*
-                        float icpfitness = icp.getFitnessScore();
-            
+            float icpfitness = icp.getFitnessScore();
             //RCLCPP_INFO(this->get_logger(), "Fittness score: %f,", icpfitness);
             if (icpfitness < 0.1) {
                 RCLCPP_WARN(this->get_logger(), "ICP fitness score is too low: %f, skipping update.", icpfitness);
@@ -262,9 +214,6 @@ private:
                 publish_previous_cloud(output_topic, msg, cloud);
                 return; // Skip ICP processing
             }
-
-            */
-
 
             // Get the new ICP transformation.
             Eigen::Matrix4f transformation = icp.getFinalTransformation();
@@ -289,9 +238,9 @@ private:
             float translation_magnitude = translation.norm();
             float rotation_magnitude = std::abs(euler_angles.x());
             RCLCPP_INFO(this->get_logger(), "Translation mag: %f, Yaw mag: %f", translation_magnitude, rotation_magnitude);
-
-            //
-            if ((translation_magnitude < MAX_TRANSLATION && rotation_magnitude < MAX_ROTATION)) {
+        
+            // Only proceed if within limits (your condition here; adjust thresholds as needed).
+            if (translation_magnitude < MAX_TRANSLATION && rotation_magnitude < MAX_ROTATION )  {
         
                 // Smoothing factor: 0.0 means no update; 1.0 means full update.
                 
@@ -304,28 +253,19 @@ private:
                 // New update from ICP.
                 Eigen::Vector3f new_translation = translation;
                 float new_yaw = euler_angles.x();  // Only the z-axis rotation
-                
+        
+                // Smooth the updates by blending the previous state and the new update.
+                Eigen::Vector3f smoothed_translation = (1.0f - smoothing_factor*1.5) * prev_translation + smoothing_factor * new_translation;
+                float smoothed_yaw = (1.0f - smoothing_factor*1.5) * prev_yaw + smoothing_factor * new_yaw;
 
-            
+                smoothing_factor = smoothing_std;  // Reset to default value
+        
                 // Build the new (smoothed) accumulated transformation.
                 Eigen::Matrix4f smoothed_transform = Eigen::Matrix4f::Identity();
-                Eigen::Vector3f smoothed_translation;
-                float smoothed_yaw;
-                
-               
-                // Smooth the updates by blending the previous state and the new update.
-                smoothed_translation = (1.0f - smoothing_factor) * prev_translation + smoothing_factor * new_translation;
-                smoothed_yaw = (1.0f - smoothing_factor) * prev_yaw + smoothing_factor * new_yaw;
-
-                smoothing_factor = smoothing_std;  // Reset to default value         
-                RCLCPP_INFO(this->get_logger(), "Applied Standard transformation: translation (%.2f, %.2f, %.2f), yaw (%.2f)", smoothed_translation.x(), smoothed_translation.y(), smoothed_translation.z(), smoothed_yaw);
-        
-
-                smoothed_transform.block<3,1>(0,3) = smoothed_translation;
                 smoothed_transform.block<3,3>(0,0) = Eigen::AngleAxisf(smoothed_yaw, Eigen::Vector3f::UnitZ()).toRotationMatrix();
+                smoothed_transform.block<3,1>(0,3) = smoothed_translation;
                 accumulated_transformation_ = smoothed_transform;
-
-
+        
                 // Publish the smoothed transform.
                 geometry_msgs::msg::TransformStamped transform_stamped;
                 transform_stamped.header.frame_id = "map";
@@ -345,25 +285,19 @@ private:
                 transform_stamped.transform.rotation.w = q.w();
         
                 tf_broadcaster_->sendTransform(transform_stamped);
-
-                sensor_msgs::msg::PointCloud2 output;
-                pcl::toROSMsg(aligned, output);
-                output.header = msg->header;
-                output.header.frame_id = msg->header.frame_id;
-        
-                publisher_nth_->publish(output);
-                *prev_cloud = aligned;  // Update the previous cloud with the current one
-    
-                RCLCPP_INFO(this->get_logger(), "Published corrected point cloud to %s.", output_topic.c_str());
-
-            }else {
-                RCLCPP_WARN(this->get_logger(), "ICP transform too large filtering out.");
-                // Publish the last valid nth cloud without updating
-                publish_previous_cloud(output_topic, msg, prev_cloud);
-                //prev_cloud = nullptr;  // Reset the previous cloud to force a new alignment
-                //corrected_accum_cloud_ = nullptr;  // Reset the corrected accumulated cloud
             }
+            
+    
+    
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(aligned, output);
+            output.header = msg->header;
+            output.header.frame_id = msg->header.frame_id;
+    
+            publisher_nth_->publish(output);
+            *prev_cloud = aligned;  // Update the previous cloud with the current one
 
+            RCLCPP_INFO(this->get_logger(), "Published corrected point cloud to %s.", output_topic.c_str());
         } else {
             RCLCPP_WARN(this->get_logger(), "ICP failed to converge on topic %s.", output_topic.c_str());
             // Publish the last valid nth cloud without updating
