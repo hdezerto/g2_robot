@@ -168,9 +168,9 @@ class CollectionController(Node):
         self.arm_feedback_subscriber = self.create_subscription(Bool, "/arm_controller_feedback", self.arm_feedback_callback, 10)
         
         # MATTIAS ADDED:
-        # self.pickupClient = self.create_client(Pickup, 'pickup')
-        # self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
-        # self.dropClient = self.create_client(Trigger, 'drop')
+        self.pickupClient = self.create_client(Pickup, 'pickup')
+        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
+        self.dropClient = self.create_client(Trigger, 'drop')
 
 
         # Initialize TransformListener to get current position of the robot
@@ -356,85 +356,85 @@ class CollectionController(Node):
 
     def pick(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        msg = Int32()
-        msg.data = 1 # 1 for PICK
-        self.arm_command_publisher.publish(msg)
-        self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
-        self.state = State.WAIT_FOR_ARM
+        # msg = Int32()
+        # msg.data = 1 # 1 for PICK
+        # self.arm_command_publisher.publish(msg)
+        # self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
+        # self.state = State.WAIT_FOR_ARM
      
         # --- MATTIAS VERSION:
-        # request = Pickup.Request()
-        # object_type = "Cube"  # Retrieve from topic?
-        # request.object_type = object_type
-        # request.color = "Red" # Example color, mainly for testing/debugging
-        # angles = [12000,10000,18500,2500]
-        # servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
-        #                     [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
+        request = Pickup.Request()
+        object_type = "Cube"  # Retrieve from topic?
+        request.object_type = object_type
+        request.color = "Red" # Example color, mainly for testing/debugging
+        angles = [12000,10000,18500,2500]
+        servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
+                            [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
 
-        # msg1 = Int16MultiArray()
-        # msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        msg1 = Int16MultiArray()
+        msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
 
-        # for angles in servos_angles_times1:
-        #     self.get_logger().info(f'Angles: {angles}')
-        #     msg1.data = angles
-        #     self.servos_publisher.publish(msg1)
-        #     self.get_logger().info(f'Published message: {msg1.data}')
-        #     time.sleep(3)
+        for angles in servos_angles_times1:
+            self.get_logger().info(f'Angles: {angles}')
+            msg1.data = angles
+            self.servos_publisher.publish(msg1)
+            self.get_logger().info(f'Published message: {msg1.data}')
+            time.sleep(3)
 
-        # # Call the service asynchronously and get a future
-        # future = self.pickupClient.call_async(request)
-        # # Wait for the response from the service
-        # rclpy.spin_until_future_complete(self, future)
+        # Call the service asynchronously and get a future
+        future = self.pickupClient.call_async(request)
+        # Wait for the response from the service
+        rclpy.spin_until_future_complete(self, future)
 
-        # # Handle the response
-        # if future.result() is not None:
-        #     self.get_logger().info(f'Success: {future.result().message}')
-        #     self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
-        #     self.state = State.MOVE_TO_BOX
-        # else:
-        #     self.get_logger().error('Service call failed')
+        # Handle the response
+        if future.result() is not None:
+            self.get_logger().info(f'Success: {future.result().message}')
+            self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
+            self.state = State.MOVE_TO_BOX
+        else:
+            self.get_logger().error('Service call failed')
       
 
     def drop(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        msg = Int32()
-        msg.data = 2  # 2 for DROP
-        self.arm_command_publisher.publish(msg)
-        self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
-        self.state = State.WAIT_FOR_ARM
+        # msg = Int32()
+        # msg.data = 2  # 2 for DROP
+        # self.arm_command_publisher.publish(msg)
+        # self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
+        # self.state = State.WAIT_FOR_ARM
 
         # --- MATTIAS VERSION:
-        # servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
-        #                             [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
-        #                             [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
-        #                             [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
+        servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
+                                    [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+                                    [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+                                    [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
             
-        # msg = Int16MultiArray()
-        # msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
-        # valid_angles = [True, True, True, True]
-        # if all(valid_angles):        
-        #     for angles in servos_angles_times1:
-        #         msg.data = angles
-        #         print(msg.data)
-        #         self.servos_publisher.publish(msg)
-        #         #self.get_logger().info(f'Published message: {msg.data}')
-        #         time.sleep(3)
+        msg = Int16MultiArray()
+        msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        valid_angles = [True, True, True, True]
+        if all(valid_angles):        
+            for angles in servos_angles_times1:
+                msg.data = angles
+                print(msg.data)
+                self.servos_publisher.publish(msg)
+                #self.get_logger().info(f'Published message: {msg.data}')
+                time.sleep(3)
 
-        # """ request = Trigger.Request()
-        # # Call the service asynchronously and get a future  
-        # future = self.dropClient.call_async(request)
-        # rclpy.spin_until_future_complete(self, future)
+        """ request = Trigger.Request()
+        # Call the service asynchronously and get a future  
+        future = self.dropClient.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
 
-        # # Handle the response
-        # if future.result() is not None:
-        #     self.get_logger().info(f'Success: {future.result().message}')
-        #     #success_msg = Bool()
-        #     #success_msg.data = future.result().success
-        #     #self.arm_feedback_publisher.publish(success_msg)
-        # else:
-        #     self.get_logger().error('Service call failed') """
+        # Handle the response
+        if future.result() is not None:
+            self.get_logger().info(f'Success: {future.result().message}')
+            #success_msg = Bool()
+            #success_msg.data = future.result().success
+            #self.arm_feedback_publisher.publish(success_msg)
+        else:
+            self.get_logger().error('Service call failed') """
 
-        # self.state = State.GET_NEXT_OBJECT
+        self.state = State.GET_NEXT_OBJECT
 
 
     def arm_feedback_callback(self, msg):
