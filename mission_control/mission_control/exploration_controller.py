@@ -28,7 +28,12 @@ import numpy as np
 NOTES (HUGO):
 - Fix trapped inside objects
 - Fix unable to process more map callbacks and detection at the same time
+RUN ICP first:
+ros2 run icp icp_processor
+THEN RUN MAP:
+ros2 run mission_control processor_mapper
 
+If any issues lmk
 """
 
 
