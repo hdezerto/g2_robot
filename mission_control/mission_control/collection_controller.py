@@ -364,7 +364,14 @@ class CollectionController(Node):
      
         # --- MATTIAS VERSION:
         request = Pickup.Request()
-        object_type = "Cube"  # Retrieve from topic?
+        object_type = self.next_object["category"]
+        if object_type == 1:
+            object_type = "Cube"
+        elif object_type == 2:
+            object_type = "Sphere"
+        elif object_type == 3:
+            object_type = "Plushie"
+        #object_type = "Cube"  # Retrieve from topic?
         request.object_type = object_type
         request.color = "Red" # Example color, mainly for testing/debugging
         angles = [12000,10000,18500,2500]
@@ -387,10 +394,14 @@ class CollectionController(Node):
         rclpy.spin_until_future_complete(self, future)
 
         # Handle the response
-        if future.result() is not None:
+        if future.result() is not None and future.result().success:
             self.get_logger().info(f'Success: {future.result().message}')
             self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
             self.state = State.MOVE_TO_BOX
+        elif future.result() is not None and not future.result().success:
+            self.get_logger().info(f'Failure: {future.result().message}')
+            self.pick()   
+
         else:
             self.get_logger().error('Service call failed')
       

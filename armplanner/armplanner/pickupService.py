@@ -101,7 +101,7 @@ class PickupService(Node):
             position = self.backup
             response.success = False
             response.message = "Object detection failed."
-            #return response
+            return response
         elif position.point.x < 0.11:
             self.get_logger().error("Object detection failed! Too close to the robot")
             response.success = False
