@@ -30,7 +30,7 @@ import time
 
 # MATTIAS IMPORTS:
 from std_msgs.msg import Int16MultiArray, MultiArrayLayout, MultiArrayDimension
-from my_custom_interfaces.srv import Pickup
+#from my_custom_interfaces.srv import Pickup
 from std_srvs.srv import Trigger
 
 
@@ -168,9 +168,9 @@ class CollectionController(Node):
         self.arm_feedback_subscriber = self.create_subscription(Bool, "/arm_controller_feedback", self.arm_feedback_callback, 10)
         
         # MATTIAS ADDED:
-        self.pickupClient = self.create_client(Pickup, 'pickup')
-        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
-        self.dropClient = self.create_client(Trigger, 'drop')
+        # self.pickupClient = self.create_client(Pickup, 'pickup')
+        # self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
+        # self.dropClient = self.create_client(Trigger, 'drop')
 
 
         # Initialize TransformListener to get current position of the robot
@@ -189,8 +189,8 @@ class CollectionController(Node):
         # -- Variables for collection --
         self.current_pose = (0.0, 0.0, 0.0)  # Initial position (x, y, yaw) in real world coordinates
         self.current_grid_position = real_to_grid_coordinates([self.current_pose], self.workspace_grid)[0]
-        self.objects = []
-        self.boxes = []
+        self.objects = [] # List of (x, y, category) tuples
+        self.boxes = [] # List of (x, y, theta) tuples
         self.read_map_file() # Read the map file and populate the objects and boxes lists
         self.grid_path = []  # Path in grid coordinates
         self.latest_lidar_grid = initialize_occupancy_grid() # Initialize lidar grid as workspace grid in case we test without lidar      
@@ -206,9 +206,9 @@ class CollectionController(Node):
 
         self.task = None # State.PICK or State.DROP
 
-        #self.state = State.TESTING # DEBUGGING
+        self.state = State.TESTING # DEBUGGING
         #self.state = State.SCANNING
-        self.state = State.GET_NEXT_OBJECT
+        #self.state = State.GET_NEXT_OBJECT
         
 
 
@@ -647,7 +647,7 @@ class CollectionController(Node):
         """
         if not os.path.exists(file_name):
             self.get_logger().error(f"Map file '{file_name}' does not exist.")
-            return
+            rclpy.shutdown()
         
         with open(file_name, 'r') as file:
             for line in file:

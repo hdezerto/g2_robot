@@ -121,7 +121,7 @@ def real_to_grid_coordinates(real_points, occupancy_grid):
     return grid_points
 
 
-def update_path_planning_grid(lidar_occupancy_grid, obstacles_list, boxes_list):
+def update_path_planning_grid(lidar_occupancy_grid, objects_list, boxes_list):
     """
     Updates the path planning grid by combining the latest lidar occupancy grid
     and the obstacles list.
@@ -129,15 +129,14 @@ def update_path_planning_grid(lidar_occupancy_grid, obstacles_list, boxes_list):
     Args:
         path_planning_grid (OccupancyGrid): The grid used for path planning.
         lidar_occupancy_grid (OccupancyGrid): The latest lidar occupancy grid.
-        obstacles_list (list): List of detected objects and boxes, where each
-                               element is a tuple (x, y, category).
+        objects_list (list): List of detected objects where each element is a tuple (x, y, category).
         boxes_list (list): List of detected boxes, where each element is a tuple (x, y, theta).
     """
     # Deep copy the lidar occupancy grid to the path planning grid
     path_planning_grid = copy.deepcopy(lidar_occupancy_grid)
 
     # Convert detected objects to grid coordinates
-    object_grid_points = real_to_grid_coordinates([(obj[0], obj[1], None) for obj in obstacles_list], path_planning_grid)
+    object_grid_points = real_to_grid_coordinates([(obj[0], obj[1], None) for obj in objects_list], path_planning_grid)
 
     # Convert detected boxes to grid coordinates
     box_grid_points = real_to_grid_coordinates([(box[0], box[1], None) for box in boxes_list], path_planning_grid)
@@ -172,6 +171,10 @@ def update_path_planning_grid(lidar_occupancy_grid, obstacles_list, boxes_list):
 
 
 # ----------------- Internal functions (auxiliary) -----------------
+
+
+
+
 def mark_line_as_occupied(occupancy_grid, x1, y1, x2, y2):
     # Bresenham's line algorithm to mark the line as occupied
     def bresenham(x0, y0, x1, y1):
