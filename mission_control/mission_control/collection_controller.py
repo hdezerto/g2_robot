@@ -37,15 +37,16 @@ from std_srvs.srv import Trigger
 """
 NOTES (HUGO):
 -  Later we can improve the path to make it look more smooth.
+-  The motion controller is publishing more than one True to the /reached_destination topic for each path. This created problems.
 
 DONT FORGET TO UNCOMMENT ALL: self.update_current_pose() 
 
 
 ----- COMMANDS -----:
-IN ~/dd2419_ws rviz2 -d collection.rviz
+IN ~/dd2419_ws    rviz2 -d collection.rviz
 
---- SSH into the robot:
-colcon build --symlink-install
+--- SSH into the robot ( ssh happy@192.168.128.110 ):
+IN ~/dd2419_ws    colcon build --symlink-install
 fastdds discovery -i 0 -t 192.168.128.110 -q 42100
 ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/hiwonder_arm -v6
 ros2 run arm simple_arm_controller

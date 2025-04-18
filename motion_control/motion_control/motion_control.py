@@ -170,6 +170,7 @@ class MotionController(Node):
             else:
                 self.notify_reached_destination(False)
             self.get_logger().info("Path execution finished")
+            self.current_path = None # Reset the path to avoid publishing to /reached_destination more than once HUGO EDITED
 
     def move_to_waypoint(self, waypoint):
         """

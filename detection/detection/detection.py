@@ -39,7 +39,7 @@ N_THRESHOLD = 8  # Process every N_THRESHOLD messages (to reduce processing load
 MAX_DISTANCE = 0.9 # Maximum distance from the camera [m] TEST
 MIN_DISTANCE = 0.04 # Minimum distance from the camera [m] TEST
 
-MAX_HEIGHT = 0.09 # Maximum height from the floor [m] TEST
+MAX_HEIGHT = 0.087 # Maximum height from the floor [m] TEST
 MIN_HEIGHT = -0.065 # Minimum height from the floor [m] TEST
 
 # ----------------------------------------
@@ -263,10 +263,9 @@ class PointCloudDetection(Node):
 
     # v ------------------ FUNCTIONS BELOW ------------------ v
     def is_near_box(self, x, y, radius=0.30):
-        self.get_logger().info(f"Count boxes: {len(self.detected_boxes)}")
         for box_x, box_y  in self.detected_boxes:
             distance = np.sqrt((x - box_x) ** 2 + (y - box_y) ** 2)
-            self.get_logger().info(f"Distance to box at ({box_x}, {box_y}): {distance:.3f}")
+            #self.get_logger().info(f"Distance to box at ({box_x}, {box_y}): {distance:.3f}")
             if distance <= radius:
                 return True
         return False
