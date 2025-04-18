@@ -121,16 +121,17 @@ def real_to_grid_coordinates(real_points, occupancy_grid):
     return grid_points
 
 
-def update_path_planning_grid(lidar_occupancy_grid, objects_list, boxes_list):
+def update_path_planning_grid(lidar_occupancy_grid, objects_list, boxes_list, uninflate_object=None, uninflate_box=None):
     """
     Updates the path planning grid by combining the latest lidar occupancy grid
-    and the obstacles list.
+    and the obstacles list. Allows uninflating around a specific object and box (useful for collection).
 
     Args:
-        path_planning_grid (OccupancyGrid): The grid used for path planning.
         lidar_occupancy_grid (OccupancyGrid): The latest lidar occupancy grid.
         objects_list (list): List of detected objects where each element is a tuple (x, y, category).
         boxes_list (list): List of detected boxes, where each element is a tuple (x, y, theta).
+        uninflate_object (tuple): The (x, y) position of the object to uninflate around.
+        uninflate_box (tuple): The (x, y, theta) pose of the box to uninflate around.
     """
     # Deep copy the lidar occupancy grid to the path planning grid
     path_planning_grid = copy.deepcopy(lidar_occupancy_grid)
@@ -165,14 +166,44 @@ def update_path_planning_grid(lidar_occupancy_grid, objects_list, boxes_list):
     path_planning_grid.data = data
     inflate_occupied_cells(path_planning_grid)
 
+    # Uninflate around the specified object
+    if uninflate_object:
+        uninflate_grid_x, uninflate_grid_y = real_to_grid_coordinates([(*uninflate_object, None)], path_planning_grid)[0]
+        uninflate_around_point(path_planning_grid, uninflate_grid_x, uninflate_grid_y, radius=EXPANSION_RADIUS)
+
+    # Uninflate around the specified box
+    if uninflate_box:
+        uninflate_grid_x, uninflate_grid_y = real_to_grid_coordinates([uninflate_box], path_planning_grid)[0]
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                uninflate_around_point(path_planning_grid, uninflate_grid_x + dx, uninflate_grid_y + dy, radius=EXPANSION_RADIUS)
+
     return path_planning_grid
-
-
 
 
 # ----------------- Internal functions (auxiliary) -----------------
 
+def uninflate_around_point(occupancy_grid, grid_x, grid_y, radius):
+    """
+    Uninflates the area around a given grid point by resetting inflated cells.
 
+    Args:
+        occupancy_grid (OccupancyGrid): The occupancy grid to modify.
+        grid_x (int): The x-coordinate of the grid point.
+        grid_y (int): The y-coordinate of the grid point.
+        radius (int): The radius around the point to uninflate.
+    """
+    width = occupancy_grid.info.width
+    height = occupancy_grid.info.height
+    data = occupancy_grid.data
+
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            nx, ny = grid_x + dx, grid_y + dy
+            if 0 <= nx < width and 0 <= ny < height:
+                index = ny * width + nx
+                if data[index] == 50:  # Reset inflated cells
+                    data[index] = 0
 
 
 def mark_line_as_occupied(occupancy_grid, x1, y1, x2, y2):

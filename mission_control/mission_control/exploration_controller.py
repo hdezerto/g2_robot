@@ -28,6 +28,8 @@ import numpy as np
 NOTES (HUGO):
 - Fix trapped inside objects
 - Fix unable to process more map callbacks and detection at the same time
+
+----- COMMANDS -----:
 RUN ICP first:
 ros2 run icp icp_processor
 THEN RUN MAP:

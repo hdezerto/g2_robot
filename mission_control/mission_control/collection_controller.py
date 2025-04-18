@@ -36,14 +36,16 @@ from std_srvs.srv import Trigger
 
 """
 NOTES (HUGO):
+-  Later we can improve the path to make it look more smooth.
 
 DONT FORGET TO UNCOMMENT ALL: self.update_current_pose() 
 
 
 ----- COMMANDS -----:
+IN ~/dd2419_ws rviz2 -d collection.rviz
 
+--- SSH into the robot:
 colcon build --symlink-install
-rviz2
 fastdds discovery -i 0 -t 192.168.128.110 -q 42100
 ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/hiwonder_arm -v6
 ros2 run arm simple_arm_controller
@@ -67,9 +69,10 @@ MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
 
+RESOLUTION = 0.05  # Resolution of the occupancy grid [m] Also CHECK occupancy_grid_map.py
 OBSERVATION_DISTANCE = 0.37 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
 PICK_DISTANCE = 0.20 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
-DROP_DISTANCE = 0.30  # Distance to the box for drop [m] NOT TUNED!
+DROP_DISTANCE = 0.25  # Distance to the box for drop [m] NOT TUNED!
 # ------------------------------------
 
 
@@ -121,6 +124,7 @@ class CollectionController(Node):
             State.GET_NEXT_OBJECT: self.get_next_object,
             State.PLAN_PATH: self.plan_path,
             State.MOVING: lambda: rclpy.spin_once(self),
+            #State.MOVING: self.debug_function, # DEBUG
             State.OBSERVE_OBJECT: lambda: self.observe_object(DETECTION_TIMEOUT),
             State.MOVE_TO_PICK: self.move_to_pick,
             State.MOVING_BLINDLY: lambda: rclpy.spin_once(self),
@@ -140,6 +144,16 @@ class CollectionController(Node):
                 raise StopIteration
         else:
             raise ValueError(f"Unknown state")
+    
+
+    # ------------------- DEBUGGING FUNCTION -------------------
+    def debug_function(self):
+        if self.task == State.PICK:
+            time.sleep(4)
+            self.state = State.MOVE_TO_BOX
+        elif self.task == State.DROP:
+            time.sleep(4)
+            self.state = State.GET_NEXT_OBJECT
 
 
     # ------------------- Initialization -------------------
@@ -193,7 +207,7 @@ class CollectionController(Node):
         self.boxes = [] # List of (x, y, theta) tuples
         self.read_map_file() # Read the map file and populate the objects and boxes lists
         self.grid_path = []  # Path in grid coordinates
-        self.latest_lidar_grid = initialize_occupancy_grid() # Initialize lidar grid as workspace grid in case we test without lidar      
+        self.latest_lidar_grid = initialize_occupancy_grid() # Initialize lidar grid as workspace grid in case we test without lidar   
         self.path_planning_grid = update_path_planning_grid(self.latest_lidar_grid, self.objects, self.boxes) # Grid where the path will be computed
         self.publish_planning_grid() # Publish the initial grid to RViz
         self.next_object = {"position": None, "category": None, "index": None} # position (x, y), category (int), index (int)
@@ -206,9 +220,9 @@ class CollectionController(Node):
 
         self.task = None # State.PICK or State.DROP
 
-        self.state = State.TESTING # DEBUGGING
+        #self.state = State.TESTING # DEBUGGING
         #self.state = State.SCANNING
-        #self.state = State.GET_NEXT_OBJECT
+        self.state = State.GET_NEXT_OBJECT
         
 
 
@@ -234,17 +248,12 @@ class CollectionController(Node):
             self.state = State.END_COLLECTION
             return
         
-        self.task = State.PICK
+        self.task = State.PICK # Useful for MOVING and WAIT_FOR_ARM states
         self.compute_closest_object() # Select the closest object to the current position of the robot
-
+        self.update_path_planning_grid() # Update the path planning grid to uninflate around the object to pick
         # --------------------- TODO -------------------
         # Compute the observation point
-        #observation_pose = self.compute_observation_pose(OBSERVATION_DISTANCE)
-            # Returns the observation point with (x_real, y_real, final orientation)        
-            # Mattias wants a distance of 17 cm relative to the base_link 
-        
-        # Using dummy function for debugging
-        observation_pose = self.compute_best_pose(self.next_object["position"], OBSERVATION_DISTANCE) # DEBUG
+        observation_pose = self.compute_best_pose(target_type="object")
         # ---------------------------------------------
 
         if observation_pose:
@@ -266,7 +275,7 @@ class CollectionController(Node):
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
             self.get_logger().info('Path published. PLAN_PATH -> MOVING')
             # --------- JUST TO SEE THE GRID PATH ---------
-            self.mark_grid_path(self.workspace_grid, self.grid_path)  # DEBUG
+            #self.mark_grid_path(self.workspace_grid, self.grid_path)  # DEBUG
             # --------------------------------------
             self.state = State.MOVING
         else:
@@ -313,37 +322,25 @@ class CollectionController(Node):
         from the detected object and publishes the path. Transitions to MOVING_BLINDLY.
         """
         self.update_current_pose()  # Update the robot's current pose
-
         pick_path, pick_pose = self.create_pick_path(PICK_DISTANCE)
-      
-        # Publish the path
-        self.path_publisher.publish(pick_path)
+        self.path_publisher.publish(pick_path) # Publish the path
         self.get_logger().info(f"Path to pick position published: Start {self.current_pose} | Goal ({pick_pose[0]}, {pick_pose[1]}, {np.degrees(pick_pose[2])} degrees). MOVE_TO_PICK -> MOVING_BLINDLY")
-    
         self.state = State.MOVING_BLINDLY
     
 
     def move_to_box(self):
-        self.task = State.DROP
-
+        self.task = State.DROP # Useful for MOVING and WAIT_FOR_ARM states
         # Remove the picked object from the objects list
         removed_object = self.objects.pop(self.next_object["index"])
         self.get_logger().info(f'Removed object from list: {removed_object}')
-    
-        # Update the planning grid to mark the object's position as free space (ESSENTIAL to avoid path failure)
-        self.path_planning_grid = update_path_planning_grid(self.latest_lidar_grid , self.objects, self.boxes)
-        self.publish_planning_grid()  # Publish the updated grid to RViz
+        self.next_object["position"] = None # Reset to avoid uninflating the object position
 
         self.compute_closest_box()  # Select the closest box to the current position of the robot
+        self.update_path_planning_grid() # Update the path planning grid to remove the picked object and uninflate around the box to drop     
 
         # ---------------------- TODO -------------------
         # Compute the drop pose
-        #drop_pose = self.compute_drop_pose()
-            # Computes the closest pose to the robot around the box that is not inflated nor occupied
-            # Returns the drop pose with (x_real, y_real, final orientation)
-        
-        # Using dummy function for debugging
-        drop_pose = self.compute_best_pose(self.closest_box[:2], DROP_DISTANCE) # DEBUG
+        drop_pose = self.compute_best_pose(target_type="box")
         # ---------------------------------------------
         if drop_pose:
             self.destination_pose = drop_pose  # Set the drop pose as the destination
@@ -356,96 +353,96 @@ class CollectionController(Node):
 
     def pick(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        # msg = Int32()
-        # msg.data = 1 # 1 for PICK
-        # self.arm_command_publisher.publish(msg)
-        # self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
-        # self.state = State.WAIT_FOR_ARM
+        msg = Int32()
+        msg.data = 1 # 1 for PICK
+        self.arm_command_publisher.publish(msg)
+        self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
+        self.state = State.WAIT_FOR_ARM
      
         # --- MATTIAS VERSION:
-        request = Pickup.Request()
-        object_type = self.next_object["category"]
-        if object_type == 1:
-            object_type = "Cube"
-        elif object_type == 2:
-            object_type = "Sphere"
-        elif object_type == 3:
-            object_type = "Plushie"
-        #object_type = "Cube"  # Retrieve from topic?
-        request.object_type = object_type
-        request.color = "Red" # Example color, mainly for testing/debugging
-        angles = [12000,10000,18500,2500]
-        servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
-                            [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
+        # request = Pickup.Request()
+        # object_type = self.next_object["category"]
+        # if object_type == 1:
+        #     object_type = "Cube"
+        # elif object_type == 2:
+        #     object_type = "Sphere"
+        # elif object_type == 3:
+        #     object_type = "Plushie"
+        # #object_type = "Cube"  # Retrieve from topic?
+        # request.object_type = object_type
+        # request.color = "Red" # Example color, mainly for testing/debugging
+        # angles = [12000,10000,18500,2500]
+        # servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
+        #                     [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
 
-        msg1 = Int16MultiArray()
-        msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        # msg1 = Int16MultiArray()
+        # msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
 
-        for angles in servos_angles_times1:
-            self.get_logger().info(f'Angles: {angles}')
-            msg1.data = angles
-            self.servos_publisher.publish(msg1)
-            self.get_logger().info(f'Published message: {msg1.data}')
-            time.sleep(3)
+        # for angles in servos_angles_times1:
+        #     self.get_logger().info(f'Angles: {angles}')
+        #     msg1.data = angles
+        #     self.servos_publisher.publish(msg1)
+        #     self.get_logger().info(f'Published message: {msg1.data}')
+        #     time.sleep(3)
 
-        # Call the service asynchronously and get a future
-        future = self.pickupClient.call_async(request)
-        # Wait for the response from the service
-        rclpy.spin_until_future_complete(self, future)
+        # # Call the service asynchronously and get a future
+        # future = self.pickupClient.call_async(request)
+        # # Wait for the response from the service
+        # rclpy.spin_until_future_complete(self, future)
 
-        # Handle the response
-        if future.result() is not None and future.result().success:
-            self.get_logger().info(f'Success: {future.result().message}')
-            self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
-            self.state = State.MOVE_TO_BOX
-        elif future.result() is not None and not future.result().success:
-            self.get_logger().info(f'Failure: {future.result().message}')
-            self.pick()   
+        # # Handle the response
+        # if future.result() is not None and future.result().success:
+        #     self.get_logger().info(f'Success: {future.result().message}')
+        #     self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
+        #     self.state = State.MOVE_TO_BOX
+        # elif future.result() is not None and not future.result().success:
+        #     self.get_logger().info(f'Failure: {future.result().message}')
+        #     self.pick()   
 
-        else:
-            self.get_logger().error('Service call failed')
+        # else:
+        #     self.get_logger().error('Service call failed')
       
 
     def drop(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        # msg = Int32()
-        # msg.data = 2  # 2 for DROP
-        # self.arm_command_publisher.publish(msg)
-        # self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
-        # self.state = State.WAIT_FOR_ARM
+        msg = Int32()
+        msg.data = 2  # 2 for DROP
+        self.arm_command_publisher.publish(msg)
+        self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
+        self.state = State.WAIT_FOR_ARM
 
         # --- MATTIAS VERSION:
-        servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
-                                    [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
-                                    [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
-                                    [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
+        # servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
+        #                             [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+        #                             [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
+        #                             [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]]
             
-        msg = Int16MultiArray()
-        msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
-        valid_angles = [True, True, True, True]
-        if all(valid_angles):        
-            for angles in servos_angles_times1:
-                msg.data = angles
-                print(msg.data)
-                self.servos_publisher.publish(msg)
-                #self.get_logger().info(f'Published message: {msg.data}')
-                time.sleep(3)
+        # msg = Int16MultiArray()
+        # msg.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+        # valid_angles = [True, True, True, True]
+        # if all(valid_angles):        
+        #     for angles in servos_angles_times1:
+        #         msg.data = angles
+        #         print(msg.data)
+        #         self.servos_publisher.publish(msg)
+        #         #self.get_logger().info(f'Published message: {msg.data}')
+        #         time.sleep(3)
 
-        """ request = Trigger.Request()
-        # Call the service asynchronously and get a future  
-        future = self.dropClient.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        # """ request = Trigger.Request()
+        # # Call the service asynchronously and get a future  
+        # future = self.dropClient.call_async(request)
+        # rclpy.spin_until_future_complete(self, future)
 
-        # Handle the response
-        if future.result() is not None:
-            self.get_logger().info(f'Success: {future.result().message}')
-            #success_msg = Bool()
-            #success_msg.data = future.result().success
-            #self.arm_feedback_publisher.publish(success_msg)
-        else:
-            self.get_logger().error('Service call failed') """
+        # # Handle the response
+        # if future.result() is not None:
+        #     self.get_logger().info(f'Success: {future.result().message}')
+        #     #success_msg = Bool()
+        #     #success_msg.data = future.result().success
+        #     #self.arm_feedback_publisher.publish(success_msg)
+        # else:
+        #     self.get_logger().error('Service call failed') """
 
-        self.state = State.GET_NEXT_OBJECT
+        # self.state = State.GET_NEXT_OBJECT
 
 
     def arm_feedback_callback(self, msg):
@@ -463,12 +460,13 @@ class CollectionController(Node):
 
     def reached_destination_callback(self, msg):
         if msg.data: # msg.data is True if the destination was reached
-            if self.state == State.MOVING and self.task == State.PICK:
-                self.get_logger().info('Observation position reached. MOVING -> OBSERVE_OBJECT')
-                self.state = State.OBSERVE_OBJECT
-            elif self.state == State.MOVING and self.task == State.DROP:
-                self.get_logger().info('Drop position reached. MOVING -> DROP')
-                self.state = State.DROP
+            if self.state == State.MOVING:
+                if self.task == State.PICK:
+                    self.get_logger().info('Observation position reached. MOVING -> OBSERVE_OBJECT')
+                    self.state = State.OBSERVE_OBJECT
+                else: # self.task == State.DROP
+                    self.get_logger().info('Drop position reached. MOVING -> DROP')
+                    self.state = State.DROP
             elif self.state == State.MOVING_BLINDLY:
                 self.get_logger().info('Pick position reached. MOVING_BLINDLY -> PICK')
                 self.state = State.PICK
@@ -479,20 +477,28 @@ class CollectionController(Node):
 
     # ------------------- UTILS ------------------- 
 
-    def NEW_compute_best_pose(self, target_type):
+    def compute_best_pose(self, target_type):
+        """
+        Computes the best pose for observing or dropping the target (object or box).
+        The pose is determined by checking if the line of sight from the target to the pose is clear.
+
+        Args:
+            target_type (str): "object" or "box".
+
+        Returns:
+            tuple: (x, y, yaw) of the best pose, or None if no feasible pose is found.
+        """
         # Update the current pose of the robot
-        self.update_current_pose() # Uncomment only when testing on the robot
+        self.update_current_pose()  # Uncomment only when testing on the robot
 
         if target_type == "object":
-            target_position = self.next_object["position"] # (x, y)
-            initial_step = 0.05 # Edge of the grid cell
-            desired_distance = OBSERVATION_DISTANCE # Distance to the object
-
+            target_position = self.next_object["position"]  # (x, y)
+            initial_step = np.sqrt(2) * RESOLUTION  # Diagonal of the grid cell (worst case)
+            desired_distance = OBSERVATION_DISTANCE  # Distance to the object
         elif target_type == "box":
-            target_position = self.closest_box[:2] # (x, y)
-            initial_step = 0.1 # Use 2 edges because in the worst case the real position of the box is on the edge of the central marked cell.
-                               # Boxes occupy 3x3 cells.
-            desired_distance = DROP_DISTANCE # Distance to the box
+            target_position = self.closest_box[:2]  # (x, y)
+            initial_step = 2 * np.sqrt(2) * RESOLUTION   # Use 2 diagonals since boxes occupy 3x3 cells (worst case)
+            desired_distance = DROP_DISTANCE  # Distance to the box
         else:
             self.get_logger().error(f"Unknown target type: {target_type}")
             return None
@@ -501,21 +507,118 @@ class CollectionController(Node):
         target_x, target_y = target_position
         robot_x, robot_y, _ = self.current_pose
 
-        
-        # Uses self.planning_grid to check the best pose. The planning grid will have the target uninflated.
-        
-        # 1. Computes all possible points on a circumference centered on the target with eg. 15 degrees difference and radius = desired_distance
-        #    These points should already be filtered to be inside the planning grid (important to avoid errors if the real_to_grid is called) and on free cells.
-        # 2. Filters the points to check if they are line free on the planning grid (clear for the camera to see)
-        #    Here the the target_type is important so that the first step on the line is larger for boxes since they occupy 4 cells.
-        # 3. Choose the closest point to the robot from final filtered points. Add the normalized yaw.
+        # Check the initial pose on the line to the target
+        dx = target_x - robot_x
+        dy = target_y - robot_y
+        distance_to_target = (dx**2 + dy**2)**0.5
+        scale = desired_distance / distance_to_target
+        initial_pose_x = target_x - dx * scale
+        initial_pose_y = target_y - dy * scale
+        initial_pose_yaw = np.arctan2(dy, dx)  # Orientation facing the target
+        initial_pose_yaw = (initial_pose_yaw + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi)
+
+        # Check if the initial pose is feasible
+        if self.is_pose_feasible(initial_pose_x, initial_pose_y, target_x, target_y, initial_step):
+            # ---- DEBUGGING ----
+            # Mark the target pose on the workspace grid for DEBUGGING
+            # target_grid = real_to_grid_coordinates([(initial_pose_x, initial_pose_y, None)], self.workspace_grid)[0]
+            # grid_index = target_grid[1] * self.workspace_grid.info.width + target_grid[0]
+            # self.workspace_grid.data[grid_index] = 50
+            # # Publish the updated workspace grid
+            # self.publish_workspace_grid()
+            # -------------------
+            return (initial_pose_x, initial_pose_y, initial_pose_yaw)
+
+        # Iterate over angles to find a feasible pose if the initial pose is not feasible
+        angle_step = np.radians(10)  # Step size for angle search
+        max_angle = np.radians(180)  # Maximum angle to search
+        for angle in np.arange(angle_step, max_angle + angle_step, angle_step):
+            for sign in [-1, 1]:  # Check both clockwise and counterclockwise directions
+                rotated_dx = dx * np.cos(sign * angle) - dy * np.sin(sign * angle)
+                rotated_dy = dx * np.sin(sign * angle) + dy * np.cos(sign * angle)
+                rotated_pose_x = target_x - rotated_dx * scale
+                rotated_pose_y = target_y - rotated_dy * scale
+                rotated_pose_yaw = np.arctan2(rotated_dy, rotated_dx)
+                rotated_pose_yaw = (rotated_pose_yaw + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi)
+
+                if self.is_pose_feasible(rotated_pose_x, rotated_pose_y, target_x, target_y, initial_step):
+                    # ---- DEBUGGING ----
+                    # # Mark the target pose on the workspace grid for DEBUGGING
+                    # target_grid = real_to_grid_coordinates([(rotated_pose_x, rotated_pose_y, None)], self.workspace_grid)[0]
+                    # grid_index = target_grid[1] * self.workspace_grid.info.width + target_grid[0]
+                    # self.workspace_grid.data[grid_index] = 50
+                    # # Publish the updated workspace grid
+                    # self.publish_workspace_grid()
+                    # -------------------
+                    return (rotated_pose_x, rotated_pose_y, rotated_pose_yaw)
+
+        # No feasible pose found
+        return None
 
 
-        return best_pose # (x, y, yaw) where yaw is normalized to [-pi, pi)
+    def is_pose_feasible(self, pose_x, pose_y, target_x, target_y, initial_step):
+        # Bresenham's line algorithm to compute the points on a line between two grid cells.
+        def bresenham_line(x0, y0, x1, y1):
+            points = []
+            dx = abs(x1 - x0)
+            dy = abs(y1 - y0)
+            sx = 1 if x0 < x1 else -1
+            sy = 1 if y0 < y1 else -1
+            err = dx - dy
+            while True:
+                points.append((x0, y0))
+                if x0 == x1 and y0 == y1:
+                    break
+                e2 = err * 2
+                if e2 > -dy:
+                    err -= dy
+                    x0 += sx
+                if e2 < dx:
+                    err += dx
+                    y0 += sy
+            return points
+
+        width = self.path_planning_grid.info.width
+        height = self.path_planning_grid.info.height
+        
+        # Check if the pose is within grid bounds
+        grid_pose_x, grid_pose_y = real_to_grid_coordinates([(pose_x, pose_y, None)], self.path_planning_grid)[0]
+        if not (0 <= grid_pose_x < width and 0 <= grid_pose_y < height):
+            return False
+
+        # Compute the direction vector from the target to the pose
+        dx = pose_x - target_x
+        dy = pose_y - target_y
+        distance = (dx**2 + dy**2)**0.5
+        # Normalize the direction vector
+        direction_x = dx / distance
+        direction_y = dy / distance
+        # Compute the adjusted target x to account for the target's size
+        adjusted_target_x = target_x + direction_x * initial_step
+        adjusted_target_y = target_y + direction_y * initial_step
+        grid_adjusted_target_x, grid_adjusted_target_y = real_to_grid_coordinates([(adjusted_target_x, adjusted_target_y, None)], self.path_planning_grid)[0]
+
+        # Use Bresenham's line algorithm to check the line of sight
+        line_points = bresenham_line(grid_pose_x, grid_pose_y, grid_adjusted_target_x, grid_adjusted_target_y)
+        for grid_x, grid_y in line_points:
+            index = grid_y * width + grid_x
+            if self.path_planning_grid.data[index] != 0:  # Not free space
+                return False
+        
+        # --- DEBUGGING ---
+        for grid_x, grid_y in line_points:
+            index = grid_y * width + grid_x
+            # DEBUGGING
+            self.workspace_grid.data[index] = 20
+        # Publish the updated workspace grid
+        self.publish_workspace_grid()
+        # -----------------
+
+        return True
 
 
     # DUMMY FUNCTION FOR DEBUGGING
-    def compute_best_pose(self, target_position, desired_distance):
+    def OLD_compute_best_pose(self, target_position, desired_distance):
         # Update the current pose of the robot
         self.update_current_pose()
 
@@ -633,7 +736,13 @@ class CollectionController(Node):
         if self.current_pose is None:
             self.get_logger().info('Failed to get current pose!')
         #self.get_logger().info(f'Current pose (real): {self.current_pose}  | (grid): {self.current_grid_position}')  # DEBUG
-        
+    
+
+    def update_path_planning_grid(self):
+        # Update the path planning grid (new lidar or to change object/box inflation)
+        self.path_planning_grid = update_path_planning_grid(self.latest_lidar_grid, self.objects, self.boxes, self.next_object["position"], self.closest_box)
+        self.publish_planning_grid()
+
 
     def publish_transforms_periodically(self):
         """
