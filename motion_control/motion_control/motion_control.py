@@ -94,6 +94,8 @@ class MotionController(Node):
         self.next_goal = PoseStamped()
         self.reached_waypoint = False
         self.stop_robot = False
+        self.turn_around = False
+        self.turn_around_pose = PoseStamped()
 
         # Control Parameter
         # initialize variables
@@ -141,6 +143,10 @@ class MotionController(Node):
         self.obstacle_detected = False
         self.stop_robot = False
         self.reached_waypoint = False
+        if self.turn_around_necessary(self.current_path.poses[0]):
+            self.turn_around = True
+            self.turn_around_pose = self.get_current_pos()
+            self.get_logger().info("Turn around necessary. Backing off.")
         self.follow_path()
 
     def stop_callback(self, msg):
@@ -157,6 +163,7 @@ class MotionController(Node):
             self.current_waypoint_index < len(self.current_path.poses)
             and not self.obstacle_detected
             and not self.stop_robot
+            and not self.turn_around
         ):
             waypoint = self.current_path.poses[self.current_waypoint_index]
             self.move_to_waypoint(waypoint)
@@ -164,13 +171,17 @@ class MotionController(Node):
                 self.current_waypoint_index += 1
                 self.reached_waypoint = False
                 self.reached_waypoint_publisher.publish(Bool(data=True))
-        elif self.current_waypoint_index == len(self.current_path.poses):
+        elif (self.current_waypoint_index == len(self.current_path.poses)
+            and not self.turn_around
+        ):
             if not self.obstacle_detected and not self.stop_robot:
                 self.notify_reached_destination(True)
             else:
                 self.notify_reached_destination(False)
             self.get_logger().info("Path execution finished")
             self.current_path = None # Reset the path to avoid publishing to /reached_destination more than once HUGO EDITED
+        elif self.turn_around:
+            self.move_back()
 
     def move_to_waypoint(self, waypoint):
         """
@@ -373,6 +384,29 @@ class MotionController(Node):
         self.motion_publisher.publish(motor_msg)
         return
 
+    def move_back(self):
+        pose = self.turn_around_pose
+        current_pose = self.get_current_pos()
+        if current_pose is None:
+            self.get_logger().error("Failed to get current pose")
+            return
+        # Extract position and orientation
+        current_position = (current_pose[0], current_pose[1])  # (x, y)
+
+        if np.sqrt((pose[0] - current_pose[0])**2 + (pose[1] - current_pose[1])**2) < 0.01:
+            motor_msg = DutyCycles()
+            motor_msg.duty_cycle_left = -0.15
+            motor_msg.duty_cycle_right = -0.15
+            motor_msg.header.stamp = self.get_clock().now().to_msg()
+            self.motion_publisher.publish(motor_msg)
+            return
+        else:
+            self.get_logger().info("Backed off successfully. Continue to follow path.")
+            self.turn_around = False
+            return
+
+
+
     def stop(self):
         motor_msg = DutyCycles()
         motor_msg.duty_cycle_left = 0
@@ -409,6 +443,25 @@ class MotionController(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to get current pose: {e}")
             return None
+
+    def turn_around_necessary(self, waypoint):
+        current_pose = self.get_current_pos()
+        theta = current_pose[2]
+        goal_theta = np.arctan2(
+            waypoint.pose.position.y - current_pose[1],
+            waypoint.pose.position.x - current_pose[0],
+        )
+        delta_theta = goal_theta - theta
+        if delta_theta > math.pi:
+            delta_theta = delta_theta - 2 * math.pi
+        elif delta_theta < -math.pi:
+            delta_theta = delta_theta + 2 * math.pi
+        
+        if abs(delta_theta) > math.pi*(2/3):
+            return True
+        else:
+            return False
+        
 
     def check_lidar(self):
         # TODO: Implement lidar check

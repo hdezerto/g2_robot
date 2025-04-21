@@ -240,7 +240,7 @@ def compute_grid_path(start, goal, grid):
 
 
 def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
-    grid_path_points = simplify_grid_path(grid_path_points) # Simplify the path by removing redundant points
+    grid_path_points = simplify_grid_path(grid_path_points, occupancy_grid) # Simplify the path by removing redundant points
     grid_path_points = grid_path_points[1:-1] # Remove the start and goal points from the path (the exact ones will be added later)
 
     # Convert path grid coordinates to real-world coordinates
@@ -282,7 +282,7 @@ def create_path_message(grid_path_points, start_real, goal_real, clock, occupanc
     return path
 
 
-def simplify_grid_path(path_points):
+def simplify_grid_path(path_points, occupancy_grid):
     if not path_points:
         return []
 
@@ -298,7 +298,77 @@ def simplify_grid_path(path_points):
             simplified_path.append(curr_point)
 
     simplified_path.append(path_points[-1])
-    return simplified_path
+    return simplify_further(simplified_path, occupancy_grid)
+
+def simplify_further(path_points, occupancy_grid):
+    whole_path = path_points
+    new_path = whole_path
+    j = 0
+    try:
+        while j < len(whole_path)-1:
+            for i in range(j+1, len(whole_path)):
+                if path_valid(whole_path[j], whole_path[i], occupancy_grid):
+                    new_path = whole_path[:j+1] + whole_path[i:]
+                else:
+                    break
+            whole_path = new_path
+            j += 1
+    except IndexError:
+        pass
+    return new_path
+
+import math
+
+def bresenham_line(x0, y0, x1, y1):
+    """Bresenham's Line Algorithm — returns list of cells from (x0,y0) to (x1,y1)."""
+    cells = []
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    x, y = x0, y0
+    sx = -1 if x0 > x1 else 1
+    sy = -1 if y0 > y1 else 1
+    if dx > dy:
+        err = dx / 2.0
+        while x != x1:
+            cells.append((x, y))
+            err -= dy
+            if err < 0:
+                y += sy
+                err += dx
+            x += sx
+    else:
+        err = dy / 2.0
+        while y != y1:
+            cells.append((x, y))
+            err -= dx
+            if err < 0:
+                x += sx
+                err += dy
+            y += sy
+    cells.append((x1, y1))
+    return cells
+
+def path_valid(start, end, occupancy_grid):
+    """
+    Check if a straight line between start and end passes through any occupied cells.
+    :param occupancy_grid: nav_msgs.msg.OccupancyGrid
+    :param start: tuple (x0, y0) grid coordinates
+    :param end: tuple (x1, y1) grid coordinates
+    :return: True if line is free, False if any cell is occupied
+    """
+    width = occupancy_grid.info.width
+    data = occupancy_grid.data
+
+    if data[start[1] * width + start[0]] != 0 or data[end[1] * width + end[0]] != 0:
+        return False
+    
+    # Bresenham's line algorithm to get all cells between start and end
+    for x, y in bresenham_line(*start, *end):
+        idx = y * width + x
+        if data[idx] != 0:  # Threshold can be adjusted
+            return False
+    return True
+
 
 
 # CHECK THIS LATER
