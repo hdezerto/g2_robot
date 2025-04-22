@@ -30,14 +30,38 @@ import time
 
 # MATTIAS IMPORTS:
 from std_msgs.msg import Int16MultiArray, MultiArrayLayout, MultiArrayDimension
-#from my_custom_interfaces.srv import Pickup
+from my_custom_interfaces.srv import Pickup
 from std_srvs.srv import Trigger
 
 
 """
 NOTES (HUGO):
--  Later we can improve the path to make it look more smooth.
+
+MOTION_CONTROLLER:
 -  The motion controller is publishing more than one True to the /reached_destination topic for each path. This created problems.
+-  Sometimes the motion_controller fails for the path to pick the plushie:
+    [INFO] [1745338952.729685789] [motion_controller]: Received new path
+    [ERROR] [1745338953.230844790] [motion_controller]: Failed to get current pose: 'NoneType' object has no attribute 'transform'
+- Check how the current ṕose is obtained in the motion_controller. Isnt spin_thread = True better than async? I had to increase the timeout to 3.0 s to avoid this error.
+
+ICP:
+- Running with ICP when compared to juts odometry, the collection has a worse performance.
+- The motion controller still gets "stuck" when using ICP.
+
+MISSION_CONTROL_UTILS:
+-  Correct the new path simplifier because it doesnt update the grid_path that is the one used to check for path collisions.
+
+ARM:
+- The arm detection doesnt seem to work with blue spheres (we can just use the green ones)
+- The pick service sometimes fails for cubes
+
+DETECTION:
+- I had to comment out the "near box" logic in the detection for the colletion to work
+
+COLLECTION:
+- Now I inflate the boxes back again before moving to the next object (to avoid collision). Might be needed to add state to move the robot back a bit to avoid path error (in case we want to
+drop closer to boxes). I can do it quickly if needed.
+
 
 DONT FORGET TO UNCOMMENT ALL: self.update_current_pose() 
 
@@ -48,10 +72,13 @@ IN ~/dd2419_ws    rviz2 -d collection.rviz
 --- SSH into the robot ( ssh happy@192.168.128.110 ):
 IN ~/dd2419_ws    colcon build --symlink-install
 fastdds discovery -i 0 -t 192.168.128.110 -q 42100
-ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/hiwonder_arm -v6
+ros2 launch g2_robot_launch g2_robot_launch_arm.xml
 ros2 run arm simple_arm_controller
+ros2 run armplanner pickup_service
 
 ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
+ros2 run icp icp_processor
+ros2 run mission_control processor_mapper
 ros2 run motion_control motion_control
 ros2 run detection detection
 IN ~/dd2419_ws    ros2 run mission_control collection_controller
@@ -71,7 +98,7 @@ SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
 
 RESOLUTION = 0.05  # Resolution of the occupancy grid [m] Also CHECK occupancy_grid_map.py
-OBSERVATION_DISTANCE = 0.37 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
+OBSERVATION_DISTANCE = 0.50 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
 PICK_DISTANCE = 0.20 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
 DROP_DISTANCE = 0.25  # Distance to the box for drop [m] NOT TUNED!
 # ------------------------------------
@@ -183,9 +210,9 @@ class CollectionController(Node):
         self.arm_feedback_subscriber = self.create_subscription(Bool, "/arm_controller_feedback", self.arm_feedback_callback, 10)
         
         # MATTIAS ADDED:
-        # self.pickupClient = self.create_client(Pickup, 'pickup')
-        # self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
-        # self.dropClient = self.create_client(Trigger, 'drop')
+        self.pickupClient = self.create_client(Pickup, 'pickup')
+        self.servos_publisher = self.create_publisher(Int16MultiArray, 'multi_servo_cmd_sub',10)
+        self.dropClient = self.create_client(Trigger, 'drop')
 
 
         # Initialize TransformListener to get current position of the robot
@@ -251,6 +278,7 @@ class CollectionController(Node):
         
         self.task = State.PICK # Useful for MOVING and WAIT_FOR_ARM states
         self.compute_closest_object() # Select the closest object to the current position of the robot
+        self.closest_box = None # Reset to inflate the box position again
         self.update_path_planning_grid() # Update the path planning grid to uninflate around the object to pick
         # --------------------- TODO -------------------
         # Compute the observation point
@@ -310,7 +338,7 @@ class CollectionController(Node):
     def detections_callback(self, msg):
         if self.state != State.OBSERVE_OBJECT: # Ignore detections when not observing
             return
-        self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
+        #self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
         if msg.cat == self.next_object["category"]:  # Check if the detection matches the desired category
             self.get_logger().info(f"Detected desired object: category {msg.cat} at ({msg.x}, {msg.y}). OBSERVE_OBJECT -> MOVE_TO_PICK")
             self.detected_position = (msg.x, msg.y)
@@ -334,7 +362,7 @@ class CollectionController(Node):
         # Remove the picked object from the objects list
         removed_object = self.objects.pop(self.next_object["index"])
         self.get_logger().info(f'Removed object from list: {removed_object}')
-        self.next_object["position"] = None # Reset to avoid uninflating the object position
+        #self.next_object["position"] = None # Reset to avoid uninflating the object position
 
         self.compute_closest_box()  # Select the closest box to the current position of the robot
         self.update_path_planning_grid() # Update the path planning grid to remove the picked object and uninflate around the box to drop     
@@ -354,54 +382,55 @@ class CollectionController(Node):
 
     def pick(self):
         # --- WITH SIMPLE ARM CONTROLLER:
-        msg = Int32()
-        msg.data = 1 # 1 for PICK
-        self.arm_command_publisher.publish(msg)
-        self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
-        self.state = State.WAIT_FOR_ARM
+        # msg = Int32()
+        # msg.data = 1 # 1 for PICK
+        # self.arm_command_publisher.publish(msg)
+        # self.get_logger().info('Sent arm command to PICK object. PICK -> WAIT_FOR_ARM')
+        # self.state = State.WAIT_FOR_ARM
      
         # --- MATTIAS VERSION:
-        # request = Pickup.Request()
-        # object_type = self.next_object["category"]
-        # if object_type == 1:
-        #     object_type = "Cube"
-        # elif object_type == 2:
-        #     object_type = "Sphere"
-        # elif object_type == 3:
-        #     object_type = "Plushie"
-        # #object_type = "Cube"  # Retrieve from topic?
-        # request.object_type = object_type
-        # request.color = "Red" # Example color, mainly for testing/debugging
-        # angles = [12000,10000,18500,2500]
-        # servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
-        #                     [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
+        request = Pickup.Request()
+        object_type = self.next_object["category"]
+        if object_type == 1:
+            object_type = "Cube"
+        elif object_type == 2:
+            object_type = "Sphere"
+        elif object_type == 3:
+            object_type = "Plushie"
+        
+        request.object_type = object_type
+        request.color = "Red" # Example color, mainly for testing/debugging
+        if object_type != "Plushie":
+          angles = [12000,10000,18500,2500]
+          servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
+                            [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
 
-        # msg1 = Int16MultiArray()
-        # msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
+          msg1 = Int16MultiArray()
+          msg1.layout = MultiArrayLayout(dim=[MultiArrayDimension(label="", size=12, stride=12)], data_offset=0)
 
-        # for angles in servos_angles_times1:
-        #     self.get_logger().info(f'Angles: {angles}')
-        #     msg1.data = angles
-        #     self.servos_publisher.publish(msg1)
-        #     self.get_logger().info(f'Published message: {msg1.data}')
-        #     time.sleep(3)
+          for angles in servos_angles_times1:
+              #self.get_logger().info(f'Angles: {angles}')
+              msg1.data = angles
+              self.servos_publisher.publish(msg1)
+              #self.get_logger().info(f'Published message: {msg1.data}')
+              time.sleep(3)
 
-        # # Call the service asynchronously and get a future
-        # future = self.pickupClient.call_async(request)
-        # # Wait for the response from the service
-        # rclpy.spin_until_future_complete(self, future)
+        # Call the service asynchronously and get a future
+        future = self.pickupClient.call_async(request)
+        # Wait for the response from the service
+        rclpy.spin_until_future_complete(self, future)
 
-        # # Handle the response
-        # if future.result() is not None and future.result().success:
-        #     self.get_logger().info(f'Success: {future.result().message}')
-        #     self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
-        #     self.state = State.MOVE_TO_BOX
-        # elif future.result() is not None and not future.result().success:
-        #     self.get_logger().info(f'Failure: {future.result().message}')
-        #     self.pick()   
+        # Handle the response
+        if future.result() is not None and future.result().success:
+            self.get_logger().info(f'Success: {future.result().message}')
+            self.get_logger().info('Pick operation successful. PICK -> MOVE_TO_BOX')
+            self.state = State.MOVE_TO_BOX
+        elif future.result() is not None and not future.result().success:
+            self.get_logger().info(f'Failure: {future.result().message}')
+            self.pick()   
 
-        # else:
-        #     self.get_logger().error('Service call failed')
+        else:
+            self.get_logger().error('Service call failed')
       
 
     def drop(self):
@@ -412,7 +441,7 @@ class CollectionController(Node):
         self.get_logger().info("Sent arm command to DROP object. DROP -> WAIT_FOR_ARM")
         self.state = State.WAIT_FOR_ARM
 
-        # --- MATTIAS VERSION:
+        # # --- MATTIAS VERSION:
         # servos_angles_times1 = [[11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000],
         #                             [11000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
         #                             [3000,12000,3000,12116,6683,11999,2000,2000,2000,2000,2000,2000],
@@ -609,7 +638,6 @@ class CollectionController(Node):
         # --- DEBUGGING ---
         for grid_x, grid_y in line_points:
             index = grid_y * width + grid_x
-            # DEBUGGING
             self.workspace_grid.data[index] = 20
         # Publish the updated workspace grid
         self.publish_workspace_grid()

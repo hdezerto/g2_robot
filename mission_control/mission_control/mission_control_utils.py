@@ -17,6 +17,7 @@ from tf2_ros import TransformException
 
 from .occupancy_grid_map import read_workspace, grid_to_real_coordinates, real_to_grid_coordinates
 
+import math
 
 # ------------ External functions ------------
 
@@ -300,6 +301,7 @@ def simplify_grid_path(path_points, occupancy_grid):
     simplified_path.append(path_points[-1])
     return simplify_further(simplified_path, occupancy_grid)
 
+
 def simplify_further(path_points, occupancy_grid):
     whole_path = path_points
     new_path = whole_path
@@ -317,7 +319,6 @@ def simplify_further(path_points, occupancy_grid):
         pass
     return new_path
 
-import math
 
 def bresenham_line(x0, y0, x1, y1):
     """Bresenham's Line Algorithm — returns list of cells from (x0,y0) to (x1,y1)."""
@@ -347,6 +348,7 @@ def bresenham_line(x0, y0, x1, y1):
             y += sy
     cells.append((x1, y1))
     return cells
+
 
 def path_valid(start, end, occupancy_grid):
     """

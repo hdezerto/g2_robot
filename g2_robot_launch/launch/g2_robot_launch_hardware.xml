@@ -23,10 +23,15 @@
         <arg name="joy_config" value="xbox"/>
     </include>
 
+
     <!--  Run joystick controller -->
     <!-- This node subscribes to /cmd_vel from the joystick, and it is tuned only for the joystick.
     So DO NOT publishing to /cmd_vel from other nodes to avoid errors. -->
     <node pkg="motion_control" exec="joystick_motor_controller" name="controller_node" output="screen"/>
+
+    
+    <!--  Run Lidar  -->
+    <include file="$(find-pkg-share robp_launch)/launch/lidar_launch.yaml"/>
 
 
 

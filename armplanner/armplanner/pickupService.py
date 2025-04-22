@@ -92,8 +92,10 @@ class PickupService(Node):
             self.servos_publisher.publish(msg1)
             self.get_logger().info(f'Published message: {msg1.data}')
             time.sleep(3) """
-
-        position = self.arm_detection3(request.object_type)
+        if request.object_type == 'Cube' or request.object_type == 'Sphere':
+            position = self.arm_detection3(request.object_type)
+        elif request.object_type == 'Plushie':
+            position = self.backup
         #print(position)
         if position == None:
             self.get_logger().error("Object detection failed!")
@@ -112,7 +114,7 @@ class PickupService(Node):
         # Run IK and send servo commands
         angles, servo_angles = inverse_kinematics(position)
         print("End-effector position:", compute_fk(angles))
-        self.control_servos(servo_angles, 'PICK')
+        self.control_servos(servo_angles, 'PICK', request.object_type)
 
         response.success = True
         response.message = f"Pickup done for: {request.object_type}, {request.color}"
@@ -239,6 +241,7 @@ class PickupService(Node):
             #return msg
 
         if object_type == 'Plushie':
+
             start = time.time()
             img = cropped_img.copy()
             Z = img.reshape((-1,3))
@@ -424,7 +427,7 @@ class PickupService(Node):
         return msg
 
 
-    def control_servos(self, angles, command):
+    def control_servos(self, angles, command, object_type):
         """ if command != 'PICK':
             return """
 
@@ -440,13 +443,20 @@ class PickupService(Node):
         angles = [int(angle * 100) for angle in angles]
         # 12000
         if all (valid_angles):
-            if self.plush_orientation != 'SIDE':
+            if self.plush_orientation != 'SIDE' and object_type != 'Plushie':
                 self.get_logger().info(f'Angles: {angles}')
                 upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
                 grab_pos = [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
                 grab = [11000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
                 upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
                 sequence = [upright_open, grab_pos, grab, upright_hold]
+            if self.plush_orientation == 'DEFAULT' and object_type == 'Plushie':
+                servo_6_pick = 13200
+                sequence = [[3000, 12000, 12000, 12000, 12000, 12000, 2000, 2000, 2000, 2000, 2000, 2000], # Reset arm
+                                   [3000, 12000, 12000, 12000, 12000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Rotate base
+                                   [3000, 16500, 3500, 12800, 4000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Go down
+                                   [12500, 16500, 3500, 12800, 4000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Close gripper
+                                   [12500, 12000, 12000, 12000, 12000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000]] # Go up
             elif self.plush_orientation == 'SIDE':
                 self.get_logger().info(f'Angles: {angles}')
                 print('SIDE')

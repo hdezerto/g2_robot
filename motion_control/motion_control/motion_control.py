@@ -429,7 +429,7 @@ class MotionController(Node):
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=robot_frame, source_frame=goal_frame, time=time
         )
-        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=0.5)
+        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=3.0) # HUGO EDITED: I had to increase the timeout to avoid transform not being available
 
         try:
             # Extract translation (x, y) and rotation (theta)
