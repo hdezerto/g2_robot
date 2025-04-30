@@ -23,11 +23,11 @@ from shapely import Point,Polygon as ShapelyPolygon
 from .mission_control_utils import create_polygon
 
 # -------- Tunable Parameters --------
-WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_2.tsv')  # Path to the workspace file
+WORKSPACE_FILE_PATH = os.path.join(get_package_share_directory('mission_control'), 'workspaces', 'workspace_3.tsv')  # Path to the workspace file
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
 SCAN_THRESHOLD = 5  # Number of scans to skip before processing new data
-SCAN_FREQUENCY = 10  # Frequency at which the map is published and saved
+SCAN_FREQUENCY = 50  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.40  # Minimum distance filter for LiDAR points to avoid noise
 MAX_CONFIDENCE = 100  # Maximum confidence value
@@ -176,7 +176,22 @@ class MapBuilder:
             dilated_cells = processed_mask > 0
             self.map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.map[dilated_cells])  # Mark dilated areas with 50% occupancy
             self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.confidence_map[dilated_cells])  # Set confidence to 50
-
+    
+    def decay_map(self, decay_factor=0.90, threshold=20):
+        """
+        Decays the confidence map values over time.
+        :param decay_factor: Multiplier to reduce confidence (e.g., 0.99 reduces confidence by 1%).
+        :param threshold: Confidence threshold below which the cell is considered free.
+        """
+        # Compute decayed confidence values.
+        decayed = self.confidence_map.astype(np.float32) * decay_factor
+        # Use the pre-computed mask to update only non-outline cells.
+        mask = ~self.workspace_outline_mask
+        # Multiply the confidence map by the decay factor.
+        self.confidence_map[mask] = decayed[mask].astype(np.uint8)
+        # Optionally update occupancy grid: set cells with low confidence to free (0)
+        low_confidence = (self.confidence_map < threshold) & mask
+        self.map[low_confidence] = 0
 
 class LidarMapBuilder(Node):
     """
@@ -197,11 +212,13 @@ class LidarMapBuilder(Node):
         self.trigger_subscriber = self.create_subscription(DetectionMsg, '/remove_object', self.remove_obj_callback, 10)
 
         # TF buffer for transformations
-        self.publisher = self.create_publisher(OccupancyGrid, '/occupancy_map', 10)
+        self.publisher = self.create_publisher(OccupancyGrid, '/mapper_occupancy_grid', 10)
         self.pointcloud_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
         
         # Publisher for the workspace (latched publisher)
         self.workspace_publisher = self.create_publisher(PolygonStamped, '/workspace_polygon', latched_qos)
+
+        self.decay_timer = self.create_timer(1.0, self.decay_callback)  # Decay every second
 
 
 
@@ -212,7 +229,9 @@ class LidarMapBuilder(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         self.proj = LaserProjection()
+        self.workspace_outline_mask = None  # Boolean mask for workspace boundary
         self.accumulated_points = []
+        self.decay_counter=0
         
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
@@ -235,6 +254,17 @@ class LidarMapBuilder(Node):
             # Apply dilation on the newly added point
             self.map_builder.apply_dilation([(x, y)])
             self.map_make_pub(msg.stamp)
+    
+    def decay_callback(self):
+        self.decay_counter+=1
+        self.map_builder.decay_map(decay_factor=0.90, threshold=20)
+        # Optionally, republish the updated occupancy grid.
+        # No publishing here; just update the internal state.
+        self.get_logger().debug("Map decayed.")
+        if  self.decay_counter==2:
+            self.decay_counter=0
+            current_time = rclpy.clock.Clock().now().to_msg()
+            self.map_make_pub(current_time)
 
     def remove_obj_callback(self, msg):
         """ Removes a point from the occupancy map and applies reverse dilation. """
@@ -344,6 +374,7 @@ class LidarMapBuilder(Node):
         point_cloud_msg = pc2.create_cloud_xyz32(header, np.array(self.accumulated_points, dtype=np.float32))
         self.pointcloud_publisher.publish(point_cloud_msg)
         self.get_logger().info(f"Published accumulated point cloud with {len(self.accumulated_points)} points")
+        
         #Read vertices from tvs file
 
     def read_tsv(self, file_path):
@@ -447,6 +478,7 @@ class LidarMapBuilder(Node):
         
         self.map_builder.map[mask]=100
         self.map_builder.confidence_map[mask]=100
+        self.map_builder.workspace_outline_mask = (self.map_builder.map != 0)
 
 def main():
     rclpy.init()

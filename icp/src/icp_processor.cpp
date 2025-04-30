@@ -6,7 +6,11 @@
 #include <pcl_conversions/pcl_conversions.h>  // For converting PCL to ROS PointCloud
 #include <pcl/registration/icp.h>             // ICP (Iterative Closest Point) registration
 #include <std_msgs/msg/float32.hpp>           // Float32 message type
-#include <random>                             // For random selection
+#include <random>             
+#include <mutex>
+#include <boost/make_shared.hpp>              // <-- for boost::make_shared
+
+
 
 #include "tf2_ros/static_transform_broadcaster.h"
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -56,6 +60,9 @@ private:
     // Subscriber for the reference cloud.
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_reference_;
 
+    // ...
+    std::mutex reference_mutex_;
+    // For random selection
 
     // Declare the yaw subscription
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_yaw_;
@@ -69,10 +76,17 @@ private:
     
     pcl::PointCloud<pcl::PointXYZ>::Ptr prev_cloud {nullptr};
 
-    const float MAX_TRANSLATION = 0.9;    // Maximum translation threshold (meters)
-    const float MAX_ROTATION = 1.0;    // Maximum rotation threshold (radians) ~ 10 degrees
+    pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
 
-    
+
+    const float MAX_TRANSLATION = 0.9;    // Maximum translation threshold (meters)
+    const float MAX_ROTATION = 0.80;    // Maximum rotation threshold (radians) ~ 10 degrees
+    const float voxel_leaf_size_ = 0.01f; // Voxel grid leaf size (meters)
+    const float max_corr_dist_ = 0.2f; // Maximum correspondence distance (meters)
+    long unsigned int MAX_COR = 15; // Maximum number of correspondences to consider
+    const int max_iter_ = 50; // Maximum number of ICP iterations
+
+
     float previous_yaw_{0.0f}; // Initialize to zero or a valid starting value
     float yaw_rate_{0.0f};     // Yaw rate (radians per second)
     float linv_{0.0f};     // linear velocity (m/s)
@@ -87,61 +101,125 @@ private:
     
 
     // Callback for the reference cloud subscriber.
-    void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+    /*
+     void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
+
         // Convert the incoming PointCloud2 message into a PCL point cloud and store it.
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::fromROSMsg(*msg, *cloud);
+        RCLCPP_INFO(this->get_logger(), "New Reference cloud %zu points", cloud->size());
         if (cloud->empty()) {
             return; // Skip if the cloud is empty
         }
 
-        if (!reference_cloud_) {
-            *reference_cloud_ = *cloud;
-            RCLCPP_INFO(this->get_logger(), "Stored first cloud for reference, skipping ICP on first pass.");
-            return;
-        }
 
         // Apply voxel grid filtering
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
         voxel_filter.setInputCloud(cloud);
         voxel_filter.setLeafSize(0.05f, 0.05f, 100.0f);
         voxel_filter.filter(*cloud);
+        std::lock_guard<std::mutex> lock(reference_mutex_);
 
-        if (reference_cloud_->size()==cloud->size()){
-            RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to the new cloud size: %zu points.", reference_cloud_->size());
+        if (reference_keyframes_.size()==0){
+            reference_keyframes_.push_back(pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>(*cloud)));
+            RCLCPP_INFO(this->get_logger(), "Reference keyframes size: %zu", reference_keyframes_.size());
+
+            RCLCPP_INFO(this->get_logger(), "First reference cloud of size : %zu points, added to list.", cloud->size());
             return;
         }
-        else{
-            RCLCPP_WARN(this->get_logger(), "New reference cloud of size : %zu points, recieved.", reference_cloud_->size());
-            *reference_cloud_ = *cloud;
+
+        for (const auto& ref : reference_keyframes_) {
+            if (ref->size()==cloud->size()){
+                RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to the some previous cloud size: %zu points.", ref->size());
+                return;
+            }
+            else{
+                RCLCPP_WARN(this->get_logger(), "New reference cloud of size : %zu points, recieved.", cloud->size());
+                reference_keyframes_.push_back(pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>(*cloud)));
+                RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", cloud->size());
+            }
         }
-    
         
-        /*// Run ICP
-        pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-        icp.setInputSource(cloud);
-        icp.setInputTarget(reference_cloud_);
-        icp.setRANSACIterations(50);
-        icp.setMaxCorrespondenceDistance(0.5);
-        icp.setMaximumIterations(500);
-        icp.setTransformationEpsilon(1e-8);
-    
-        pcl::PointCloud<pcl::PointXYZ> aligned;
-        icp.align(aligned);
-
-        if (icp.hasConverged()) {
-            *reference_cloud_=aligned;
-        } else {
-            pcl::fromROSMsg(*msg, *reference_cloud_);
-        }*/
-
-
-        if (!reference_cloud_->empty()) {
-            reference_keyframes_.push_back(reference_cloud_);
-        }
-        RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", reference_cloud_->size());
+       
     }
 
+if (!(reference_keyframes_.size()==0)) {
+
+            for (const auto& ref : reference_keyframes_) {
+                if (ref->size()==cloud->size()){
+                    RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to the some previous cloud size: %zu points.", ref->size());
+                    return;
+                }
+                else{
+                    RCLCPP_WARN(this->get_logger(), "New reference cloud of size : %zu points, recieved.", cloud->size());
+                    reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
+                    RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", cloud->size());
+                    reset_icp = true;
+                }
+            }
+        }
+        else {
+            RCLCPP_INFO(this->get_logger(), "Reference keyframes size: %zu", reference_keyframes_.size());
+
+            RCLCPP_INFO(this->get_logger(), "First reference cloud of size : %zu points, added to list.", cloud->size());
+            reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
+            reset_icp = true;
+        }
+
+    
+    */
+   void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+    {
+
+        auto cloud = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+        pcl::fromROSMsg(*msg, *cloud);
+
+        pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+        voxel_filter.setLeafSize(voxel_leaf_size_, voxel_leaf_size_, 1000.0f);
+        voxel_filter.setInputCloud(cloud);
+        voxel_filter.filter(*cloud);
+
+        std::lock_guard<std::mutex> lock(reference_mutex_);
+
+        bool reset_icp = false;
+
+        
+
+        if (reference_keyframes_.empty()) {
+            // First reference cloud
+            RCLCPP_INFO(this->get_logger(), "First reference cloud of size : %zu points, added to list.", cloud->size());
+            reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
+
+        } else {
+            // Check if the cloud is already in the reference
+            bool cloud_exists = false;
+            for (const auto& ref : reference_keyframes_) {
+                if (ref->size() == cloud->size()) {
+                    cloud_exists = true;
+                    break;
+                }
+            }
+            
+            if (!cloud_exists) {
+                RCLCPP_INFO(this->get_logger(), "New reference cloud of size : %zu points, received.", cloud->size());
+                reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
+
+                reset_icp = true;
+            } else {
+                RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to some previous cloud size: %zu points.", cloud->size());
+            }
+        }
+
+        if (reset_icp) {
+            // Hard reset ICP
+            //icp_ = pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>();
+            icp_.setMaxCorrespondenceDistance(max_corr_dist_);
+            icp_.setMaximumIterations(max_iter_);
+            icp_.setInputTarget(reference_keyframes_.back());
+            icp_.setMaximumIterations(500);
+            icp_.setTransformationEpsilon(1e-8);
+        }
+    }
 
     void yaw_callback(const std_msgs::msg::Float32::SharedPtr msg) {
         float current_yaw = msg->data;
@@ -210,25 +288,15 @@ private:
             }
             else{
                 RCLCPP_WARN(this->get_logger(), "Robot is stationary (%.2f m/s): skiping %d st/nd ICP.", linv_,stationary_counter+1);
-                publish_previous_cloud(output_topic, msg, cloud);
+                publish_previous_cloud(output_topic, msg, prev_cloud);
                 return; // Skip ICP processing
             }
         }
         else {
             stationary_counter=0;  // Reset to default value
         }
-        RCLCPP_WARN(this->get_logger(), "Robot is stationary (%.2f m/s): doing icp with counter %d st/nd ICP.", linv_,stationary_counter+1);
-        
 
         
-
-       
-        // Check reference cloud availability
-        if (reference_cloud_ && !reference_cloud_->empty()) {
-            //target_cloud = reference_cloud_;
-        } else {
-            return;
-        }
 
         for (auto& pt : cloud->points) {
             pt.z = 0.0f;
@@ -238,7 +306,7 @@ private:
         // Apply voxel grid filtering
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
         voxel_filter.setInputCloud(cloud);
-        voxel_filter.setLeafSize(0.05f, 0.05f, 1000.0f);
+        voxel_filter.setLeafSize(voxel_leaf_size_,voxel_leaf_size_, 1000.0f);
         voxel_filter.filter(*cloud);
 
         //correspondence check:
@@ -249,26 +317,38 @@ private:
         pcl::registration::CorrespondenceEstimation<pcl::PointXYZ, pcl::PointXYZ> est;
         est.setInputSource(cloud);  // The new input cloud
 
+        std::lock_guard<std::mutex> lock(reference_mutex_);
         // Iterate through keyframes
         for (size_t i = 0; i < reference_keyframes_.size(); ++i) {
             auto& ref = reference_keyframes_[i];
-            if (!ref || ref->empty()) continue;
+
+            if (!ref || ref->empty()) {
+                RCLCPP_WARN(this->get_logger(), "Keyframe %zu is empty or invalid!", i);
+                continue;
+            }
 
             est.setInputTarget(ref);
             pcl::Correspondences correspondences;
             est.determineCorrespondences(correspondences, 0.2);  // Use your matching threshold here
 
-            RCLCPP_INFO(this->get_logger(), "Keyframe %zu has %zu correspondences", i, correspondences.size());
+            RCLCPP_INFO(this->get_logger(), "Keyframe %zu has %zu correspondences, of so many points: %zu ", i, correspondences.size(),ref->size());
 
             if (correspondences.size() > max_correspondences) {
                 max_correspondences = correspondences.size();
                 best_match_index = static_cast<int>(i);
             }
         }
-
+        /*
         if (best_match_index == -1) {
             RCLCPP_WARN(this->get_logger(), "No valid correspondences found with any reference.");
             publish_previous_cloud(output_topic, msg, prev_cloud);
+            return;
+        }
+        */
+
+        if (max_correspondences < MAX_COR) {
+            RCLCPP_WARN(this->get_logger(), "%zu correspondences found, not enough.",max_correspondences);
+            publish_previous_cloud(output_topic, msg, cloud);
             return;
         }
 
@@ -279,18 +359,18 @@ private:
 
     
         // Run ICP
-        pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
-        icp.setInputSource(cloud);
-        icp.setInputTarget(reference_cloud_);
-        icp.setRANSACIterations(50);
-        icp.setMaxCorrespondenceDistance(0.2);
-        icp.setMaximumIterations(500);
-        icp.setTransformationEpsilon(1e-8);
+        //pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
+        icp_.setInputSource(cloud);
+        icp_.setInputTarget(reference_cloud_);
+        icp_.setRANSACIterations(max_iter_);
+        icp_.setMaxCorrespondenceDistance(max_corr_dist_);
+        icp_.setMaximumIterations(500);
+        icp_.setTransformationEpsilon(1e-8);
     
         pcl::PointCloud<pcl::PointXYZ> aligned;
-        icp.align(aligned);
+        icp_.align(aligned);
     
-        if (icp.hasConverged()) {
+        if (icp_.hasConverged()) {
             
             /*
                         float icpfitness = icp.getFitnessScore();
@@ -307,7 +387,7 @@ private:
 
 
             // Get the new ICP transformation.
-            Eigen::Matrix4f transformation = icp.getFinalTransformation();
+            Eigen::Matrix4f transformation = icp_.getFinalTransformation();
         
             // Extract translation and force z to zero.
             Eigen::Vector3f translation = transformation.block<3,1>(0,3);
@@ -432,9 +512,13 @@ private:
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> tf_broadcaster_;
 };
 
+
 int main(int argc, char** argv) {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<ICPProcessor>());
+    rclcpp::executors::MultiThreadedExecutor executor;
+    auto node = std::make_shared<ICPProcessor>();
+    executor.add_node(node);
+    executor.spin();
     rclcpp::shutdown();
     return 0;
 }
