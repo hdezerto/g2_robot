@@ -42,7 +42,8 @@ ros2 run motion_control motion_control
 ros2 run detection detection
 IN ~/dd2419_ws    ros2 run mission_control exploration_controller
 
-
+----- MAP FILE -----:
+The map is saved in the directory where the node is run.
 
 """
 
@@ -438,11 +439,11 @@ class ExplorationController(Node):
         with open(file_name, 'w') as file:
             # Write the objects to the file
             for x, y, category in self.detected_objects:
-                file.write(f"{category}\t{x * 100:.2f}\t{y * 100:.2f}\t0\n")  # Angle is 0 for objects
+                file.write(f"{category}\t{x * 100:.0f}\t{y * 100:.0f}\t0\n")  # Angle is 0 for objects
     
             # Write the boxes to the file
             for x, y, theta in self.detected_boxes:
-                file.write(f"B\t{x * 100:.2f}\t{y * 100:.2f}\t{theta:.0f}\n")  # Use theta for the angle
+                file.write(f"B\t{x * 100:.0f}\t{y * 100:.0f}\t{theta:.0f}\n")  # Use theta for the angle
     
         self.get_logger().info(f"Map file '{file_name}' has been written successfully to '{current_directory}'.")
 

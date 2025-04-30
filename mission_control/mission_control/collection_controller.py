@@ -42,10 +42,10 @@ MOTION_CONTROLLER:
 -  Sometimes the motion_controller fails for the path to pick the plushie:
     [INFO] [1745338952.729685789] [motion_controller]: Received new path
     [ERROR] [1745338953.230844790] [motion_controller]: Failed to get current pose: 'NoneType' object has no attribute 'transform'
-- Check how the current ṕose is obtained in the motion_controller. Isnt spin_thread = True better than async? I had to increase the timeout to 3.0 s to avoid this error.
+- Check how the current pose is obtained in the motion_controller. Isnt spin_thread = True better than async? I had to increase the timeout to 3.0 s to avoid this error.
 
 ICP:
-- Running with ICP when compared to juts odometry, the collection has a worse performance.
+- Running with ICP when compared to just odometry, the collection has a worse performance.
 - The motion controller still gets "stuck" when using ICP.
 
 MISSION_CONTROL_UTILS:
