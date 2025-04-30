@@ -55,16 +55,18 @@ WORKSPACE_FILE_PATH = os.path.join(
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
 SCAN_FREQUENCY = 5  # Number of scans to skip before processing new data
-MAP_FREQUENCY = 40  # Frequency at which the map is published and saved
+MAP_FREQUENCY = 60  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.70  # Minimum distance filter for LiDAR points to avoid noise
 MINUS_THETA = -130  # Minimum angle threshold for LiDAR points
 PLUS_THETA = 130  # Maximum angle threshold for LiDAR points
-MAX_CONFIDENCE = 100  # Maximum confidence value
-CONFIDENCE_STEP = 100  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
+#TODO change dilation and max values
+DILATION_VAL = 49
+MAX_CONFIDENCE = 99  # Maximum confidence value
+CONFIDENCE_STEP = 99  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
-LD_FILTER = 5  # Maximum distance for LiDAR points
-THRESHOLD = 4.0 # Distance threshold for keyframe selection
+LD_FILTER = 2.3  # Maximum distance for LiDAR points
+THRESHOLD = 2.3 # Distance threshold for keyframe selection
 
 # ------------------------------------
 
@@ -249,15 +251,15 @@ class MapBuilder:
         if reverse:
             # Reverse dilation: shrink affected cells back to unknown
             dilated_cells = processed_mask > 0
-            self.map[dilated_cells] = np.where(self.map[dilated_cells] == 50, -1, self.map[dilated_cells])  # Reset to unknown
+            self.map[dilated_cells] = np.where(self.map[dilated_cells] == DILATION_VAL, -1, self.map[dilated_cells])  # Reset to unknown
             self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] == -1, 0, self.confidence_map[dilated_cells])  # Reset confidence to 0
         else:
             # Regular dilation: expand affected cells to 50% occupancy
             dilated_cells = processed_mask > 0
-            self.map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.map[dilated_cells])  # Mark dilated areas with 50% occupancy
-            self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] != 100, 50, self.confidence_map[dilated_cells])  # Set confidence to 50
+            self.map[dilated_cells] = np.where(self.map[dilated_cells] != MAX_CONFIDENCE, DILATION_VAL, self.map[dilated_cells])  # Mark dilated areas with 50% occupancy
+            self.confidence_map[dilated_cells] = np.where(self.map[dilated_cells] != MAX_CONFIDENCE, DILATION_VAL, self.confidence_map[dilated_cells])  # Set confidence to 50
     
-    def decay_map(self, decay_factor=0.99, threshold=20):
+    def decay_map(self, decay_factor=0.90, threshold=20):
         """
         Decays the confidence map values over time.
         :param decay_factor: Multiplier to reduce confidence (e.g., 0.99 reduces confidence by 1%).
@@ -334,6 +336,9 @@ class LidarProcessor(Node):
         self.decay_counter=0
         self.scan_que_full=False
         self.locked_high_x = False  # Flag to track when x > 8.1
+        self.from2_1to1_0 = False  # Flag to track when x > 2 and y < 1'
+        self.from5_4to1_0 = False  # Flag to track when x > 2 and y < 1
+
 
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
@@ -437,14 +442,14 @@ class LidarProcessor(Node):
 
             #TODO Ensure the bellow properly adds points
             if self.First_time:
-                self.get_logger().info(f'Published 1st scan as PointCloud2')
+                self.get_logger().info(f'Published 1st scan as PointCloud2, voxel size at 0.01')
 
                 # Read points from the message
                 points = list(pc2.read_points(transformed_cloud, field_names=("x", "y", "z"), skip_nans=True))
 
                 # Voxelize the point cloud before adding to the map
                 #Voxelize will also filter out points out of the workspace
-                voxel_size = 0.05  # Adjust voxel size for desired resolution
+                voxel_size = 0.01  # Adjust voxel size for desired resolution
                 voxelized_points = self.voxelize(points, voxel_size)
 
                 # Reset accumulated points to ICP-corrected ones
@@ -485,7 +490,7 @@ class LidarProcessor(Node):
             candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
             
             # === Force new keyframe if x > 8.1 and lock updates ===
-            if current_pos[0] > 8.12:
+            if current_pos[0] > 8.15:
                 if not self.locked_high_x:
                     self.get_logger().info(f"Entering high-x {current_pos[0]} zone (>8.1m). Forcing new keyframe.")
                     self.reference_scans.append(candidate_reference)
@@ -498,9 +503,40 @@ class LidarProcessor(Node):
                             # Publish the current point cloud
                 self.pointcloud_publisher.publish(transformed_cloud)
                 return  # Don’t continue to update anything
+                        # === Force new keyframe if x > 8.1 and lock updates ===
+            
+            if (2 > current_pos[0] > 1) and (1 > current_pos[1] > 0):
+                if not self.from2_1to1_0:
+                    self.get_logger().info(f"Entering low-x {current_pos[0]} zone (m). Forcing new keyframe.")
+                    self.reference_scans.append(candidate_reference)
+                    self.latest_reference = candidate_reference
+                    self.publish_reference(candidate_reference)
+                    self.publish_circle_marker(msg)
+                    self.from2_1to1_0 = True
+                else:
+                    self.get_logger().info("Still in low-x zone. Skipping keyframe update.")
+                            # Publish the current point cloud
+                self.pointcloud_publisher.publish(transformed_cloud)
+                return  # Don’t continue to update anything
+            
+            if (5 > current_pos[0] > 4) and (1 > current_pos[1] > 0):
+                if not self.from5_4to1_0:
+                    self.get_logger().info(f"Entering mid-x {current_pos[0]} zone (m). Forcing new keyframe.")
+                    self.reference_scans.append(candidate_reference)
+                    self.latest_reference = candidate_reference
+                    self.publish_reference(candidate_reference)
+                    self.publish_circle_marker(msg)
+                    self.from5_4to1_0 = True
+                else:
+                    self.get_logger().info("Still in mid-x zone. Skipping keyframe update.")
+                            # Publish the current point cloud
+                self.pointcloud_publisher.publish(transformed_cloud)
+                return  # Don’t continue to update anything
+            
+            
 
             # === If x has gone back under 8.1, unlock keyframe updates ===
-            if self.locked_high_x and current_pos[0] <= 8.1:
+            if self.locked_high_x and current_pos[0] <= 8.12:
                 self.get_logger().info("Exited high-x zone. Re-enabling keyframe updates.")
                 self.locked_high_x = False
 
@@ -640,7 +676,7 @@ class LidarProcessor(Node):
                 self.map_builder.map[my, mx] = int(self.map_builder.confidence_map[my, mx])
 
                 # Apply reverse dilation only if the cell is at 50% occupancy
-                if self.map_builder.map[my, mx] == 50:
+                if self.map_builder.map[my, mx] == 49:
                     self.map_builder.apply_reverse_dilation([(x, y)],reverse=True)  # Reverse dilation on the removed point
                 current_time = rclpy.clock.Clock().now().to_msg()
                 self.map_make_pub(current_time)

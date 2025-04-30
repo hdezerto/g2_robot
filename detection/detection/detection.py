@@ -214,9 +214,9 @@ class PointCloudDetection(Node):
             x_map, y_map, _ = self.transform_to_map(x, z, msg.header.stamp)
 
             # HUGO EDITED: had to comnment this out for the collection due to false box detections
-            # if self.is_near_box(x_map, y_map):
-            #     self.get_logger().info(f'Cluster is near a box!')
-            #     continue
+            if self.is_near_box(x_map, y_map):
+                self.get_logger().info(f'Cluster is near a box!')
+                continue
 
             # Classify based on floor contact points for the current cluster
             object_type = self.classify_based_on_floor_contact(cluster_points)

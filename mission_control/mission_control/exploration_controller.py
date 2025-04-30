@@ -36,8 +36,12 @@ IN ~/dd2419_ws    rviz2 -d exploration.rviz
 IN ~/dd2419_ws    colcon build --symlink-install
 fastdds discovery -i 0 -t 192.168.128.110 -q 42100
 ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
+
 ros2 run icp icp_processor
 ros2 run mission_control processor_mapper
+
+ros2 run mission_control simple_mapper
+
 ros2 run motion_control motion_control
 ros2 run detection detection
 IN ~/dd2419_ws    ros2 run mission_control exploration_controller
@@ -125,8 +129,10 @@ class ExplorationController(Node):
         
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
-        
+        #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        #self.exploration_points = [(10, 45), (190, 45), (190, 60), (180, 60), (180, 75), (190, 75), (135, 30), (105, 15), (20, 15), (20, 30), (40, 30), (105, 30)] # NEW HARD CODED values (including cabinet)
+        self.exploration_points = [(10, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (40, 30), (105, 30)] # HARD CODED values (including cabinet)
+
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()
         # DEBUG:
@@ -226,6 +232,9 @@ class ExplorationController(Node):
         if not self.is_inside_workspace(msg.x, msg.y):
             self.get_logger().info(f'Detection is outside the workspace. Ignoring it.')
             return
+        if self.is_lidar_occupied(msg.x, msg.y):
+            self.get_logger().info(f'Detection is inside a lidar occupied cell. Ignoring it.')
+            return
         # Update the detections list. It returns true if it's a new detection (for collision check)
         is_new_detection = self.update_detections(msg)
         if is_new_detection:
@@ -236,7 +245,7 @@ class ExplorationController(Node):
 
 
     def mapper_occupancy_grid_callback(self, msg):
-        self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
+        #self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
         self.latest_lidar_grid = msg # Save the latest lidar grid for detections_callback
         # Update path planning grid with the received lidar occupancy grid and check for collision
         is_collision = self.update_path_planning_grid_and_check_collision(msg)
@@ -361,7 +370,30 @@ class ExplorationController(Node):
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
             # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells), 70 (grid path), 100 (workspace border)
-            return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
+            #return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
+            return self.exploration_occupancy_grid.data[index] != -1 # Return true if not outside the workspace (i.e., not -1)
+
+        # If out of bounds, return False
+        return False
+    
+    
+    def is_lidar_occupied(self, x, y):
+        """
+        Check if the given coordinates (x, y) are inside a lidar occupied cell.
+        """
+        # Convert real-world coordinates to grid coordinates
+        grid_x, grid_y = real_to_grid_coordinates([(x, y, None)], self.latest_lidar_grid)[0]
+
+        # Get the grid dimensions
+        width = self.latest_lidar_grid.info.width
+        height = self.latest_lidar_grid.info.height
+
+        # Check if the grid coordinates are within bounds
+        if 0 <= grid_x < width and 0 <= grid_y < height:
+            # Calculate the index in the grid data
+            index = grid_y * width + grid_x
+            # Check if the cell value is 99 (occupied)
+            return self.latest_lidar_grid.data[index] == 99
 
         # If out of bounds, return False
         return False
