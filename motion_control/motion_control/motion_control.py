@@ -171,7 +171,8 @@ class MotionController(Node):
                 self.current_waypoint_index += 1
                 self.reached_waypoint = False
                 self.reached_waypoint_publisher.publish(Bool(data=True))
-        elif (self.current_waypoint_index == len(self.current_path.poses)
+        elif (
+            self.current_waypoint_index == len(self.current_path.poses)
             and not self.turn_around
         ):
             if not self.obstacle_detected and not self.stop_robot:
@@ -179,7 +180,7 @@ class MotionController(Node):
             else:
                 self.notify_reached_destination(False)
             self.get_logger().info("Path execution finished")
-            self.current_path = None # Reset the path to avoid publishing to /reached_destination more than once HUGO EDITED
+            self.current_path = None  # Reset the path to avoid publishing to /reached_destination more than once HUGO EDITED
         elif self.turn_around:
             self.move_back()
 
@@ -295,12 +296,7 @@ class MotionController(Node):
                     self.get_logger().info(f"Not moving.")
                 else:
                     self.stuck_check = 0
-                if self.stuck_check > 5:
-                    stuck_parameter = (self.stuck_check - 5) * 0.02
-                    self.get_logger().info(
-                        f"Stuck. Increasing damping factor to {stuck_parameter}"
-                    )
-                elif self.stuck_check > 10:
+                if self.stuck_check > 10:
                     self.get_logger().warn(
                         f"Could not reach destination with remaining distance: {distance}\n Moving On."
                     )
@@ -315,6 +311,11 @@ class MotionController(Node):
                         )
                         self.reached_waypoint = True
                     self.accuracy_check = 0
+                elif self.stuck_check > 5:
+                    stuck_parameter = (self.stuck_check - 5) * 0.02
+                    self.get_logger().info(
+                        f"Stuck. Increasing damping factor to {stuck_parameter}"
+                    )
 
                 # Set velocity
                 v = self.p_translation_two * (
@@ -393,7 +394,10 @@ class MotionController(Node):
         # Extract position and orientation
         current_position = (current_pose[0], current_pose[1])  # (x, y)
 
-        if np.sqrt((pose[0] - current_pose[0])**2 + (pose[1] - current_pose[1])**2) < 0.01:
+        if (
+            np.sqrt((pose[0] - current_pose[0]) ** 2 + (pose[1] - current_pose[1]) ** 2)
+            < 0.01
+        ):
             motor_msg = DutyCycles()
             motor_msg.duty_cycle_left = -0.15
             motor_msg.duty_cycle_right = -0.15
@@ -404,8 +408,6 @@ class MotionController(Node):
             self.get_logger().info("Backed off successfully. Continue to follow path.")
             self.turn_around = False
             return
-
-
 
     def stop(self):
         motor_msg = DutyCycles()
@@ -429,7 +431,9 @@ class MotionController(Node):
         compared_transform = self.buffer.wait_for_transform_async(
             target_frame=robot_frame, source_frame=goal_frame, time=time
         )
-        rclpy.spin_until_future_complete(self, compared_transform, timeout_sec=3.0) # HUGO EDITED: I had to increase the timeout to avoid transform not being available
+        rclpy.spin_until_future_complete(
+            self, compared_transform, timeout_sec=3.0
+        )  # HUGO EDITED: I had to increase the timeout to avoid transform not being available
 
         try:
             # Extract translation (x, y) and rotation (theta)
@@ -456,12 +460,11 @@ class MotionController(Node):
             delta_theta = delta_theta - 2 * math.pi
         elif delta_theta < -math.pi:
             delta_theta = delta_theta + 2 * math.pi
-        
-        if abs(delta_theta) > math.pi*(2/3):
+
+        if abs(delta_theta) > math.pi * (2 / 3):
             return True
         else:
             return False
-        
 
     def check_lidar(self):
         # TODO: Implement lidar check
