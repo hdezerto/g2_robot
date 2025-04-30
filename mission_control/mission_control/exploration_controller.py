@@ -226,6 +226,9 @@ class ExplorationController(Node):
         if not self.is_inside_workspace(msg.x, msg.y):
             self.get_logger().info(f'Detection is outside the workspace. Ignoring it.')
             return
+        if self.is_lidar_occupied(msg.x, msg.y):
+            self.get_logger().info(f'Detection is inside a lidar occupied cell. Ignoring it.')
+            return
         # Update the detections list. It returns true if it's a new detection (for collision check)
         is_new_detection = self.update_detections(msg)
         if is_new_detection:
@@ -361,7 +364,30 @@ class ExplorationController(Node):
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
             # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells), 70 (grid path), 100 (workspace border)
-            return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
+            #return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
+            return self.exploration_occupancy_grid.data[index] != -1 # Return true if not outside the workspace (i.e., not -1)
+
+        # If out of bounds, return False
+        return False
+    
+    
+    def is_lidar_occupied(self, x, y):
+        """
+        Check if the given coordinates (x, y) are inside a lidar occupied cell.
+        """
+        # Convert real-world coordinates to grid coordinates
+        grid_x, grid_y = real_to_grid_coordinates([(x, y, None)], self.latest_lidar_grid)[0]
+
+        # Get the grid dimensions
+        width = self.latest_lidar_grid.info.width
+        height = self.latest_lidar_grid.info.height
+
+        # Check if the grid coordinates are within bounds
+        if 0 <= grid_x < width and 0 <= grid_y < height:
+            # Calculate the index in the grid data
+            index = grid_y * width + grid_x
+            # Check if the cell value is 99 (occupied)
+            return self.latest_lidar_grid.data[index] == 99
 
         # If out of bounds, return False
         return False
