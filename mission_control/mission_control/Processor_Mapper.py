@@ -8,8 +8,8 @@ from collections import deque
 # Importing message types used for communication in ROS 2
 from sensor_msgs.msg import LaserScan, PointCloud2  # LaserScan for LiDAR data, PointCloud2 for 3D point clouds
 from nav_msgs.msg import OccupancyGrid, MapMetaData  # OccupancyGrid for map representation, MapMetaData for metadata
-from std_msgs.msg import Header,Bool  # Standard header message for timestamping and frame information
-from geometry_msgs.msg import Pose ,PolygonStamped, Point32
+from std_msgs.msg import Header,Bool,Float32  # Standard header message for timestamping and frame information
+from geometry_msgs.msg import Pose ,PolygonStamped, Point32, TransformStamped
 
 # Importing libraries for LiDAR scan conversion
 from laser_geometry import LaserProjection  # Converts LaserScan messages into 3D PointCloud2 format
@@ -57,7 +57,7 @@ EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better vis
 SCAN_FREQUENCY = 5  # Number of scans to skip before processing new data
 MAP_FREQUENCY = 60  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
-DISTANCE_FILTER = 0.70  # Minimum distance filter for LiDAR points to avoid noise
+DISTANCE_FILTER = 0.50  # Minimum distance filter for LiDAR points to avoid noise
 MINUS_THETA = -130  # Minimum angle threshold for LiDAR points
 PLUS_THETA = 130  # Maximum angle threshold for LiDAR points
 #TODO change dilation and max values
@@ -66,7 +66,7 @@ MAX_CONFIDENCE = 99  # Maximum confidence value
 CONFIDENCE_STEP = 99  # Step increase in confidence per scan (25%, 50%, 75%, 100%)
 MAP_FOLDER = "maps"  # Directory where generated maps will be stored
 LD_FILTER = 2.3  # Maximum distance for LiDAR points
-THRESHOLD = 2.3 # Distance threshold for keyframe selection
+THRESHOLD = 2.0 # Distance threshold for keyframe selection
 
 # ------------------------------------
 
@@ -297,6 +297,7 @@ class LidarProcessor(Node):
         self.accumulated_publisher = self.create_publisher(PointCloud2, '/accumulated_pointcloud', 10)
         #publish the latest reference scan
         self.reference_publisher= self.create_publisher(PointCloud2, '/reference_cloud', 1)
+        self.correction_publisher= self.create_publisher(Float32, '/correction', 1)
 
         
         #simple pointcloud publishers
@@ -306,6 +307,12 @@ class LidarProcessor(Node):
         
         self.decay_timer = self.create_timer(1.0, self.decay_callback)  # Decay every second
 
+        self.yaw_subscription = self.create_subscription(
+            Float32,
+            '/odom/yaw',
+            self.yaw_callback,
+            10
+        )
 
         #publisher for visualising keyframes
         self.circle_marker_pub = self.create_publisher(PolygonStamped, '/keyframe_circle', 10)
@@ -322,6 +329,10 @@ class LidarProcessor(Node):
         self.corrected_accumulated_points = []
         self.latest_reference = None
         self.reference_scans = []  # List to store reference scans
+
+        self.yaw_rate=0
+        self.previous_yaw = None 
+        self.yaw_threshold = 0.3  # Threshold for yaw rate to skip keyframe updates
         
 
         self.scan_count = 0
@@ -337,12 +348,23 @@ class LidarProcessor(Node):
         self.scan_que_full=False
         self.locked_high_x = False  # Flag to track when x > 8.1
         self.from2_1to1_0 = False  # Flag to track when x > 2 and y < 1'
+        self.from4_2to1_0 = False  # Flag to track when x > 2 and y < 1
         self.from5_4to1_0 = False  # Flag to track when x > 2 and y < 1
 
 
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
         self.publish_workspace()
+    
+    def yaw_callback(self, msg):
+        current_yaw = msg.data
+
+        if self.previous_yaw is not None:
+            dt = 0.1  # Assuming 10 Hz publishing rate
+            self.yaw_rate = (current_yaw - self.previous_yaw) / dt
+            # self.get_logger().info(f"Yaw: {current_yaw:.2f}, Yaw rate: {self.yaw_rate:.2f}")
+
+        self.previous_yaw = current_yaw
    
     def publish_reference(self, ref):
         # Given a reference scan (dict with 'points' and 'pos'), publish it
@@ -488,83 +510,142 @@ class LidarProcessor(Node):
             
             # Create a candidate reference scan from the current points
             candidate_reference = {'cloud': transformed_cloud, 'pos': current_pos}
-            
-            # === Force new keyframe if x > 8.1 and lock updates ===
-            if current_pos[0] > 8.15:
-                if not self.locked_high_x:
-                    self.get_logger().info(f"Entering high-x {current_pos[0]} zone (>8.1m). Forcing new keyframe.")
-                    self.reference_scans.append(candidate_reference)
-                    self.latest_reference = candidate_reference
-                    self.publish_reference(candidate_reference)
-                    self.publish_circle_marker(msg)
-                    self.locked_high_x = True
-                else:
-                    self.get_logger().info("Still in high-x zone. Skipping keyframe update.")
-                            # Publish the current point cloud
-                self.pointcloud_publisher.publish(transformed_cloud)
-                return  # Don’t continue to update anything
-                        # === Force new keyframe if x > 8.1 and lock updates ===
-            
-            if (2 > current_pos[0] > 1) and (1 > current_pos[1] > 0):
-                if not self.from2_1to1_0:
-                    self.get_logger().info(f"Entering low-x {current_pos[0]} zone (m). Forcing new keyframe.")
-                    self.reference_scans.append(candidate_reference)
-                    self.latest_reference = candidate_reference
-                    self.publish_reference(candidate_reference)
-                    self.publish_circle_marker(msg)
-                    self.from2_1to1_0 = True
-                else:
-                    self.get_logger().info("Still in low-x zone. Skipping keyframe update.")
-                            # Publish the current point cloud
-                self.pointcloud_publisher.publish(transformed_cloud)
-                return  # Don’t continue to update anything
-            
-            if (5 > current_pos[0] > 4) and (1 > current_pos[1] > 0):
-                if not self.from5_4to1_0:
-                    self.get_logger().info(f"Entering mid-x {current_pos[0]} zone (m). Forcing new keyframe.")
-                    self.reference_scans.append(candidate_reference)
-                    self.latest_reference = candidate_reference
-                    self.publish_reference(candidate_reference)
-                    self.publish_circle_marker(msg)
-                    self.from5_4to1_0 = True
-                else:
-                    self.get_logger().info("Still in mid-x zone. Skipping keyframe update.")
-                            # Publish the current point cloud
-                self.pointcloud_publisher.publish(transformed_cloud)
-                return  # Don’t continue to update anything
+            # Skip keyframe updates if yaw rate is too high
             
             
+            if abs(self.yaw_rate) > self.yaw_threshold:
+                self.get_logger().info(f"Skipping keyframe update due to high yaw rate: {self.yaw_rate:.2f} rad/s")
+                #self.pointcloud_publisher.publish(transformed_cloud)
+                return
 
-            # === If x has gone back under 8.1, unlock keyframe updates ===
-            if self.locked_high_x and current_pos[0] <= 8.12:
-                self.get_logger().info("Exited high-x zone. Re-enabling keyframe updates.")
-                self.locked_high_x = False
-
-   
-            # Find all keyframes within threshold
-            matching_refs = []
-            for ref in self.reference_scans:
-                d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
-                            (current_pos[1] - ref['pos'][1])**2)
-                if d < self.keyf_threshold:
-                    matching_refs.append(ref)
-
-            if matching_refs:
-                # Pick the oldest matching keyframe (earliest in list)
-                chosen_ref = matching_refs[0]
-                if self.latest_reference != chosen_ref:
-                    self.latest_reference = chosen_ref
-                    self.publish_reference(chosen_ref)
-                    self.publish_circle_marker(msg)
             else:
-                # No close keyframes — add this one
-                self.reference_scans.append(candidate_reference)
-                self.latest_reference = candidate_reference
-                self.publish_reference(candidate_reference)
-                self.publish_circle_marker(msg)
+
+                # === Force new keyframe if x > 8.1 and lock updates ===
+                if current_pos[0] > 8.25:
+                    if not self.locked_high_x:
+                        self.correction_publisher.publish(Float32(data=0.27))
+                        self.get_logger().info(f"Pushed correction to 0.2")
                         
-            # Publish the current point cloud
-            self.pointcloud_publisher.publish(transformed_cloud)
+                        shift_transform = TransformStamped()
+                        shift_transform.header = transformed_cloud.header
+                        shift_transform.child_frame_id = "shifted_cloud"
+                        shift_transform.transform.translation.x = -0.27
+                        shift_transform.transform.translation.y = 0.0 # Downward
+                        shift_transform.transform.translation.z = 0.0  
+                        shift_transform.transform.rotation.w = 1.0  # Identity rotation
+                        
+                        candidate_reference['cloud'] = do_transform_cloud(candidate_reference['cloud'], shift_transform)
+                        candidate_reference['pos'] = (current_pos[0] - 0.27, current_pos[1])
+
+
+                        self.get_logger().info(f"Entering high-x {current_pos[0]} zone (>8.15m). Forcing new shifted keyframe.")
+                        self.reference_scans.append(candidate_reference)
+                        self.latest_reference = candidate_reference
+                        self.publish_reference(candidate_reference)
+                        self.publish_circle_marker(msg)
+                        
+
+                        self.locked_high_x = True
+                    else:
+                        self.get_logger().info("Still in high-x zone. Skipping keyframe update.")
+                                # Publish the current point cloud
+                    self.pointcloud_publisher.publish(transformed_cloud)
+                    return  # Don’t continue to update anything
+                            # === Force new keyframe if x > 8.1 and lock updates ===
+                
+                
+                ''' 
+                            if (5 > current_pos[0] > 4) and (1 > current_pos[1] > 0):
+                    if not self.from5_4to1_0:
+                        self.get_logger().info(f"Entering mid-x {current_pos[0]} zone (m). Forcing new keyframe.")
+                        self.reference_scans.append(candidate_reference)
+                        self.latest_reference = candidate_reference
+                        self.publish_reference(candidate_reference)
+                        self.publish_circle_marker(msg)
+                        self.from5_4to1_0 = True
+                    else:
+                        self.get_logger().info("Still in mid-x zone. Skipping keyframe update.")
+                                # Publish the current point cloud
+                    self.pointcloud_publisher.publish(transformed_cloud)
+                    return  # Don’t continue to update anything
+                
+                
+                '''
+
+
+                # === If x has gone back under 8.1, unlock keyframe updates ===
+                if self.locked_high_x and current_pos[0] <= 8.15:
+                    self.get_logger().info("Exited high-x zone. Re-enabling keyframe updates.")
+                    self.locked_high_x = False
+                    self.correction_publisher.publish(Float32(data=0.15))
+                    self.get_logger().info(f"Pushed correction to 0.0")
+                
+                if (2 > current_pos[0] > 1) and (1 > current_pos[1] > 0):
+                    if not self.from2_1to1_0:
+                        self.get_logger().info(f"Entering low-x {current_pos[0]} zone (m). Forcing new keyframe.")
+                        self.reference_scans.append(candidate_reference)
+                        self.latest_reference = candidate_reference
+                        self.publish_reference(candidate_reference)
+                        self.publish_circle_marker(msg)
+                        self.from2_1to1_0 = True
+                    else:
+                        self.get_logger().info("Still in low-x zone. Skipping keyframe update.")
+                                # Publish the current point cloud
+                    self.pointcloud_publisher.publish(transformed_cloud)
+                    return  # Don’t continue to update anything
+            
+                if (4 > current_pos[0] > 2) and (1 > current_pos[1] > -0.5):
+                    if not self.from4_2to1_0:
+                        self.get_logger().info(f"Entering mid-mid-x {current_pos[0]} zone (m). Forcing new keyframe.")
+                        self.reference_scans.append(candidate_reference)
+                        self.latest_reference = candidate_reference
+                        self.publish_reference(candidate_reference)
+                        self.publish_circle_marker(msg)
+                        self.from4_2to1_0 = True
+                    else:
+                        self.get_logger().info("Still in mid-mid-x zone. Skipping keyframe update.")
+                                # Publish the current point cloud
+                    self.pointcloud_publisher.publish(transformed_cloud)
+                    return  # Don’t continue to update anything
+
+                if (5.5 > current_pos[0] > 4) and (1 > current_pos[1] > -0.5):
+                    if not self.from5_4to1_0:
+                        self.get_logger().info(f"Entering low-x {current_pos[0]} zone (m). Forcing new keyframe.")
+                        self.reference_scans.append(candidate_reference)
+                        self.latest_reference = candidate_reference
+                        self.publish_reference(candidate_reference)
+                        self.publish_circle_marker(msg)
+                        self.from5_4to1_0 = True
+                    else:
+                        self.get_logger().info("Still in low-x zone. Skipping keyframe update.")
+                                # Publish the current point cloud
+                    self.pointcloud_publisher.publish(transformed_cloud)
+                    return  # Don’t continue to update anything
+
+                # Find all keyframes within threshold
+                matching_refs = []
+                for ref in self.reference_scans:
+                    d = math.sqrt((current_pos[0] - ref['pos'][0])**2 +
+                                (current_pos[1] - ref['pos'][1])**2)
+                    if d < self.keyf_threshold:
+                        matching_refs.append(ref)
+
+                if matching_refs:
+                    # Pick the oldest matching keyframe (earliest in list)
+                    chosen_ref = matching_refs[0]
+                    if self.latest_reference != chosen_ref:
+                        self.latest_reference = chosen_ref
+                        self.publish_reference(chosen_ref)
+                        self.publish_circle_marker(msg)
+                else:
+                    # No close keyframes — add this one
+                    self.reference_scans.append(candidate_reference)
+                    self.latest_reference = candidate_reference
+                    self.publish_reference(candidate_reference)
+                    self.publish_circle_marker(msg)
+                            
+                # Publish the current point cloud
+                self.pointcloud_publisher.publish(transformed_cloud)
 
 
         except Exception as e:

@@ -259,7 +259,12 @@ class MotionController(Node):
                     self.get_logger().info(f"Not turning.")
                 else:
                     self.stuck_check = 0
-                if self.stuck_check > 5:
+                if self.stuck_check > 10:
+                    self.control_phase = 2
+                    self.reset_rotation = True
+                    self.stuck_check = 0
+                    self.get_logger().info(">Facing< towards the waypoint. Now moving.")
+                elif self.stuck_check > 5:
                     stuck_parameter = (self.stuck_check - 5) * 0.01
                     self.get_logger().info(
                         f"Stuck. Increasing damping factor to {stuck_parameter}"

@@ -45,6 +45,10 @@ public:
             "odom/lin", 10,
             std::bind(&ICPProcessor::lin_callback, this, std::placeholders::_1)
         );
+        subscription_correction_ = this->create_subscription<std_msgs::msg::Float32>(
+            "/correction", 10,
+            std::bind(&ICPProcessor::corr_callback, this, std::placeholders::_1)
+        );
 
 
         //Publish static transform
@@ -68,6 +72,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_yaw_;
     // Declare the yaw subscription
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_lin_;
+    // Declare the correction subscription
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr subscription_correction_;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr reference_cloud_{std::make_shared<pcl::PointCloud<pcl::PointXYZ>>()};
     // Store the reference keyframes
@@ -79,19 +85,19 @@ private:
     pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
 
 
-    const float MAX_TRANSLATION = 0.9;    // Maximum translation threshold (meters)
+    const float MAX_TRANSLATION = 0.43;    // Maximum translation threshold (meters)
     const float MAX_ROTATION = 0.80;    // Maximum rotation threshold (radians) ~ 10 degrees
     const float voxel_leaf_size_ = 0.01f; // Voxel grid leaf size (meters)
-    const float max_corr_dist_ = 0.2f; // Maximum correspondence distance (meters)
-    long unsigned int MAX_COR = 15; // Maximum number of correspondences to consider
+    const float max_corr_dist_ = 0.22f; // Maximum correspondence distance (meters)
+    long unsigned int MAX_COR = 20; // Maximum number of correspondences to consider
     const int max_iter_ = 50; // Maximum number of ICP iterations
 
-
+    float corr_{0.0f}; // correction value
     float previous_yaw_{0.0f}; // Initialize to zero or a valid starting value
     float yaw_rate_{0.0f};     // Yaw rate (radians per second)
     float linv_{0.0f};     // linear velocity (m/s)
 
-    const float smoothing_std = 0.25f; 
+    const float smoothing_std = 0.2f; 
     // Check yaw rate threshold before running ICP.
     const float YAW_RATE_THRESHOLD = 0.2; // Example threshold in rad/s
     int counter=0;
@@ -236,6 +242,12 @@ if (!(reference_keyframes_.size()==0)) {
         linv_ = msg->data;
     }
 
+    void corr_callback(const std_msgs::msg::Float32::SharedPtr msg) {
+        corr_ = msg->data;
+        accumulated_transformation_(0,3) += -corr_;
+
+    }
+
     void publish_previous_cloud(const std::string &output_topic, 
         const sensor_msgs::msg::PointCloud2::SharedPtr msg,
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud) {
@@ -329,7 +341,7 @@ if (!(reference_keyframes_.size()==0)) {
 
             est.setInputTarget(ref);
             pcl::Correspondences correspondences;
-            est.determineCorrespondences(correspondences, 0.2);  // Use your matching threshold here
+            est.determineCorrespondences(correspondences, max_corr_dist_);  // Use your matching threshold here
 
             RCLCPP_INFO(this->get_logger(), "Keyframe %zu has %zu correspondences, of so many points: %zu ", i, correspondences.size(),ref->size());
 
@@ -348,7 +360,7 @@ if (!(reference_keyframes_.size()==0)) {
 
         if (max_correspondences < MAX_COR) {
             RCLCPP_WARN(this->get_logger(), "%zu correspondences found, not enough.",max_correspondences);
-            publish_previous_cloud(output_topic, msg, cloud);
+            //publish_previous_cloud(output_topic, msg, cloud);
             return;
         }
 
@@ -467,7 +479,7 @@ if (!(reference_keyframes_.size()==0)) {
                 transform_stamped.child_frame_id = "odom";
         
                 // Use the smoothed translation; ensure z remains zero.
-                transform_stamped.transform.translation.x = smoothed_translation.x();
+                transform_stamped.transform.translation.x = smoothed_translation.x() ;//- corr_;
                 transform_stamped.transform.translation.y = smoothed_translation.y();
                 transform_stamped.transform.translation.z = 0.0f;
         
@@ -494,7 +506,7 @@ if (!(reference_keyframes_.size()==0)) {
             }else {
                 RCLCPP_WARN(this->get_logger(), "ICP transform too large filtering out.");
                 // Publish the last valid nth cloud without updating
-                publish_previous_cloud(output_topic, msg, prev_cloud);
+                //publish_previous_cloud(output_topic, msg, prev_cloud);
                 //prev_cloud = nullptr;  // Reset the previous cloud to force a new alignment
                 //corrected_accum_cloud_ = nullptr;  // Reset the corrected accumulated cloud
             }

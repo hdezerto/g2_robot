@@ -114,6 +114,10 @@ class ExplorationController(Node):
         self.reached_destination_subscriber = self.create_subscription(Bool, '/reached_destination', self.reached_destination_callback, 10)
         self.stop_publisher = self.create_publisher(Bool, '/stop_motion', 10)
 
+        #TODO backup timer to save files after 5 minutes is stuck
+
+        self.timer = self.create_timer(300, self.timer_callback)
+
         # Initialize TransformListener to get current position of the robot
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True) # spin_thread=True to run the listener in a separate thread
@@ -130,8 +134,9 @@ class ExplorationController(Node):
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
         #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
-        #self.exploration_points = [(10, 45), (190, 45), (190, 60), (180, 60), (180, 75), (190, 75), (135, 30), (105, 15), (20, 15), (20, 30), (40, 30), (105, 30)] # NEW HARD CODED values (including cabinet)
-        self.exploration_points = [(10, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (40, 30), (105, 30)] # HARD CODED values (including cabinet)
+        #self.exploration_points = [(10,45),(35,26),(59, 26),(50, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
+        #TODO test
+        self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45),(105, 30)] # HARD CODED values (including cabinet)
 
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points) # Just for DEBUG
         self.publish_exploration_grid()
@@ -199,7 +204,12 @@ class ExplorationController(Node):
         else: # No more points to explore
             self.get_logger().info('No more exploration points. Ending exploration.')
             self.state = State.END_EXPLORATION
-    
+
+    #added backup timer func to end exploration
+    def timer_callback(self):
+        # This function is called every 5 minutes to save the map file
+        self.end_exploration()
+
 
     def plan_path(self):
         self.update_current_pose()  # Update the current pose of the robot
