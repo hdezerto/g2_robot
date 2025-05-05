@@ -9,7 +9,7 @@
 #include <random>             
 #include <mutex>
 #include <boost/make_shared.hpp>              // <-- for boost::make_shared
-
+#include "std_msgs/msg/bool.hpp"  // Note: use std_msgs, not standard_msgs
 
 
 #include "tf2_ros/static_transform_broadcaster.h"
@@ -30,6 +30,8 @@ public:
             }
         );
         publisher_nth_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/nth_corrected_pointcloud", 10);
+
+        reference_asker_ = this->create_publisher<std_msgs::msg::Bool>("/give_reference", 10);
 
         // Subscribe to the reference cloud topic
         subscription_reference_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -61,6 +63,8 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_nth_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher_nth_;
 
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr reference_asker_;
+
     // Subscriber for the reference cloud.
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_reference_;
 
@@ -88,7 +92,7 @@ private:
     const float MAX_TRANSLATION = 0.43;    // Maximum translation threshold (meters)
     const float MAX_ROTATION = 0.80;    // Maximum rotation threshold (radians) ~ 10 degrees
     const float voxel_leaf_size_ = 0.01f; // Voxel grid leaf size (meters)
-    const float max_corr_dist_ = 0.22f; // Maximum correspondence distance (meters)
+    const float max_corr_dist_ = 0.3f; // Maximum correspondence distance (meters)
     long unsigned int MAX_COR = 20; // Maximum number of correspondences to consider
     const int max_iter_ = 50; // Maximum number of ICP iterations
 
@@ -100,80 +104,13 @@ private:
     const float smoothing_std = 0.2f; 
     // Check yaw rate threshold before running ICP.
     const float YAW_RATE_THRESHOLD = 0.2; // Example threshold in rad/s
-    int counter=0;
+    int not_enough_counter_=0;
     int stationary_counter=0;
-    
+    bool no_icp_=false; //used to disable icp when needed
+
     float smoothing_factor = smoothing_std;  // Tune this value (e.g., 0.1 for gradual updates)
     
 
-    // Callback for the reference cloud subscriber.
-    /*
-     void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-
-        // Convert the incoming PointCloud2 message into a PCL point cloud and store it.
-        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-        pcl::fromROSMsg(*msg, *cloud);
-        RCLCPP_INFO(this->get_logger(), "New Reference cloud %zu points", cloud->size());
-        if (cloud->empty()) {
-            return; // Skip if the cloud is empty
-        }
-
-
-        // Apply voxel grid filtering
-        pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
-        voxel_filter.setInputCloud(cloud);
-        voxel_filter.setLeafSize(0.05f, 0.05f, 100.0f);
-        voxel_filter.filter(*cloud);
-        std::lock_guard<std::mutex> lock(reference_mutex_);
-
-        if (reference_keyframes_.size()==0){
-            reference_keyframes_.push_back(pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>(*cloud)));
-            RCLCPP_INFO(this->get_logger(), "Reference keyframes size: %zu", reference_keyframes_.size());
-
-            RCLCPP_INFO(this->get_logger(), "First reference cloud of size : %zu points, added to list.", cloud->size());
-            return;
-        }
-
-        for (const auto& ref : reference_keyframes_) {
-            if (ref->size()==cloud->size()){
-                RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to the some previous cloud size: %zu points.", ref->size());
-                return;
-            }
-            else{
-                RCLCPP_WARN(this->get_logger(), "New reference cloud of size : %zu points, recieved.", cloud->size());
-                reference_keyframes_.push_back(pcl::PointCloud<pcl::PointXYZ>::Ptr(new pcl::PointCloud<pcl::PointXYZ>(*cloud)));
-                RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", cloud->size());
-            }
-        }
-        
-       
-    }
-
-if (!(reference_keyframes_.size()==0)) {
-
-            for (const auto& ref : reference_keyframes_) {
-                if (ref->size()==cloud->size()){
-                    RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to the some previous cloud size: %zu points.", ref->size());
-                    return;
-                }
-                else{
-                    RCLCPP_WARN(this->get_logger(), "New reference cloud of size : %zu points, recieved.", cloud->size());
-                    reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
-                    RCLCPP_INFO(this->get_logger(), "Reference cloud updated with %zu points", cloud->size());
-                    reset_icp = true;
-                }
-            }
-        }
-        else {
-            RCLCPP_INFO(this->get_logger(), "Reference keyframes size: %zu", reference_keyframes_.size());
-
-            RCLCPP_INFO(this->get_logger(), "First reference cloud of size : %zu points, added to list.", cloud->size());
-            reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
-            reset_icp = true;
-        }
-
-    
-    */
    void reference_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
     {
 
@@ -207,22 +144,87 @@ if (!(reference_keyframes_.size()==0)) {
             }
             
             if (!cloud_exists) {
+                not_enough_counter_=0;
                 RCLCPP_INFO(this->get_logger(), "New reference cloud of size : %zu points, received.", cloud->size());
+
+
+                /*
+                
+                //#############################################################
+                // Check if the new cloud is similar to the last reference cloud
+                //correspondence check:
+                int best_match_index = -1;
+                size_t max_correspondences = 0;
+
+                // Temporary correspondence estimation object
+                pcl::registration::CorrespondenceEstimation<pcl::PointXYZ, pcl::PointXYZ> est;
+                est.setInputSource(cloud);  // The new input cloud
+
+
+                for (size_t i = 0; i < reference_keyframes_.size(); ++i) {
+                    auto& ref = reference_keyframes_[i];
+                    RCLCPP_WARN(this->get_logger(), "In loop");
+
+                    if (!ref || ref->empty()) {
+                        RCLCPP_WARN(this->get_logger(), "Keyframe %zu is empty or invalid!", i);
+                        continue;
+                    }
+
+                    est.setInputTarget(ref);
+                    pcl::Correspondences correspondences;
+                    est.determineCorrespondences(correspondences, max_corr_dist_);  // Use your matching threshold here
+
+                    RCLCPP_INFO(this->get_logger(), "Keyframe %zu has %zu correspondences, of so many points: %zu ", i, correspondences.size(),ref->size());
+
+                    if (correspondences.size() > max_correspondences) {
+                        max_correspondences = correspondences.size();
+                        best_match_index = static_cast<int>(i);
+                    }
+                }
+
+                if (MAX_COR/2 > max_correspondences) {
+                    RCLCPP_WARN(this->get_logger(), "No valid correspondences found with any reference for new keyframe, just adding.");
+                    //push back the corrected keyframe
+                    reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
+                    return;
+                }
+
+                reference_cloud_ = reference_keyframes_[best_match_index];
+                RCLCPP_WARN(this->get_logger(), "New reference scan selected keyframe %d with %zu correspondences as ICP target.", best_match_index, max_correspondences);
+                //#############################################################
+                // Run ICP
+                //pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
+                icp_.setInputSource(cloud);
+                icp_.setInputTarget(reference_cloud_);
+                icp_.setMaxCorrespondenceDistance(max_corr_dist_);
+                icp_.setMaximumIterations(max_iter_);
+                icp_.setTransformationEpsilon(1e-8);
+            
+                auto aligned = std::make_shared<pcl::PointCloud<pcl::PointXYZ>>();
+                icp_.align(*aligned);
+
+                //#############################################################
+                //push back the corrected keyframe
+                
+                
+                reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*aligned));
+                */
                 reference_keyframes_.push_back(std::make_shared<pcl::PointCloud<pcl::PointXYZ>>(*cloud));
 
                 reset_icp = true;
             } else {
                 RCLCPP_WARN(this->get_logger(), "Reference cloud size is equal to some previous cloud size: %zu points.", cloud->size());
+                return;
             }
         }
 
         if (reset_icp) {
             // Hard reset ICP
             //icp_ = pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ>();
+            RCLCPP_WARN(this->get_logger(), "Resetting ICP with new reference cloud.");
             icp_.setMaxCorrespondenceDistance(max_corr_dist_);
-            icp_.setMaximumIterations(max_iter_);
-            icp_.setInputTarget(reference_keyframes_.back());
             icp_.setMaximumIterations(500);
+            icp_.setInputTarget(reference_keyframes_.back());
             icp_.setTransformationEpsilon(1e-8);
         }
     }
@@ -245,6 +247,7 @@ if (!(reference_keyframes_.size()==0)) {
     void corr_callback(const std_msgs::msg::Float32::SharedPtr msg) {
         corr_ = msg->data;
         accumulated_transformation_(0,3) += -corr_;
+        no_icp_=true;
 
     }
 
@@ -360,7 +363,17 @@ if (!(reference_keyframes_.size()==0)) {
 
         if (max_correspondences < MAX_COR) {
             RCLCPP_WARN(this->get_logger(), "%zu correspondences found, not enough.",max_correspondences);
-            //publish_previous_cloud(output_topic, msg, cloud);
+            //publish_previous_cloud(output_topic, msg, cloud);t
+            not_enough_counter_++;
+
+            if (not_enough_counter_%3==0){
+                RCLCPP_WARN(this->get_logger(), "Not enough correspondences found continually, asking for new ref.");
+                not_enough_counter_=0;  // Reset to default value
+                // Somewhere in your code, when you want to publish 'true' or 'false':
+                std_msgs::msg::Bool msg;
+                msg.data = true;  // or false
+                reference_asker_->publish(msg);
+            }
             return;
         }
 
@@ -381,8 +394,16 @@ if (!(reference_keyframes_.size()==0)) {
     
         pcl::PointCloud<pcl::PointXYZ> aligned;
         icp_.align(aligned);
-    
-        if (icp_.hasConverged()) {
+
+        //TODO figure out way to pause ICP when in top box, whislt also performing the correction at least once
+        /*
+        if (corr_==0.12){
+            no_icp_=false;
+        }
+            && !no_icp_
+        */
+        
+        if (icp_.hasConverged() ) {
             
             /*
                         float icpfitness = icp.getFitnessScore();
@@ -479,10 +500,18 @@ if (!(reference_keyframes_.size()==0)) {
                 transform_stamped.child_frame_id = "odom";
         
                 // Use the smoothed translation; ensure z remains zero.
-                transform_stamped.transform.translation.x = smoothed_translation.x() ;//- corr_;
+                transform_stamped.transform.translation.x = smoothed_translation.x() - corr_;
                 transform_stamped.transform.translation.y = smoothed_translation.y();
                 transform_stamped.transform.translation.z = 0.0f;
         
+
+                //TODO figure out way to pause ICP when in top box, whislt also performing the correction at least once
+                /*
+                if (corr_==0.25){
+                    no_icp_=true;
+                }
+                */
+                
                 // Build a quaternion from the smoothed yaw.
                 tf2::Quaternion q;
                 q.setRPY(0.0, 0.0, smoothed_yaw);
