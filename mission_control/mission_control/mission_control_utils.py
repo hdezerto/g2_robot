@@ -15,16 +15,11 @@ from geometry_msgs.msg import TransformStamped
 from tf_transformations import quaternion_from_euler, euler_from_quaternion
 from tf2_ros import TransformException
 
-from .occupancy_grid_map import (
-    read_workspace,
-    grid_to_real_coordinates,
-    real_to_grid_coordinates,
-)
+from .occupancy_grid_map import (read_workspace, grid_to_real_coordinates, real_to_grid_coordinates)
 
 import math
 
 # ------------ External functions ------------
-
 
 def publish_workspace(publisher, clock, file_path=None):
     if file_path:
@@ -45,9 +40,7 @@ def compute_path(start, goal, exploration_occupancy_grid, clock):
     if not path_points:
         return None, None
 
-    path = create_path_message(
-        path_points, start_real, goal_real, clock, exploration_occupancy_grid
-    )
+    path = create_path_message(path_points, start_real, goal_real, clock, exploration_occupancy_grid)
 
     return path_points, path
 
@@ -68,12 +61,7 @@ def get_current_pose(tf_buffer, logger, occupancy_grid):
     """
     try:
         # Lookup the latest available transform from 'map' to 'base_link'
-        transform = tf_buffer.lookup_transform(
-            "map",
-            "base_link",
-            rclpy.time.Time(seconds=0),
-            timeout=rclpy.duration.Duration(seconds=1.0),
-        )
+        transform = tf_buffer.lookup_transform("map", "base_link", rclpy.time.Time(seconds=0), timeout=rclpy.duration.Duration(seconds=1.0))
 
         # Extract translation (x, y) and rotation (yaw)
         x = transform.transform.translation.x
@@ -116,8 +104,7 @@ def check_collision(path_planning_grid, grid_path, current_grid_position):
     closest_point = min(
         grid_path,
         key=lambda point: (point[0] - current_grid_position[0]) ** 2
-        + (point[1] - current_grid_position[1]) ** 2,
-    )
+        + (point[1] - current_grid_position[1]) ** 2)
 
     # Get the index of the closest point in the grid_path
     start_index = grid_path.index(closest_point)
@@ -153,9 +140,8 @@ def publish_detections_to_rviz(tf_broadcaster, detected_objects, detected_boxes,
         transform = TransformStamped()
         transform.header.stamp = current_time
         transform.header.frame_id = "map"
-        label = {1: "C", 2: "S", 3: "P"}.get(  # Cube  # Sphere  # Plushie
-            category, "?"
-        )  # Default to '?' if category is unknown
+        # C: cube, S: sphere, P: plushie
+        label = {1: "C", 2: "S", 3: "P"}.get(category, "?")  # Default to '?' if category is unknown
         transform.child_frame_id = f"obj_{idx}_{label}"  # Include label in the frame ID
         transform.transform.translation.x = x
         transform.transform.translation.y = y
@@ -223,14 +209,10 @@ def compute_grid_path(start, goal, grid):
     close_set = set()  # Set of visited cells
     came_from = {}  # Dictionary to store the path
     gscore = {start: 0}  # Cost from start to current cell
-    fscore = {
-        start: heuristic(start, goal)
-    }  # Estimated cost from start to goal through current cell (using heuristic)
+    fscore = {start: heuristic(start, goal)}  # Estimated cost from start to goal through current cell (using heuristic)
     oheap = []  # Priority queue to store the cells to visit
 
-    heapq.heappush(
-        oheap, (fscore[start], start)
-    )  # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
+    heapq.heappush(oheap, (fscore[start], start))  # Add the start cell to the queue. The queue is ordered by fscore (lowest first)
 
     while oheap:
         current = heapq.heappop(oheap)[1]  # Get the cell with the lowest fscore
@@ -240,32 +222,24 @@ def compute_grid_path(start, goal, grid):
             while current in came_from:
                 data.append(current)
                 current = came_from[current]
-            return a_star_backup(
-                start, goal, grid
-            )  # FOR TESTING - remove when no errors in A* backup
+            return a_star_backup(start, goal, grid)  # FOR TESTING - remove when no errors in A* backup
             # return [start] + data[::-1]  # Return reversed path (start to goal)
 
         close_set.add(current)
         for i, j in neighbors:
             neighbor = current[0] + i, current[1] + j
-            tentative_g_score = gscore[current] + (
-                diagonal_cost if abs(i) + abs(j) == 2 else 1
-            )
+            tentative_g_score = gscore[current] + (diagonal_cost if abs(i) + abs(j) == 2 else 1)
 
             # Check if the neighbor is not a free cell
             if grid.data[neighbor[1] * grid.info.width + neighbor[0]] != 0:
                 continue
 
             # Check if the neighbor has been visited and if the cost to reach it is higher than the current cost
-            if neighbor in close_set and tentative_g_score >= gscore.get(
-                neighbor, float("inf")
-            ):
+            if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, float("inf")):
                 continue
 
             # If the cost to reach the neighbor is lower than the current cost or not in the queue, update the path
-            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [
-                i[1] for i in oheap
-            ]:
+            if tentative_g_score < gscore.get(neighbor, 0) or neighbor not in [i[1] for i in oheap]:
                 came_from[neighbor] = current
                 gscore[neighbor] = tentative_g_score
                 fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
@@ -318,9 +292,7 @@ def a_star_backup(start, goal, grid):
         for dx, dy in [(-1, 0), (1, 0), (0, 1), (0, -1)]:  # Cardinal directions
             nx, ny = current_position[0] + dx, current_position[1] + dy
             if 0 <= nx < grid.info.width and 0 <= ny < grid.info.height:
-                if (
-                    grid.data[ny * grid.info.width + nx] == 0
-                ):  # Check if the cell is free
+                if (grid.data[ny * grid.info.width + nx] == 0):  # Check if the cell is free
                     neighbors.append((nx, ny))
 
         for neighbor in neighbors:
@@ -348,12 +320,8 @@ def a_star_backup(start, goal, grid):
 
 
 def create_path_message(grid_path_points, start_real, goal_real, clock, occupancy_grid):
-    grid_path_points = simplify_grid_path(
-        grid_path_points, occupancy_grid
-    )  # Simplify the path by removing redundant points
-    grid_path_points = grid_path_points[
-        1:-1
-    ]  # Remove the start and goal points from the path (the exact ones will be added later)
+    grid_path_points = simplify_grid_path(grid_path_points, occupancy_grid)  # Simplify the path by removing redundant points
+    grid_path_points = grid_path_points[1:-1]  # Remove the start and goal points from the path (the exact ones will be added later)
 
     # Convert path grid coordinates to real-world coordinates
     real_path_points = grid_to_real_coordinates(grid_path_points, occupancy_grid)
@@ -380,9 +348,7 @@ def create_path_message(grid_path_points, start_real, goal_real, clock, occupanc
         pose.pose.orientation.w = 1.0  # Indicates that the orientation of the robot is set to a default, neutral orientation, meaning no rotation
         path.poses.append(pose)
 
-    if (
-        goal_real[2] is None
-    ):  # If no yaw is provided for the goal, set it to match the direction of the path
+    if (goal_real[2] is None):  # If no yaw is provided for the goal, set it to match the direction of the path
         dx = path.poses[-1].pose.position.x - path.poses[-2].pose.position.x
         dy = path.poses[-1].pose.position.y - path.poses[-2].pose.position.y
         yaw = np.arctan2(dy, dx)
@@ -390,12 +356,10 @@ def create_path_message(grid_path_points, start_real, goal_real, clock, occupanc
         yaw = goal_real[2]
 
     q = quaternion_from_euler(0, 0, yaw)
-    (
-        path.poses[-1].pose.orientation.x,
-        path.poses[-1].pose.orientation.y,
-        path.poses[-1].pose.orientation.z,
-        path.poses[-1].pose.orientation.w,
-    ) = q
+    (path.poses[-1].pose.orientation.x,
+     path.poses[-1].pose.orientation.y,
+     path.poses[-1].pose.orientation.z,
+     path.poses[-1].pose.orientation.w) = q
 
     return path
 
@@ -412,9 +376,7 @@ def simplify_grid_path(path_points, occupancy_grid):
 
         # Check if the current point is redundant (i.e., lies on a straight line)
         # (x3-x2)*(y2-y1) != (y3-y2)*(x2-x1)
-        if (next_point[0] - curr_point[0]) * (curr_point[1] - prev_point[1]) != (
-            next_point[1] - curr_point[1]
-        ) * (curr_point[0] - prev_point[0]):
+        if (next_point[0] - curr_point[0]) * (curr_point[1] - prev_point[1]) != (next_point[1] - curr_point[1]) * (curr_point[0] - prev_point[0]):
             simplified_path.append(curr_point)
 
     simplified_path.append(path_points[-1])
