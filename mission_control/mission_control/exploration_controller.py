@@ -328,36 +328,43 @@ class ExplorationController(Node):
 
 
     def update_detections(self, msg):
-        # Check if the detection is new or corresponds to an existing one
-        detected_list = self.detections  # Unified list for all detections
-        for detection in detected_list:
-            if ((detection["x"] - msg.x) ** 2 + (detection["y"] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
-                # Existing detection: update position and add vote
-                detection["x"] = msg.x
-                detection["y"] = msg.y
-                if msg.type == "BOX":
-                    detection["theta"] = msg.theta
-                    detection["votes"].append(msg.type)  # Box detections have no category
-                else:
-                    detection["votes"].append(msg.cat)  # For the objects, category is used
-                detection["winner"] = max(set(detection["votes"]), key=detection["votes"].count)  # Update winner
-                # self.get_logger().info(f'Updated detection: {detection}')
-                return False  # Existing detection updated
-
-        # New detection: add to the list
-        new_detection = {
-            "x": msg.x,
-            "y": msg.y,
-            "theta": msg.theta if msg.type == "BOX" else None,
-            "votes": ([msg.cat] if msg.type == "OBJECT" else [msg.type]),  # Initialize votes with the category or type
-            "winner": (msg.cat if msg.type == "OBJECT" else msg.type)  # Initialize winner with the category or type
-        }
-        detected_list.append(new_detection)  # detected_list is a list of dictionaries
-        # self.get_logger().info(f'Added new detection: {new_detection}')
-
-        self.update_detections_lists()  # Update the detected objects and boxes lists
-
-        return True  # New detection added
+            # Check if the detection is new or corresponds to an existing one
+            detected_list = self.detections  # Unified list for all detections
+            for detection in detected_list:
+                if ((detection["x"] - msg.x) ** 2 + (detection["y"] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
+                    # Existing detection: update position and add vote
+                    detection["x"] = msg.x
+                    detection["y"] = msg.y
+                    
+                    # If the new message is a BOX, update theta and force the winner to BOX
+                    if msg.type == "BOX":
+                        detection["theta"] = msg.theta
+                        detection["votes"].append(msg.type)
+                        detection["winner"] = "BOX" # Force winner to BOX
+                    # If the new message is an OBJECT
+                    else:
+                        detection["votes"].append(msg.cat)
+                        # Only update the winner if it's not already decided as a BOX
+                        if detection["winner"] != "BOX":
+                            detection["winner"] = max(set(detection["votes"]), key=detection["votes"].count) # Update winner based on votes
+    
+                    # self.get_logger().info(f'Updated detection: {detection}')
+                    return False  # Existing detection updated
+    
+            # New detection: add to the list
+            new_detection = {
+                "x": msg.x,
+                "y": msg.y,
+                "theta": msg.theta if msg.type == "BOX" else None,
+                "votes": ([msg.cat] if msg.type == "OBJECT" else [msg.type]),  # Initialize votes with the category or type
+                "winner": (msg.cat if msg.type == "OBJECT" else msg.type)  # Initialize winner with the category or type
+            }
+            detected_list.append(new_detection)  # detected_list is a list of dictionaries
+            # self.get_logger().info(f'Added new detection: {new_detection}')
+    
+            self.update_detections_lists()  # Update the detected objects and boxes lists
+    
+            return True  # New detection added
 
 
     def update_detections_lists(self):
@@ -389,8 +396,6 @@ class ExplorationController(Node):
         if 0 <= grid_x < width and 0 <= grid_y < height:
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
-            # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells), 70 (grid path), 100 (workspace border)
-            # return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
             return self.exploration_occupancy_grid.data[index] != -1  # Return true if not outside the workspace (i.e., not -1)
 
         # If out of bounds, return False
