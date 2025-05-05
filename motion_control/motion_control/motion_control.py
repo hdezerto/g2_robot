@@ -141,10 +141,10 @@ class MotionController(Node):
         self.obstacle_detected = False
         self.stop_robot = False
         self.reached_waypoint = False
-        if self.turn_around_necessary(self.current_path.poses[0]):
-            self.turn_around = True
-            self.turn_around_pose = self.get_current_pos()
-            self.get_logger().info("Turn around necessary. Backing off.")
+        # if self.turn_around_necessary(self.current_path.poses[0]):
+        #     self.turn_around = True
+        #     self.turn_around_pose = self.get_current_pos()
+        #     self.get_logger().info("Turn around necessary. Backing off.")
         self.follow_path()
 
     def stop_callback(self, msg):
@@ -277,8 +277,10 @@ class MotionController(Node):
         # Moving towards the waypoint
         elif self.control_phase == 2:
             # Check if the robot has reached the waypoint
-            if (dx < self.goal_margin_translational) and (
-                dy < self.goal_margin_translational
+            if (
+                distance < self.goal_margin_translational
+                # abs(dx) < self.goal_margin_translational) and (
+                # abs(dy) < self.goal_margin_translational
             ):
                 self.stuck_check = 0
 
@@ -292,15 +294,15 @@ class MotionController(Node):
                     self.get_logger().info("Reached waypoint. Moving to next waypoint.")
                     self.reached_waypoint = True
             # Check if the robot is too far y direction to reach the waypoint
-            elif (dx < self.goal_margin_translational) and (
-                dy >= self.goal_margin_translational
-            ):
-                self.get_logger().info(
-                    "Distance in y is too large. Resetting to phase 1"
-                )
-                self.control_phase = 1
-                self.reset_rotation = True
-                self.stuck_check = 0
+            # elif (abs(dy) < self.goal_margin_translational) and (
+            #     abs(dx) >= self.goal_margin_translational
+            # ):
+            #     self.get_logger().info(
+            #         "Distance in y is too large. Resetting to phase 1"
+            #     )
+            #     self.control_phase = 1
+            #     self.reset_rotation = True
+            #     self.stuck_check = 0
             else:
                 # Check if robot is stuck
                 if abs(self.last_distance - distance) < 0.0005:
@@ -401,28 +403,29 @@ class MotionController(Node):
         return
 
     def move_back(self):
-        pose = self.turn_around_pose
-        current_pose = self.get_current_pos()
-        if current_pose is None:
-            self.get_logger().error("Failed to get current pose")
-            return
-        # Extract position and orientation
-        current_position = (current_pose[0], current_pose[1])  # (x, y)
+        return
+        # pose = self.turn_around_pose
+        # current_pose = self.get_current_pos()
+        # if current_pose is None:
+        #     self.get_logger().error("Failed to get current pose")
+        #     return
+        # # Extract position and orientation
+        # current_position = (current_pose[0], current_pose[1])  # (x, y)
 
-        if (
-            np.sqrt((pose[0] - current_pose[0]) ** 2 + (pose[1] - current_pose[1]) ** 2)
-            < 0.01
-        ):
-            motor_msg = DutyCycles()
-            motor_msg.duty_cycle_left = -0.15
-            motor_msg.duty_cycle_right = -0.15
-            motor_msg.header.stamp = self.get_clock().now().to_msg()
-            self.motion_publisher.publish(motor_msg)
-            return
-        else:
-            self.get_logger().info("Backed off successfully. Continue to follow path.")
-            self.turn_around = False
-            return
+        # if (
+        #     np.sqrt((pose[0] - current_pose[0]) ** 2 + (pose[1] - current_pose[1]) ** 2)
+        #     < 0.01
+        # ):
+        #     motor_msg = DutyCycles()
+        #     motor_msg.duty_cycle_left = -0.15
+        #     motor_msg.duty_cycle_right = -0.15
+        #     motor_msg.header.stamp = self.get_clock().now().to_msg()
+        #     self.motion_publisher.publish(motor_msg)
+        #     return
+        # else:
+        #     self.get_logger().info("Backed off successfully. Continue to follow path.")
+        #     self.turn_around = False
+        #     return
 
     def stop(self):
         motor_msg = DutyCycles()

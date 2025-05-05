@@ -4,7 +4,7 @@ import math
 # -------- File Paths --------
 EXPLORATION_FILE = 'map_exploration.tsv'
 GROUND_TRUTH_FILE = 'exploration_1_2.tsv'  # EDIT HERE
-THRESHOLD = 20  # [cm] Object matches with same type and distance <= THRESHOLD
+THRESHOLD = 30  # [cm] Object matches with same type and distance <= THRESHOLD
 # ----------------------------
 
 

@@ -246,7 +246,7 @@ private:
 
     void corr_callback(const std_msgs::msg::Float32::SharedPtr msg) {
         corr_ = msg->data;
-        accumulated_transformation_(0,3) += -corr_;
+        //accumulated_transformation_(0,3) += -corr_;
         no_icp_=true;
 
     }

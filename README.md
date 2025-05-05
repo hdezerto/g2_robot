@@ -38,7 +38,7 @@ On the **remote laptop**, run the following commands:
     ssh happy@192.168.128.110
     ```
 
-4. Source the setup file:
+4. Source the setup file:   
     ```sh
     source ~/dd2419_ws/install/setup.bash
     ```

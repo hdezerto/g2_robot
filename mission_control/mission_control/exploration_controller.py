@@ -164,32 +164,12 @@ class ExplorationController(Node):
         
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         #self.exploration_points = [(10,45),(35,26),(59, 26),(50, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        #TODO test
-        self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45),(105, 30)] # HARD CODED values (including cabinet)
 
-        # self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
-        # self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        # self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
-        # self.exploration_points = [(10, 45), (190, 45), (190, 60), (180, 60), (180, 75), (190, 75), (135, 30), (105, 15), (20, 15), (20, 30), (40, 30), (105, 30)] # NEW HARD CODED values (including cabinet)
-        self.exploration_points = [
-            (10, 45),
-            (185, 60),
-            (190, 60),
-            (190, 75),
-            (185, 60),
-            (135, 30),
-            (105, 15),
-            (20, 15),
-            (20, 30),
-            (40, 30),
-            (105, 30),
-        ]  # HARD CODED values (including cabinet)
+        #self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45),(105, 30)] # HARD CODED values (including cabinet)
 
-        self.mark_exploration_points(
-            self.exploration_occupancy_grid, self.exploration_points
-        )  # Just for DEBUG
+        self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points)  # Just for DEBUG
         self.publish_exploration_grid()
         # DEBUG:
         # self.get_logger().info(f'Exploration points (grid): {self.exploration_points}')
@@ -198,14 +178,8 @@ class ExplorationController(Node):
         # self.get_logger().info(f'Exploration points (real world): {formatted_real_world_points}')
 
         # Initilizate variables for exploration
-        self.current_pose = (
-            0.0,
-            0.0,
-            0.0,
-        )  # Initial position (x, y, yaw) in real world coordinates
-        self.current_grid_position = real_to_grid_coordinates(
-            [self.current_pose], self.exploration_occupancy_grid
-        )[0]
+        self.current_pose = (0.0, 0.0, 0.0)  # Initial position (x, y, yaw) in real world coordinates
+        self.current_grid_position = real_to_grid_coordinates([self.current_pose], self.exploration_occupancy_grid)[0]
         self.exploration_point_index = 0
         self.exploration_point = None
         self.detections = []  # Unified list for all detections
@@ -217,13 +191,9 @@ class ExplorationController(Node):
 
         self.publish_planning_grid()  # Publish the initial grid to RViz
         self.grid_path = []  # Path in grid coordinates
-        self.latest_lidar_grid = (
-            initialize_occupancy_grid()
-        )  # In case detections_callback is called before the mapper callback OR when testing without lidar
+        self.latest_lidar_grid = (initialize_occupancy_grid())  # In case detections_callback is called before the mapper callback OR when testing without lidar
         # Timer to periodically publish detections to RViz
-        self.detections_timer = self.create_timer(
-            0.5, self.publish_detections_periodically
-        )
+        self.detections_timer = self.create_timer(0.5, self.publish_detections_periodically)
 
         self.get_logger().info("Waiting 3 sec...")
         time.sleep(3)  # Wait for all nodes to be ready and the TF buffer to populate
@@ -244,9 +214,7 @@ class ExplorationController(Node):
             rclpy.spin_once(self)
 
         self.get_logger().info("Finished observing.")
-        self.state = (
-            State.GET_NEXT_EXPLORATION_POINT
-        )  # Now it can get the first exploration point
+        self.state = State.GET_NEXT_EXPLORATION_POINT # Now it can get the first exploration point
 
     def stuck_observing(self, duration):
         self.get_logger().info(f"Stuck observing for {duration} seconds...")
@@ -291,8 +259,7 @@ class ExplorationController(Node):
             start, goal, self.path_planning_grid, self.get_clock()
         )
         if path:  # Path found
-            self.path_publisher.publish(
-                path
+            self.path_publisher.publish(path
             )  # Publish the path to the motion controller and RViz
             self.get_logger().info("Path published. Moving...")
             # --------- JUST TO SEE THE GRID PATH ---------
