@@ -240,7 +240,10 @@ def compute_grid_path(start, goal, grid):
             while current in came_from:
                 data.append(current)
                 current = came_from[current]
-            return [start] + data[::-1]  # Return reversed path (start to goal)
+            return a_star_backup(
+                start, goal, grid
+            )  # FOR TESTING - remove when no errors in A* backup
+            # return [start] + data[::-1]  # Return reversed path (start to goal)
 
         close_set.add(current)
         for i, j in neighbors:
