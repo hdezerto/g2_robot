@@ -141,11 +141,12 @@ class MotionController(Node):
         self.obstacle_detected = False
         self.stop_robot = False
         self.reached_waypoint = False
-        # if self.turn_around_necessary(self.current_path.poses[0]):
-        #     self.turn_around = True
-        #     self.turn_around_pose = self.get_current_pos()
-        #     self.get_logger().info("Turn around necessary. Backing off.")
-        self.follow_path()
+        if self.turn_around_necessary(self.current_path.poses[0]):
+            self.turn_around = True
+            self.turn_around_pose = self.get_current_pos()
+            self.get_logger().info("Turn around necessary. Backing off.")
+        else:
+            self.follow_path()
 
     def stop_callback(self, msg):
         self.stop_robot = msg.data
@@ -155,6 +156,10 @@ class MotionController(Node):
 
     def follow_path(self):
         if self.current_path is None:
+            return
+
+        if self.turn_around:
+            self.move_back()
             return
 
         if (
@@ -179,8 +184,6 @@ class MotionController(Node):
                 self.notify_reached_destination(False)
             self.get_logger().info("Path execution finished")
             self.current_path = None  # Reset the path to avoid publishing to /reached_destination more than once HUGO EDITED
-        elif self.turn_around:
-            self.move_back()
 
     def move_to_waypoint(self, waypoint):
         """
@@ -245,6 +248,17 @@ class MotionController(Node):
         elif delta_theta < -math.pi:
             delta_theta = delta_theta + 2 * math.pi
 
+        # Check distance forward and sideways
+        theta_g = math.atan2(dy, dx)  # angle to the waypoint
+        phi = theta_g - theta  # angle to the goal point
+        if phi > math.pi:
+            phi = phi - 2 * math.pi
+        elif phi < -math.pi:
+            phi = phi + 2 * math.pi
+
+        d_forward = math.cos(phi) * distance
+        d_sideways = math.sin(phi) * distance
+
         # Rotating towards the waypoint
         if self.control_phase == 1:
             if abs(delta_theta) < self.goal_margin_rotational:
@@ -278,7 +292,8 @@ class MotionController(Node):
         elif self.control_phase == 2:
             # Check if the robot has reached the waypoint
             if (
-                distance < self.goal_margin_translational
+                distance
+                < self.goal_margin_translational
                 # abs(dx) < self.goal_margin_translational) and (
                 # abs(dy) < self.goal_margin_translational
             ):
@@ -293,16 +308,20 @@ class MotionController(Node):
                 else:
                     self.get_logger().info("Reached waypoint. Moving to next waypoint.")
                     self.reached_waypoint = True
+            #### COMMENT OUT ####
             # Check if the robot is too far y direction to reach the waypoint
-            # elif (abs(dy) < self.goal_margin_translational) and (
-            #     abs(dx) >= self.goal_margin_translational
-            # ):
-            #     self.get_logger().info(
-            #         "Distance in y is too large. Resetting to phase 1"
-            #     )
-            #     self.control_phase = 1
-            #     self.reset_rotation = True
-            #     self.stuck_check = 0
+            elif (abs(d_forward) < self.goal_margin_translational) and (
+                abs(d_sideways) >= self.goal_margin_translational
+            ):
+                # TEST
+                # elif abs(delta_theta) > math.pi/2:
+                self.get_logger().info(
+                    "Distance in y is too large. Resetting to phase 1"
+                )
+                self.control_phase = 1
+                self.reset_rotation = True
+                self.stuck_check = 0
+            #### END COMMENT OUT ####
             else:
                 # Check if robot is stuck
                 if abs(self.last_distance - distance) < 0.0005:
@@ -403,29 +422,35 @@ class MotionController(Node):
         return
 
     def move_back(self):
-        return
-        # pose = self.turn_around_pose
-        # current_pose = self.get_current_pos()
-        # if current_pose is None:
-        #     self.get_logger().error("Failed to get current pose")
-        #     return
-        # # Extract position and orientation
-        # current_position = (current_pose[0], current_pose[1])  # (x, y)
+        # return
+        if self.turn_around_pose is None:
+            self.get_logger().error("Turn around pose is not set")
+            return
 
-        # if (
-        #     np.sqrt((pose[0] - current_pose[0]) ** 2 + (pose[1] - current_pose[1]) ** 2)
-        #     < 0.01
-        # ):
-        #     motor_msg = DutyCycles()
-        #     motor_msg.duty_cycle_left = -0.15
-        #     motor_msg.duty_cycle_right = -0.15
-        #     motor_msg.header.stamp = self.get_clock().now().to_msg()
-        #     self.motion_publisher.publish(motor_msg)
-        #     return
-        # else:
-        #     self.get_logger().info("Backed off successfully. Continue to follow path.")
-        #     self.turn_around = False
-        #     return
+        pose = self.turn_around_pose
+        current_pose = self.get_current_pos()
+        if current_pose is None:
+            self.get_logger().error("Failed to get current pose")
+            return
+        # Extract position and orientation
+        current_position = (current_pose[0], current_pose[1])  # (x, y)
+
+        # Check if the robot needs to continue backing off
+        if (
+            np.sqrt((pose[0] - current_pose[0]) ** 2 + (pose[1] - current_pose[1]) ** 2)
+            < 0.01
+        ):
+            motor_msg = DutyCycles()
+            motor_msg.duty_cycle_left = -0.15
+            motor_msg.duty_cycle_right = -0.15
+            motor_msg.header.stamp = self.get_clock().now().to_msg()
+            self.motion_publisher.publish(motor_msg)
+            return
+        else:
+            self.get_logger().info("Backed off successfully. Continue to follow path.")
+            self.turn_around = False
+            self.turn_around_pose = None
+            return
 
     def stop(self):
         motor_msg = DutyCycles()
@@ -467,6 +492,19 @@ class MotionController(Node):
             return None
 
     def turn_around_necessary(self, waypoint):
+        """
+        Determines if the robot needs to turn around based on the current pose and a given waypoint.
+        This function calculates the angular difference (delta_theta) between the robot's current
+        orientation and the direction to the waypoint. If the angular difference exceeds 135 degrees
+        (3/4 * π), the function returns True, indicating that a turn-around maneuver is necessary.
+        Args:
+            waypoint: An object containing the target waypoint's pose. The pose should have
+                      position attributes `x` and `y`.
+        Returns:
+            bool: True if the angular difference exceeds 135 degrees, indicating a turn-around
+                  is necessary. False otherwise.
+        """
+
         current_pose = self.get_current_pos()
         theta = current_pose[2]
         goal_theta = np.arctan2(
@@ -474,12 +512,14 @@ class MotionController(Node):
             waypoint.pose.position.x - current_pose[0],
         )
         delta_theta = goal_theta - theta
-        if delta_theta > math.pi:
-            delta_theta = delta_theta - 2 * math.pi
-        elif delta_theta < -math.pi:
-            delta_theta = delta_theta + 2 * math.pi
+        # if delta_theta > math.pi:
+        #     delta_theta = delta_theta - 2 * math.pi
+        # elif delta_theta < -math.pi:
+        #     delta_theta = delta_theta + 2 * math.pi
 
-        if abs(delta_theta) > math.pi * (2 / 3):
+        delta_theta = min(abs(delta_theta), abs(delta_theta - 2 * math.pi))
+
+        if delta_theta > math.pi * (3 / 4):
             return True
         else:
             return False
