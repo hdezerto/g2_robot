@@ -101,10 +101,7 @@ def check_collision(path_planning_grid, grid_path, current_grid_position):
 
     # Find the closest point on the grid_path to the current position
     # This is to account for the fact that the robot might deviate slightly from the path
-    closest_point = min(
-        grid_path,
-        key=lambda point: (point[0] - current_grid_position[0]) ** 2
-        + (point[1] - current_grid_position[1]) ** 2)
+    closest_point = min(grid_path, key=lambda point: (point[0] - current_grid_position[0]) ** 2 + (point[1] - current_grid_position[1]) ** 2)
 
     # Get the index of the closest point in the grid_path
     start_index = grid_path.index(closest_point)
