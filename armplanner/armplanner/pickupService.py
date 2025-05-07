@@ -58,6 +58,7 @@ class PickupService(Node):
         self.camMatrix = data['camMatrix']
         self.distCoeff = data['distCoeff']
         
+        self.switch = 0 # Swap between blind and camera assisted pick for plushies
         
         # Confirm service is ready
         self.get_logger().info('Pickup service ready.')
@@ -92,10 +93,11 @@ class PickupService(Node):
             self.servos_publisher.publish(msg1)
             self.get_logger().info(f'Published message: {msg1.data}')
             time.sleep(3) """
-        if request.object_type == 'Cube' or request.object_type == 'Sphere':
+        """ if request.object_type == 'Cube' or request.object_type == 'Sphere':
             position = self.arm_detection3(request.object_type)
         elif request.object_type == 'Plushie':
-            position = self.backup
+            position = self.backup """
+        position = self.arm_detection3(request.object_type)
         #print(position)
         if position == None:
             self.get_logger().error("Object detection failed!")
@@ -261,7 +263,9 @@ class PickupService(Node):
             print('Plushie')
             # Implement Plushie detection logic here
             gray_img = cv2.cvtColor(res2, cv2.COLOR_BGR2GRAY)
-            #gray_img = cv2.erode(res2, np.ones((5, 5), np.uint8), iterations=1)
+            #_, binary = cv2.threshold(gray_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            
+            #gray_img = cv2.erode(binary, np.ones((5, 5), np.uint8), iterations=1)
             cv2.imwrite('/home/happy/res2.png', gray_img)
 
             # Apply Canny edge detection
@@ -275,8 +279,8 @@ class PickupService(Node):
 
             cv2.imwrite('/home/happy/maskk.png', maskk)
 
-            """ num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(maskk, connectivity=8)
-            print('num_labels', num_labels, 'labels',labels, 'stats', stats, 'centroids', centroids) """
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(maskk, connectivity=8)
+            print('num_labels', num_labels, 'labels',labels, 'stats', stats, 'centroids', centroids)
 
             
             # Assuming maskk is your binary mask image
@@ -301,7 +305,7 @@ class PickupService(Node):
                 solidity = float(area) / hull_area
                 print(f"scontour solidity: {solidity}, area: {area}")
                 
-                if solidity > 0.65:  # High solidity threshold
+                if solidity > 0.6:  # High solidity threshold
                     cv2.drawContours(high_solidity_mask, [cnt], -1, 255, thickness=cv2.FILLED)
                     if solidity > max_solidity:
                         max_solidity = solidity
@@ -332,11 +336,21 @@ class PickupService(Node):
                     width = xs.max() - xs.min()
                     height = ys.max() - ys.min()
                     print(len(cluster_points), 'width', width, 'height', height)
+                    edge_threshold = 20  # max allowed number of edge-near points
+                    edge_margin = 5      # pixels considered "near the edge"
+
+                    # Count how many cluster points are within the edge margin
+                    near_top    = (cluster_points[:, 0] < edge_margin)
+                    near_bottom = (cluster_points[:, 0] > maskk.shape[0] - edge_margin)
+                    near_left   = (cluster_points[:, 1] < edge_margin)
+                    near_right  = (cluster_points[:, 1] > maskk.shape[1] - edge_margin)
+
+                    edge_point_count = np.sum(near_top | near_bottom | near_left | near_right)
                     #print('density', density, 'width/height', width/height, len(cluster_points))
                     #width < 80 and height < 80 and 
                     # Example condition: must be roughly square and not too thin
                     iteration += 1
-                    if 0.65 < (width / height) < 1.5 and len(cluster_points) > 1000 and len(cluster_points) < 8000:   
+                    if 0.65 < (width / height) < 1.5 and len(cluster_points) > 1000 and len(cluster_points) < 8000 and edge_point_count < edge_threshold:   
                         filtered_clusters.append((label, len(cluster_points)))
                     if 0.7 < (width / height) < 1.5 and len(cluster_points) > 500:
                         plush_orientation[label] = 'DEFAULT'
@@ -422,6 +436,7 @@ class PickupService(Node):
         result = cv2.addWeighted(original_image, 1 - alpha, overlay, alpha, 0)
 
         # Show the result
+        print('showing result')
         cv2.imwrite("/home/happy/cluster_overlay.png", result)
 
         return msg
@@ -443,14 +458,21 @@ class PickupService(Node):
         angles = [int(angle * 100) for angle in angles]
         # 12000
         if all (valid_angles):
-            if self.plush_orientation != 'SIDE' and object_type != 'Plushie':
+            if self.plush_orientation != 'SIDE' and self.switch == 0 and object_type != 'Plushie':
                 self.get_logger().info(f'Angles: {angles}')
                 upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
                 grab_pos = [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
                 grab = [11000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
                 upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
                 sequence = [upright_open, grab_pos, grab, upright_hold]
-            if self.plush_orientation == 'DEFAULT' and object_type == 'Plushie':
+            elif self.plush_orientation != 'SIDE' and self.switch == 0:
+                self.get_logger().info(f'Angles: {angles}')
+                upright_open = [3000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
+                grab_pos = [3000,16500,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
+                grab = [11000,16500,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]
+                upright_hold = [11000,12000,12000,12000,12000, 12000, 2000,2000,2000,2000,2000,2000]
+                sequence = [upright_open, grab_pos, grab, upright_hold]
+            elif self.plush_orientation == 'DEFAULT' and self.switch == 1:
                 servo_6_pick = 13200
                 sequence = [[3000, 12000, 12000, 12000, 12000, 12000, 2000, 2000, 2000, 2000, 2000, 2000], # Reset arm
                                    [3000, 12000, 12000, 12000, 12000, servo_6_pick, 2000, 2000, 2000, 2000, 2000, 2000], # Rotate base

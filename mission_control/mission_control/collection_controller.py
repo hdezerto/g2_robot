@@ -92,7 +92,7 @@ IN ~/dd2419_ws    ros2 run mission_control collection_controller
 
 
 # -------- Tunable parameters --------
-MAP_FILE_NAME = "map_3.tsv"  # Name of the map file to read
+MAP_FILE_NAME = "src/g2_robot/MAPS/collection_1_2.tsv"  # Name of the map file to read
 
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
@@ -391,16 +391,18 @@ class CollectionController(Node):
         # --- MATTIAS VERSION:
         request = Pickup.Request()
         object_type = self.next_object["category"]
+        switch = 1
         if object_type == 1:
             object_type = "Cube"
         elif object_type == 2:
             object_type = "Sphere"
         elif object_type == 3:
             object_type = "Plushie"
-        
+        if object_type == "Plushie":
+            switch = 1
         request.object_type = object_type
         request.color = "Red" # Example color, mainly for testing/debugging
-        if object_type != "Plushie":
+        if switch == 1:
           angles = [12000,10000,18500,2500]
           servos_angles_times1 = [[3000,12000,12000,12000,12000,12000, 2000,2000,2000,2000,2000,2000],
                             [3000,12000,angles[3],angles[2],angles[1],angles[0], 2000,2000,2000,2000,2000,2000]]
