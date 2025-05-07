@@ -94,7 +94,7 @@ IN ros2 run mission_control collection_controller
 
 
 # -------- Tunable parameters --------
-MAP_FILE_NAME = "src/g2_robot/MAPS/collection_hard.tsv"  # Name of the map file to read
+MAP_FILE_NAME = "src/g2_robot/MAPS/collection_1_2.tsv"  # Name of the map file to read
 
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
 DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
@@ -560,7 +560,7 @@ class CollectionController(Node):
                 if self.task == State.PICK:
                     self.get_logger().info('Pick position reached. MOVING_BLINDLY -> PICK')
                     self.state = State.PICK
-                if self.task == State.CHECK_PICK
+                if self.task == State.CHECK_PICK:
                     self.get_logger().info('Reobserve position reached. MOVING_BLINDLY -> OBSERVE_OBJECT')
                     self.state = State.OBSERVE_OBJECT
         else:
