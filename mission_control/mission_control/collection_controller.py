@@ -99,8 +99,8 @@ DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
 
 RESOLUTION = 0.05  # Resolution of the occupancy grid [m] Also CHECK occupancy_grid_map.py
 OBSERVATION_DISTANCE = 0.50 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
-PICK_DISTANCE = 0.20 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
-DROP_DISTANCE = 0.25  # Distance to the box for drop [m] NOT TUNED!
+PICK_DISTANCE = 0.175 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
+DROP_DISTANCE = 0.22  # Distance to the box for drop [m] NOT TUNED!
 # ------------------------------------
 
 
@@ -299,7 +299,7 @@ class CollectionController(Node):
         start = (self.current_grid_position, self.current_pose)
         goal = (real_to_grid_coordinates([self.destination_pose], self.path_planning_grid)[0], self.destination_pose)
         #self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
-        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
+        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock(),self.get_logger())
         if path: # Path found
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
             self.get_logger().info('Path published. PLAN_PATH -> MOVING')

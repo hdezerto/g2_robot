@@ -92,7 +92,7 @@ private:
     const float MAX_TRANSLATION = 0.22;    // Maximum translation threshold (meters)
     const float MAX_ROTATION = 0.4;    // Maximum rotation threshold (radians) ~ 10 degrees
     const float voxel_leaf_size_ = 0.01f; // Voxel grid leaf size (meters)
-    const float max_corr_dist_ = 0.22f; // Maximum correspondence distance (meters)
+    const float max_corr_dist_ = 0.30f; // Maximum correspondence distance (meters)
     long unsigned int MAX_COR = 20; // Maximum number of correspondences to consider
     const int max_iter_ = 50; // Maximum number of ICP iterations
 
@@ -250,7 +250,7 @@ private:
         //accumulated_transformation_(0,3) += -corr_;
         if (corr_ < 0.2f){
             no_icp_=false;
-            ycorr_=0.05f;
+            ycorr_=0.08f;
         }
         return;
 
@@ -464,6 +464,8 @@ private:
 
 
             if ((translation_magnitude < MAX_TRANSLATION && rotation_magnitude < MAX_ROTATION)||over_rotation||corr_!=0) {
+
+                
         
                 // Smoothing factor: 0.0 means no update; 1.0 means full update.
                 
@@ -494,6 +496,16 @@ private:
                 smoothed_translation = (1.0f - smoothing_factor) * prev_translation + smoothing_factor * new_translation;
                 smoothed_yaw = (1.0f - smoothing_factor) * prev_yaw + smoothing_factor * new_yaw;
 
+                if(translation_magnitude > MAX_TRANSLATION||rotation_magnitude > MAX_ROTATION){
+                    smoothed_translation = prev_translation;  // Retain previous translation
+                    smoothed_yaw = prev_yaw;  // Retain previous yaw
+                }
+
+                else{
+                    smoothed_translation = (1.0f - smoothing_factor) * prev_translation + smoothing_factor * new_translation;
+                    smoothed_yaw = (1.0f - smoothing_factor) * prev_yaw + smoothing_factor * new_yaw;
+                }
+
                 smoothing_factor = smoothing_std;  // Reset to default value         
                 RCLCPP_INFO(this->get_logger(), "Applied Standard transformation: translation (%.2f, %.2f, %.2f), yaw (%.2f)", smoothed_translation.x(), smoothed_translation.y(), smoothed_translation.z(), smoothed_yaw);
         
@@ -513,6 +525,9 @@ private:
                     no_icp_=true;
                     ycorr_ = 0.07f;
                 }
+
+                
+
                 transform_stamped.transform.translation.x = smoothed_translation.x() - corr_;
                 transform_stamped.transform.translation.y = smoothed_translation.y()  -ycorr_  ;
                 transform_stamped.transform.translation.z = 0.0f;

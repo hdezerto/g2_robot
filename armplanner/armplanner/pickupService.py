@@ -208,7 +208,7 @@ class PickupService(Node):
                     #width < 80 and height < 80 and 
                     # Example condition: must be roughly square and not too thin
                     if object_type == 'Sphere':
-                        if 0.8 < (width / height) < 1.2 and len(cluster_points) > 2000 and len(cluster_points) < 4000:
+                        if 0.8 < (width / height) < 1.2 and len(cluster_points) > 1500 and len(cluster_points) < 4000:
                             filtered_clusters.append((label, len(cluster_points)))
                     elif object_type == 'Cube':
                         if 0.8 < (width / height) < 1.2 and len(cluster_points) > 1000 and len(cluster_points) < 2500:
@@ -391,6 +391,7 @@ class PickupService(Node):
         pos_y = ynew/(w/2) * 25/200 
         if object_type == 'Cube' or object_type == 'Sphere':
             pos_z = -0.13
+            pos_x = pos_x - 0.01
             if pos_y < 0:
                 pos_y = pos_y + 1/100
             elif pos_y > 0:
