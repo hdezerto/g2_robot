@@ -121,8 +121,8 @@ class State(Enum):
     MOVING_BLINDLY = auto()
     PICK = auto()
     WAIT_FOR_ARM = auto()
+    CHECK_PICK = auto()
     MOVE_TO_BOX = auto()
-
     OBSERVE_BOX = auto()
     MOVE_TO_DROP = auto()
     DROP = auto()
@@ -163,6 +163,7 @@ class CollectionController(Node):
             State.MOVING_BLINDLY: lambda: rclpy.spin_once(self),
             State.PICK: self.pick,
             State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
+            State.CHECK_PICK: self.move_to_reobserve,
             State.OBSERVE_BOX: lambda: self.observe_box(DETECTION_TIMEOUT),
             State.MOVE_TO_BOX: self.move_to_box,
             State.MOVE_TO_DROP: self.move_to_box,
@@ -336,11 +337,16 @@ class CollectionController(Node):
             rclpy.spin_once(self) # Process callbacks
             elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
             if elapsed_time > timeout:
-                self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> GET_NEXT_OBJECT")
-                removed_object = self.objects.pop(self.next_object["index"])
-                self.get_logger().info(f'Removed object from list: {removed_object}')
-                self.state = State.GET_NEXT_OBJECT
-                break
+                if self.task != State.CHECK_PICK:
+                    self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> GET_NEXT_OBJECT")
+                    removed_object = self.objects.pop(self.next_object["index"])
+                    self.get_logger().info(f'Removed object from list: {removed_object}')
+                    self.state = State.GET_NEXT_OBJECT
+                    break
+                else:
+                    self.get_logger().info('PICKUP appears successfull. CHECK_PICK -> MOVE_TO_BOX')
+                    self.state = State.MOVE_TO_BOX
+
 
     def observe_box(self, timeout):
         self.get_logger().info(f"Observing for object category box for {timeout} seconds...")
@@ -386,6 +392,13 @@ class CollectionController(Node):
         self.get_logger().info(f"Path to pick position published: Start {self.current_pose} | Goal ({pick_pose[0]}, {pick_pose[1]}, {np.degrees(pick_pose[2])} degrees). MOVE_TO_PICK -> MOVING_BLINDLY")
         self.state = State.MOVING_BLINDLY
     
+    def move_to_reobserve(self):
+        self.task = State.CHECK_PICK
+        self.update_current_pose()  # Update the robot's current pose
+        observe_path, observe_pose = self.create_reobserve_path(OBSERVATION_DISTANCE)
+        self.path_publisher.publish(observe_path) # Publish the path
+        self.get_logger().info(f"Path to reobserve position published: Start {self.current_pose} | Goal ({observe_pose[0]}, {observe_pose[1]}, {np.degrees(observe_pose[2])} degrees). MOVE_TO_PICK -> MOVING_BLINDLY")
+        self.state = State.MOVING_BLINDLY
 
     def move_to_box(self):
         if self.state == State.MOVE_TO_BOX:
@@ -520,8 +533,8 @@ class CollectionController(Node):
     def arm_feedback_callback(self, msg):
         if msg.data:  # True indicates success
             if self.task == State.PICK:
-                self.get_logger().info('Pick operation successful. WAIT_FOR_ARM -> MOVE_TO_BOX')
-                self.state = State.MOVE_TO_BOX
+                self.get_logger().info('Pick operation done. WAIT_FOR_ARM -> CHECK_PICK')
+                self.state = State.CHECK_PICK
             elif self.task == State.DROP:
                 self.get_logger().info('Drop operation successful. WAIT_FOR_ARM -> GET_NEXT_OBJECT')
                 self.state = State.GET_NEXT_OBJECT
@@ -547,6 +560,9 @@ class CollectionController(Node):
                 if self.task == State.PICK:
                     self.get_logger().info('Pick position reached. MOVING_BLINDLY -> PICK')
                     self.state = State.PICK
+                if self.task == State.CHECK_PICK
+                    self.get_logger().info('Reobserve position reached. MOVING_BLINDLY -> OBSERVE_OBJECT')
+                    self.state = State.OBSERVE_OBJECT
         else:
             self.get_logger().info(f'Failed to reach destination. State: {self.state.name} -> END_COLLECTION')
             self.state = State.END_COLLECTION
@@ -758,6 +774,23 @@ class CollectionController(Node):
     
         return path_msg, (pick_x, pick_y, pick_yaw)
     
+    def create_reobserve_path(self, observation_distance):
+        # Extract current position and detected position
+        current_x, current_y, current_theta = self.current_pose
+        reobserve_x = current_x + observation_distance * np.cos(current_theta + np.pi)
+        reobserve_y = current_y + observation_distance * np.sin(current_theta + np.pi)
+        reobserve_yaw = current_theta # The last yaw is oriented to the object
+    
+        # Create the Path message
+        path_msg = Path()
+        path_msg.header.stamp = self.get_clock().now().to_msg()
+        path_msg.header.frame_id = "map"
+    
+        # Add start and pick poses to the path
+        path_msg.poses.append(self.create_pose_stamped(current_x, current_y, current_theta))
+        path_msg.poses.append(self.create_pose_stamped(reobserve_x, reobserve_y, reobserve_yaw))
+    
+        return path_msg, (reobserve_x, reobserve_y, reobserve_yaw)
 
     def create_pose_stamped(self, x, y, theta):
         pose = PoseStamped()
