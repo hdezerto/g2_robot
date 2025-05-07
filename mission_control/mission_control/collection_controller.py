@@ -77,11 +77,13 @@ ros2 run arm simple_arm_controller
 ros2 run armplanner pickup_service
 
 ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
+
 ros2 run icp icp_processor
 ros2 run mission_control processor_mapper
+
 ros2 run motion_control motion_control
 ros2 run detection detection
-IN ~/dd2419_ws    ros2 run mission_control collection_controller
+IN ros2 run mission_control collection_controller
 
 
 """
@@ -100,7 +102,7 @@ DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
 RESOLUTION = 0.05  # Resolution of the occupancy grid [m] Also CHECK occupancy_grid_map.py
 OBSERVATION_DISTANCE = 0.50 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
 PICK_DISTANCE = 0.175 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
-DROP_DISTANCE = 0.22  # Distance to the box for drop [m] NOT TUNED!
+DROP_DISTANCE = 0.28  # Distance to the box for drop [m] NOT TUNED!
 # ------------------------------------
 
 
@@ -120,6 +122,9 @@ class State(Enum):
     PICK = auto()
     WAIT_FOR_ARM = auto()
     MOVE_TO_BOX = auto()
+
+    OBSERVE_BOX = auto()
+    MOVE_TO_DROP = auto()
     DROP = auto()
     END_COLLECTION = auto()
 
@@ -158,7 +163,9 @@ class CollectionController(Node):
             State.MOVING_BLINDLY: lambda: rclpy.spin_once(self),
             State.PICK: self.pick,
             State.WAIT_FOR_ARM: lambda: rclpy.spin_once(self),
+            State.OBSERVE_BOX: lambda: self.observe_box(DETECTION_TIMEOUT),
             State.MOVE_TO_BOX: self.move_to_box,
+            State.MOVE_TO_DROP: self.move_to_box,
             State.DROP: self.drop,
         }
 
@@ -330,19 +337,42 @@ class CollectionController(Node):
             elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
             if elapsed_time > timeout:
                 self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> GET_NEXT_OBJECT")
+                removed_object = self.objects.pop(self.next_object["index"])
+                self.get_logger().info(f'Removed object from list: {removed_object}')
+                self.state = State.GET_NEXT_OBJECT
+                break
+
+    def observe_box(self, timeout):
+        self.get_logger().info(f"Observing for object category box for {timeout} seconds...")
+        start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
+    
+        # Wait for the detection or timeout
+        while self.state == State.OBSERVE_BOX:
+            rclpy.spin_once(self) # Process callbacks
+            elapsed_time = self.get_clock().now().nanoseconds / 1e9 - start_time
+            if elapsed_time > timeout:
+                self.get_logger().info("Timeout reached while waiting for object detection. OBSERVE_OBJECT -> GET_NEXT_OBJECT")
                 self.state = State.GET_NEXT_OBJECT
                 break
 
     
     # Callback to process detections
     def detections_callback(self, msg):
-        if self.state != State.OBSERVE_OBJECT: # Ignore detections when not observing
+        # self.get_logger().info(f"Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}. current state: {self.state.name}")  # DEBUG
+        if not ((self.state == State.OBSERVE_OBJECT) or (self.state == State.OBSERVE_BOX)): # Ignore detections when not observing
             return
         #self.get_logger().info(f'Received detection: {msg.type} (class: {msg.cat}) at ({msg.x}, {msg.y}) with theta {msg.theta}')  # DEBUG
-        if msg.cat == self.next_object["category"]:  # Check if the detection matches the desired category
-            self.get_logger().info(f"Detected desired object: category {msg.cat} at ({msg.x}, {msg.y}). OBSERVE_OBJECT -> MOVE_TO_PICK")
-            self.detected_position = (msg.x, msg.y)
-            self.state = State.MOVE_TO_PICK
+        elif self.state == State.OBSERVE_OBJECT:
+            if msg.cat == self.next_object["category"]:  # Check if the detection matches the desired category
+                self.get_logger().info(f"Detected desired object: category {msg.cat} at ({msg.x}, {msg.y}). OBSERVE_OBJECT -> MOVE_TO_PICK")
+                self.detected_position = (msg.x, msg.y)
+                self.state = State.MOVE_TO_PICK
+        elif self.state == State.OBSERVE_BOX:
+            if msg.cat == 0:
+                self.get_logger().info(f"Detected desired box: category {msg.cat} at ({msg.x}, {msg.y}). OBSERVE_BOX -> MOVE_TO_DROP")
+                self.closest_box = (msg.x, msg.y, msg.theta)
+                self.state = State.MOVE_TO_DROP
+
 
 
     def move_to_pick(self):
@@ -358,23 +388,33 @@ class CollectionController(Node):
     
 
     def move_to_box(self):
-        self.task = State.DROP # Useful for MOVING and WAIT_FOR_ARM states
-        # Remove the picked object from the objects list
-        removed_object = self.objects.pop(self.next_object["index"])
-        self.get_logger().info(f'Removed object from list: {removed_object}')
-        #self.next_object["position"] = None # Reset to avoid uninflating the object position
+        if self.state == State.MOVE_TO_BOX:
+            self.task = State.OBSERVE_BOX
+            # Remove the picked object from the objects list
+            removed_object = self.objects.pop(self.next_object["index"])
+            self.get_logger().info(f'Removed object from list: {removed_object}')
+            #self.next_object["position"] = None # Reset to avoid uninflating the object position
 
-        self.compute_closest_box()  # Select the closest box to the current position of the robot
-        self.update_path_planning_grid() # Update the path planning grid to remove the picked object and uninflate around the box to drop     
+            self.compute_closest_box()  # Select the closest box to the current position of the robot
+            self.update_path_planning_grid() # Update the path planning grid to remove the picked object and uninflate around the box to drop     
+
+        elif self.state == State.MOVE_TO_DROP:
+            self.task = State.DROP # Useful for MOVING and WAIT_FOR_ARM states
+
+        
 
         # ---------------------- TODO -------------------
         # Compute the drop pose
-        drop_pose = self.compute_best_pose(target_type="box")
+        if self.state == State.MOVE_TO_BOX:
+            drop_pose = self.compute_best_pose(target_type="box")
+        elif self.state == State.MOVE_TO_DROP:
+            drop_pose = self.compute_best_pose(target_type="box_drop")
         # ---------------------------------------------
         if drop_pose:
             self.destination_pose = drop_pose  # Set the drop pose as the destination
             self.get_logger().info(f"Drop pose: ({drop_pose[0]}, {drop_pose[1]}, {np.degrees(drop_pose[2])} degrees). MOVE_TO_BOX -> PLAN_PATH")
             self.state = State.PLAN_PATH
+
         else:
             self.get_logger().error('Failed to compute drop pose. MOVE_TO_BOX -> END_COLLECTION')
             self.state = State.END_COLLECTION # DEBUG since it should in principle find a drop pose
@@ -496,12 +536,17 @@ class CollectionController(Node):
                 if self.task == State.PICK:
                     self.get_logger().info('Observation position reached. MOVING -> OBSERVE_OBJECT')
                     self.state = State.OBSERVE_OBJECT
-                else: # self.task == State.DROP
+                elif self.task == State.OBSERVE_BOX:
+                    self.get_logger().info('Observation position reached. MOVING -> OBSERVE_BOX')
+                    self.state = State.OBSERVE_BOX
+                elif self.task == State.DROP:
                     self.get_logger().info('Drop position reached. MOVING -> DROP')
                     self.state = State.DROP
+
             elif self.state == State.MOVING_BLINDLY:
-                self.get_logger().info('Pick position reached. MOVING_BLINDLY -> PICK')
-                self.state = State.PICK
+                if self.task == State.PICK:
+                    self.get_logger().info('Pick position reached. MOVING_BLINDLY -> PICK')
+                    self.state = State.PICK
         else:
             self.get_logger().info(f'Failed to reach destination. State: {self.state.name} -> END_COLLECTION')
             self.state = State.END_COLLECTION
@@ -528,6 +573,10 @@ class CollectionController(Node):
             initial_step = np.sqrt(2) * RESOLUTION  # Diagonal of the grid cell (worst case)
             desired_distance = OBSERVATION_DISTANCE  # Distance to the object
         elif target_type == "box":
+            target_position = self.closest_box[:2]  # (x, y)
+            initial_step = 2 * np.sqrt(2) * RESOLUTION   # Use 2 diagonals since boxes occupy 3x3 cells (worst case)
+            desired_distance = OBSERVATION_DISTANCE  # Distance to the box
+        elif target_type == "box_drop":
             target_position = self.closest_box[:2]  # (x, y)
             initial_step = 2 * np.sqrt(2) * RESOLUTION   # Use 2 diagonals since boxes occupy 3x3 cells (worst case)
             desired_distance = DROP_DISTANCE  # Distance to the box
@@ -746,8 +795,12 @@ class CollectionController(Node):
 
     def compute_closest_box(self):       
         self.update_current_pose()  # Update the robot's current pose
+        if self.current_pose is None:
+            self.get_logger().error('Failed to get current pose!')
         closest_distance = float('inf')
         closest_box = None
+
+        
 
         # Iterate through the boxes to find the closest one
         for box in self.boxes:

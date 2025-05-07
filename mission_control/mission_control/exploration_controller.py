@@ -54,7 +54,7 @@ ros2 run mission_control simple_mapper
 
 ros2 run motion_control motion_control
 ros2 run detection detection
-IN ~/dd2419_ws    ros2 run mission_control exploration_controller
+IN ~/dd2419_ws/src/g2_robot/MAPS  ros2 run mission_control exploration_controller
 
 ----- MAP FILE -----:
 The map is saved in the directory where the node is run.
