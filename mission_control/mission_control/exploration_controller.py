@@ -112,46 +112,24 @@ class ExplorationController(Node):
         self.state = State.INIT
 
         # Publishers and subscribers
-        latched_qos = QoSProfile(
-            depth=1
-        )  # Define a shared QoS profile for latched publishers
+        latched_qos = QoSProfile(depth=1)  # Define a shared QoS profile for latched publishers
         latched_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
-        self.workspace_publisher = self.create_publisher(
-            PolygonStamped, "/workspace_polygon", latched_qos
-        )
-        self.exploration_grid_publisher = self.create_publisher(
-            OccupancyGrid, "/exploration_occupancy_grid", latched_qos
-        )
-        self.detections_subscriber = self.create_subscription(
-            DetectionMsg, "/detections", self.detections_callback, 5
-        )  # CHECK if 5 is not too much here
-        self.tf_broadcaster = TransformBroadcaster(
-            self
-        )  # For publishing detected objects/boxes to RViz
-        self.mapper_occupancy_grid_subscriber = self.create_subscription(
-            OccupancyGrid,
-            "/mapper_occupancy_grid",
-            self.mapper_occupancy_grid_callback,
-            1,
-        )
-        self.planning_grid_publisher = self.create_publisher(
-            OccupancyGrid, "/planning_grid", latched_qos
-        )
+        self.workspace_publisher = self.create_publisher(PolygonStamped, "/workspace_polygon", latched_qos)
+        self.exploration_grid_publisher = self.create_publisher(OccupancyGrid, "/exploration_occupancy_grid", latched_qos)
+        self.detections_subscriber = self.create_subscription(DetectionMsg, "/detections", self.detections_callback, 5)  # CHECK if 5 is not too much here
+        self.tf_broadcaster = TransformBroadcaster(self)  # For publishing detected objects/boxes to RViz
+        self.mapper_occupancy_grid_subscriber = self.create_subscription(OccupancyGrid, "/mapper_occupancy_grid", self.mapper_occupancy_grid_callback, 1)
+        self.planning_grid_publisher = self.create_publisher(OccupancyGrid, "/planning_grid", latched_qos)
         self.path_publisher = self.create_publisher(Path, "/planned_path", 10)
-        self.reached_destination_subscriber = self.create_subscription(
-            Bool, "/reached_destination", self.reached_destination_callback, 10
-        )
+        self.reached_destination_subscriber = self.create_subscription(Bool, "/reached_destination", self.reached_destination_callback, 10)
         self.stop_publisher = self.create_publisher(Bool, "/stop_motion", 10)
-
-        #TODO backup timer to save files after 5 minutes is stuck
-
-        self.timer = self.create_timer(300, self.timer_callback)
 
         # Initialize TransformListener to get current position of the robot
         self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(
-            self.tf_buffer, self, spin_thread=True
-        )  # spin_thread=True to run the listener in a separate thread
+        self.tf_listener = TransformListener(self.tf_buffer, self, spin_thread=True)  # spin_thread=True to run the listener in a separate thread
+
+        # Timer to end exploration after a certain time
+        self.timer = self.create_timer(300, self.timer_callback)
 
         # Publish the workspace to RViz
         publish_workspace(self.workspace_publisher, self.get_clock())
@@ -166,7 +144,6 @@ class ExplorationController(Node):
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
         self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         #self.exploration_points = [(10,45),(35,26),(59, 26),(50, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-
         #self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45),(105, 30)] # HARD CODED values (including cabinet)
 
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points)  # Just for DEBUG
@@ -202,6 +179,7 @@ class ExplorationController(Node):
         # self.state = State.MOVING # DEBUG detection
         self.state = State.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
 
+
     # ------------------- STATE FUNCTIONS -------------------
     def observing(self, duration):
         """
@@ -216,6 +194,7 @@ class ExplorationController(Node):
         self.get_logger().info("Finished observing.")
         self.state = State.GET_NEXT_EXPLORATION_POINT # Now it can get the first exploration point
 
+
     def stuck_observing(self, duration):
         self.get_logger().info(f"Stuck observing for {duration} seconds...")
         start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
@@ -223,22 +202,22 @@ class ExplorationController(Node):
         while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
             rclpy.spin_once(self)
 
+
     def get_next_exploration_point(self):
         # Get the next exploration point from the list (if it exists)
         if self.exploration_point_index < len(self.exploration_points):
-            self.exploration_point = self.exploration_points[
-                self.exploration_point_index
-            ]  # Get grid coordinates of the next exploration point
+            self.exploration_point = self.exploration_points[self.exploration_point_index]  # Get grid coordinates of the next exploration point
             self.exploration_point_index += 1
             self.state = State.PLAN_PATH
         else:  # No more points to explore
             self.get_logger().info("No more exploration points. Ending exploration.")
             self.state = State.END_EXPLORATION
 
-    #added backup timer func to end exploration
+
+    # Timer to end exploration after a certain time
     def timer_callback(self):
         # This function is called every 5 minutes to save the map file
-        self.end_exploration()
+        self.state = State.END_EXPLORATION
 
 
     def plan_path(self):
@@ -248,29 +227,20 @@ class ExplorationController(Node):
         # start_yaw_debug = self.current_pose[2] * 180 / np.pi # DEBUG
         # self.get_logger().info(f'----- start_yaw_debug: {start_yaw_debug} degrees')  # DEBUG
 
-        goal = (
-            self.exploration_point,
-            grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[
-                0
-            ],
-        )
+        goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
         self.get_logger().info(f"Start: {start} | Goal: {goal}")  # DEBUG
-        self.grid_path, path = compute_path(
-            start, goal, self.path_planning_grid, self.get_clock()
-        )
+        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
         if path:  # Path found
-            self.path_publisher.publish(path
-            )  # Publish the path to the motion controller and RViz
+            self.path_publisher.publish(path)  # Publish the path to the motion controller and RViz
             self.get_logger().info("Path published. Moving...")
             # --------- JUST TO SEE THE GRID PATH ---------
-            self.mark_grid_path(
-                self.exploration_occupancy_grid, self.grid_path
-            )  # DEBUG
+            self.mark_grid_path(self.exploration_occupancy_grid, self.grid_path)  # DEBUG
             # --------------------------------------
             self.state = State.MOVING
         else:
             self.get_logger().info("No path found. Getting the next exploration point.")
             self.state = State.GET_NEXT_EXPLORATION_POINT
+
 
     def detections_callback(self, msg):
         if self.state == State.STUCK_OBSERVING:  # Ignore detections while stuck
@@ -282,27 +252,20 @@ class ExplorationController(Node):
             self.get_logger().info(f"Detection is outside the workspace. Ignoring it.")
             return
         if self.is_lidar_occupied(msg.x, msg.y):
-            self.get_logger().info(
-                f"Detection is inside a lidar occupied cell. Ignoring it."
-            )
+            self.get_logger().info(f"Detection is inside a lidar occupied cell. Ignoring it.")
             return
         # Update the detections list. It returns true if it's a new detection (for collision check)
         is_new_detection = self.update_detections(msg)
         if is_new_detection:
             # Update path planning grid with the detected object/box and check for collision
-            if self.update_path_planning_grid_and_check_collision(
-                self.latest_lidar_grid
-            ):
-                self.get_logger().info(
-                    "Collision detected from camera. Recomputing path."
-                )
+            if self.update_path_planning_grid_and_check_collision(self.latest_lidar_grid):
+                self.get_logger().info("Collision detected from camera. Recomputing path.")
                 self.state = State.PLAN_PATH
+
 
     def mapper_occupancy_grid_callback(self, msg):
         # self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
-        self.latest_lidar_grid = (
-            msg  # Save the latest lidar grid for detections_callback
-        )
+        self.latest_lidar_grid = msg  # Save the latest lidar grid for detections_callback)
         # Update path planning grid with the received lidar occupancy grid and check for collision
         is_collision = self.update_path_planning_grid_and_check_collision(msg)
         if self.state == State.MOVING:
@@ -312,115 +275,97 @@ class ExplorationController(Node):
                 #     self.state = State.STUCK_OBSERVING
                 # else:
                 # JULE EDIT - check if new a* algorithm can move robot out of the collision zone
-                self.get_logger().info(
-                    "Collision detected from lidar. Recomputing path."
-                )
+                self.get_logger().info("Collision detected from lidar. Recomputing path.")
                 self.state = State.PLAN_PATH
 
         elif self.state == State.STUCK_OBSERVING:
             if not self.is_stuck():
-                self.get_logger().info(
-                    "Robot is no longer stuck. Recomputing path. STUCK_OBSERVING -> PLAN_PATH"
-                )
+                self.get_logger().info("Robot is no longer stuck. Recomputing path. STUCK_OBSERVING -> PLAN_PATH")
                 self.state = State.PLAN_PATH
             # else it will stay in state STUCK_OBSERVING until the lidar map is corrected
 
+
     def reached_destination_callback(self, msg):
         if msg.data:  # msg.data is True if the destination was reached
-            self.get_logger().info(
-                "Destination reached successfully. Going to the next exploration point."
-            )
+            self.get_logger().info("Destination reached successfully. Going to the next exploration point.")
             self.state = State.GET_NEXT_EXPLORATION_POINT
         else:
-            self.get_logger().info(
-                "Failed to reach destination. Going to the next exploration point."
-            )
+            self.get_logger().info("Failed to reach destination. Going to the next exploration point.")
             self.state = State.GET_NEXT_EXPLORATION_POINT
+
 
     def end_exploration(self):
         # Write the map file with detected objects/boxes
         self.write_map_file()
         self.get_logger().info("Exploration completed. Map file saved.")
 
+
     # ------------------- UTILS -------------------
 
     def is_stuck(self):
         # Check if the robot is inside a non-free cell (occupied or inflated) in the path planning grid
-        return (
-            self.path_planning_grid.data[
-                self.current_grid_position[0]
-                + self.current_grid_position[1] * self.path_planning_grid.info.width
-            ]
-            != 0
-        )
+        return self.path_planning_grid.data[self.current_grid_position[0] + self.current_grid_position[1] * self.path_planning_grid.info.width] != 0
+
 
     def update_path_planning_grid_and_check_collision(self, lidar_occupancy_grid):
         # Update the planning grid with the latest detected objects/boxes
-        self.path_planning_grid = update_path_planning_grid(
-            lidar_occupancy_grid, self.detected_objects, self.detected_boxes
-        )
+        self.path_planning_grid = update_path_planning_grid(lidar_occupancy_grid, self.detected_objects, self.detected_boxes)
         self.publish_planning_grid()  # Publish the updated grid to RViz
         self.update_current_pose()  # Update the current pose of the robot
-        if check_collision(
-            self.path_planning_grid, self.grid_path, self.current_grid_position
-        ):
+        if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
             self.stop_robot()  # Send message to stop the robot
             return True  # Collision detected
         else:
             return False
 
+
     def update_current_pose(self):
         # Update the current pose of the robot
-        self.current_pose, self.current_grid_position = get_current_pose(
-            self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid
-        )
+        self.current_pose, self.current_grid_position = get_current_pose(self.tf_buffer, self.get_logger(), self.exploration_occupancy_grid)
         if self.current_pose is None:
             self.get_logger().info("Failed to get current pose!")
         # self.get_logger().info(f'Current pose (real): {self.current_pose}  | (grid): {self.current_grid_position}')  # DEBUG
 
+
     def update_detections(self, msg):
-        # Check if the detection is new or corresponds to an existing one
-        detected_list = self.detections  # Unified list for all detections
-        for detection in detected_list:
-            if (
-                (detection["x"] - msg.x) ** 2 + (detection["y"] - msg.y) ** 2
-            ) ** 0.5 < POSITION_THRESHOLD:
-                # Existing detection: update position and add vote
-                detection["x"] = msg.x
-                detection["y"] = msg.y
-                if msg.type == "BOX":
-                    detection["theta"] = msg.theta
-                    detection["votes"].append(
-                        msg.type
-                    )  # Box detections have no category
-                else:
-                    detection["votes"].append(
-                        msg.cat
-                    )  # For the objects, category is used
-                detection["winner"] = max(
-                    set(detection["votes"]), key=detection["votes"].count
-                )  # Update winner
-                # self.get_logger().info(f'Updated detection: {detection}')
-                return False  # Existing detection updated
+            # Check if the detection is new or corresponds to an existing one
+            detected_list = self.detections  # Unified list for all detections
+            for detection in detected_list:
+                if ((detection["x"] - msg.x) ** 2 + (detection["y"] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
+                    # Existing detection: update position and add vote
+                    detection["x"] = msg.x
+                    detection["y"] = msg.y
+                    
+                    # If the new message is a BOX, update theta and force the winner to BOX
+                    if msg.type == "BOX":
+                        detection["theta"] = msg.theta
+                        detection["votes"].append(msg.type)
+                        detection["winner"] = "BOX" # Force winner to BOX
+                    # If the new message is an OBJECT
+                    else:
+                        detection["votes"].append(msg.cat)
+                        # Only update the winner if it's not already decided as a BOX
+                        if detection["winner"] != "BOX":
+                            detection["winner"] = max(set(detection["votes"]), key=detection["votes"].count) # Update winner based on votes
+    
+                    # self.get_logger().info(f'Updated detection: {detection}')
+                    return False  # Existing detection updated
+    
+            # New detection: add to the list
+            new_detection = {
+                "x": msg.x,
+                "y": msg.y,
+                "theta": msg.theta if msg.type == "BOX" else None,
+                "votes": ([msg.cat] if msg.type == "OBJECT" else [msg.type]),  # Initialize votes with the category or type
+                "winner": (msg.cat if msg.type == "OBJECT" else msg.type)  # Initialize winner with the category or type
+            }
+            detected_list.append(new_detection)  # detected_list is a list of dictionaries
+            # self.get_logger().info(f'Added new detection: {new_detection}')
+    
+            self.update_detections_lists()  # Update the detected objects and boxes lists
+    
+            return True  # New detection added
 
-        # New detection: add to the list
-        new_detection = {
-            "x": msg.x,
-            "y": msg.y,
-            "theta": msg.theta if msg.type == "BOX" else None,
-            "votes": (
-                [msg.cat] if msg.type == "OBJECT" else [msg.type]
-            ),  # Initialize votes with the category or type
-            "winner": (
-                msg.cat if msg.type == "OBJECT" else msg.type
-            ),  # Initialize winner with the category or type
-        }
-        detected_list.append(new_detection)  # detected_list is a list of dictionaries
-        # self.get_logger().info(f'Added new detection: {new_detection}')
-
-        self.update_detections_lists()  # Update the detected objects and boxes lists
-
-        return True  # New detection added
 
     def update_detections_lists(self):
         """
@@ -430,25 +375,18 @@ class ExplorationController(Node):
         self.detected_boxes = []  # Clear the existing list of boxes
 
         for detection in self.detections:
-            if (
-                detection["winner"] == "BOX"
-            ):  # The detection is classified as a box (x, y, theta)
-                self.detected_boxes.append(
-                    (detection["x"], detection["y"], detection["theta"])
-                )
+            if detection["winner"] == "BOX":  # The detection is classified as a box (x, y, theta)
+                self.detected_boxes.append((detection["x"], detection["y"], detection["theta"]))
             else:  # The detection is classified as an object (x, y, category)
-                self.detected_objects.append(
-                    (detection["x"], detection["y"], detection["winner"])
-                )
+                self.detected_objects.append((detection["x"], detection["y"], detection["winner"]))
+
 
     def is_inside_workspace(self, x, y):
         """
         Check if the given coordinates (x, y) are inside the workspace (including the border).
         """
         # Convert real-world coordinates to grid coordinates
-        grid_x, grid_y = real_to_grid_coordinates(
-            [(x, y, None)], self.exploration_occupancy_grid
-        )[0]
+        grid_x, grid_y = real_to_grid_coordinates([(x, y, None)], self.exploration_occupancy_grid)[0]
 
         # Get the grid dimensions
         width = self.exploration_occupancy_grid.info.width
@@ -458,23 +396,18 @@ class ExplorationController(Node):
         if 0 <= grid_x < width and 0 <= grid_y < height:
             # Calculate the index in the grid data
             index = grid_y * width + grid_x
-            # Check if the cell value is 0 (free space), 15 (exploration point), 50 (inflated cells), 70 (grid path), 100 (workspace border)
-            # return self.exploration_occupancy_grid.data[index] in [0, 15, 50, 70, 100]
-            return (
-                self.exploration_occupancy_grid.data[index] != -1
-            )  # Return true if not outside the workspace (i.e., not -1)
+            return self.exploration_occupancy_grid.data[index] != -1  # Return true if not outside the workspace (i.e., not -1)
 
         # If out of bounds, return False
         return False
+
 
     def is_lidar_occupied(self, x, y):
         """
         Check if the given coordinates (x, y) are inside a lidar occupied cell.
         """
         # Convert real-world coordinates to grid coordinates
-        grid_x, grid_y = real_to_grid_coordinates(
-            [(x, y, None)], self.latest_lidar_grid
-        )[0]
+        grid_x, grid_y = real_to_grid_coordinates([(x, y, None)], self.latest_lidar_grid)[0]
 
         # Get the grid dimensions
         width = self.latest_lidar_grid.info.width
@@ -490,13 +423,13 @@ class ExplorationController(Node):
         # If out of bounds, return False
         return False
 
+
     def stop_robot(self):
         msg = Bool()
         msg.data = True
         self.stop_publisher.publish(msg)
-        time.sleep(
-            1
-        )  # Give time for the motion controller to stop. This avoids it missing the next path.
+        time.sleep(1)  # Give time for the motion controller to stop. This avoids it missing the next path.
+
 
     def compute_exploration_points(self, occupancy_grid, step):
         exploration_points = []
@@ -529,6 +462,7 @@ class ExplorationController(Node):
 
         return exploration_points
 
+
     def mark_exploration_points(self, occupancy_grid, exploration_points):
         data = occupancy_grid.data
         width = occupancy_grid.info.width
@@ -537,24 +471,23 @@ class ExplorationController(Node):
             index = y * width + x
             data[index] = 15  # Mark exploration points with a lighter shade of gray
 
+
     def publish_exploration_grid(self):
         self.exploration_occupancy_grid.header.stamp = self.get_clock().now().to_msg()
         self.exploration_grid_publisher.publish(self.exploration_occupancy_grid)
+
 
     def publish_planning_grid(self):
         self.path_planning_grid.header.stamp = self.get_clock().now().to_msg()
         self.planning_grid_publisher.publish(self.path_planning_grid)
 
+
     def publish_detections_periodically(self):
         """
         Periodically publish detections to RViz to keep transforms visible.
         """
-        publish_detections_to_rviz(
-            self.tf_broadcaster,
-            self.detected_objects,
-            self.detected_boxes,
-            self.get_clock(),
-        )
+        publish_detections_to_rviz(self.tf_broadcaster, self.detected_objects, self.detected_boxes, self.get_clock())
+
 
     # The map is saved in the directory where the node is run
     def write_map_file(self, file_name=MAP_FILE_NAME):
@@ -563,19 +496,14 @@ class ExplorationController(Node):
         with open(file_name, "w") as file:
             # Write the objects to the file
             for x, y, category in self.detected_objects:
-                file.write(
-                    f"{category}\t{x * 100:.0f}\t{y * 100:.0f}\t0\n"
-                )  # Angle is 0 for objects
+                file.write(f"{category}\t{x * 100:.0f}\t{y * 100:.0f}\t0\n")  # Angle is 0 for objects
 
             # Write the boxes to the file
             for x, y, theta in self.detected_boxes:
-                file.write(
-                    f"B\t{x * 100:.0f}\t{y * 100:.0f}\t{theta:.0f}\n"
-                )  # Use theta for the angle
+                file.write(f"B\t{x * 100:.0f}\t{y * 100:.0f}\t{theta:.0f}\n")  # Use theta for the angle
 
-        self.get_logger().info(
-            f"Map file '{file_name}' has been written successfully to '{current_directory}'."
-        )
+        self.get_logger().info(f"Map file '{file_name}' has been written successfully to '{current_directory}'.")
+
 
     # ------ PREVIOUS VERSION ------
 
@@ -614,6 +542,7 @@ class ExplorationController(Node):
 
     #     return None  # No match, so it is a new detection
 
+
     # ---------------- DEBUGGING FUNCTIONS ----------------
     def mark_grid_path(self, occupancy_grid, grid_path):
         data = occupancy_grid.data
@@ -627,13 +556,10 @@ class ExplorationController(Node):
 
 # ------------------------------- Main function -------------------------------
 
-
 def main(args=None):
     rclpy.init(args=args)
     exploration_controller = ExplorationController()
-    exploration_controller.get_logger().info(
-        "ExplorationController node has been created."
-    )
+    exploration_controller.get_logger().info("ExplorationController node has been created.")
     try:
         exploration_controller.run()
     except Exception as e:

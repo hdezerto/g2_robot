@@ -160,9 +160,7 @@ def update_path_planning_grid(lidar_occupancy_grid, objects_list, boxes_list, un
                     neighbor_y = grid_y + dy
                     if 0 <= neighbor_x < width and 0 <= neighbor_y < height:
                         neighbor_index = neighbor_y * width + neighbor_x
-                        #TODO also mark dilted cells as occupied
-                        if data[neighbor_index] == 0 or data[neighbor_index]==49 or data[neighbor_index]==50:  # Only mark free cells
-                            data[neighbor_index] = 100  # Mark as occupied
+                        data[neighbor_index] = 100  # Mark as occupied
 
     path_planning_grid.data = data
     inflate_occupied_cells(path_planning_grid)
