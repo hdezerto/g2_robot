@@ -31,11 +31,11 @@ def publish_workspace(publisher, clock, file_path=None):
     publisher.publish(polygon)
 
 
-def compute_path(start, goal, exploration_occupancy_grid, clock):
+def compute_path(start, goal, exploration_occupancy_grid, clock, logger):
     start_cell, start_real = start
     goal_cell, goal_real = goal
 
-    path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid)
+    path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid, logger)
 
     if not path_points:
         return None, None
@@ -184,7 +184,7 @@ def create_polygon(coordinates):
 
 
 # A* pathfinding algorithm
-def compute_grid_path(start, goal, grid):
+def compute_grid_path(start, goal, grid, logger):
     diagonal_cost = 1.414  # Cost to move diagonally ~= sqrt(2)
 
     # Octile distance heuristic
@@ -220,6 +220,7 @@ def compute_grid_path(start, goal, grid):
                 data.append(current)
                 current = came_from[current]
             # return a_star_backup(start, goal, grid)  # FOR TESTING - remove when no errors in A* backup
+            logger.info(f"Path found from {start} to {goal} with A*")
             return [start] + data[::-1]  # Return reversed path (start to goal)
 
         close_set.add(current)
@@ -241,11 +242,11 @@ def compute_grid_path(start, goal, grid):
                 gscore[neighbor] = tentative_g_score
                 fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
                 heapq.heappush(oheap, (fscore[neighbor], neighbor))
+    logger.warning(f"No path found from {start} to {goal} with A*. Using backup A*.")
+    return a_star_backup(start, goal, grid, logger)  # Fallback to backup A* if no path is found
 
-    return a_star_backup(start, goal, grid)  # Fallback to backup A* if no path is found
 
-
-def a_star_backup(start, goal, grid):
+def a_star_backup(start, goal, grid, logger):
     """
     A backup implementation of the A* algorithm for pathfinding.
     Allows the robot to move through occupied cells, though with a high penalty.
@@ -282,15 +283,15 @@ def a_star_backup(start, goal, grid):
             while current_node:
                 path.append(current_node[1])
                 current_node = current_node[2]  # Traverse back using the parent pointer
+            logger.info(f"Path found from {start} to {goal} with backup A*")
             return path[::-1]  # Return the path in reverse order (start to goal)
 
         # Generate neighbors
         neighbors = []
         for dx, dy in [(-1, 0), (1, 0), (0, 1), (0, -1)]:  # Cardinal directions
             nx, ny = current_position[0] + dx, current_position[1] + dy
-            if 0 <= nx < grid.info.width and 0 <= ny < grid.info.height:
-                if (grid.data[ny * grid.info.width + nx] == 0):  # Check if the cell is free
-                    neighbors.append((nx, ny))
+            
+            neighbors.append((nx, ny))
 
         for neighbor in neighbors:
             if neighbor in closed_list:
@@ -313,6 +314,7 @@ def a_star_backup(start, goal, grid):
             # Add the neighbor to the open list
             heapq.heappush(open_list, neighbor_node)
 
+    logger.warning(f"No path found from {start} to {goal} with backup A*. No path available.")
     return False  # Return False if no path is found
 
 

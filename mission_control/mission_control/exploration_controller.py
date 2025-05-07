@@ -143,9 +143,9 @@ class ExplorationController(Node):
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
         #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
-        #self.exploration_points = [(10,45),(35,26),(59, 26),(50, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
+        self.exploration_points = [(10,45),(35,26),(59, 26),(50, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
 
-        self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45)] # HARD CODED values (including cabinet)
+        # self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45)] # HARD CODED values (including cabinet)
 
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points)  # Just for DEBUG
         self.publish_exploration_grid()
@@ -230,7 +230,7 @@ class ExplorationController(Node):
 
         goal = (self.exploration_point, grid_to_real_coordinates([self.exploration_point], self.path_planning_grid)[0])
         self.get_logger().info(f"Start: {start} | Goal: {goal}")  # DEBUG
-        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock())
+        self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock(), self.get_logger())  # Compute the path in grid coordinates
         if path:  # Path found
             self.path_publisher.publish(path)  # Publish the path to the motion controller and RViz
             self.get_logger().info("Path published. Moving...")

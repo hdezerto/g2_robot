@@ -112,7 +112,7 @@ class MotionController(Node):
         self.goal_margin_rotational = math.pi / 32
 
         self.p_rotation_one = (
-            10  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
+            15  # 0 !< p_rotation !< 2base/(h*radius) =  12.599/h h:=sampling time
         )
         self.p_translation_one = 5
         self.p_translation_two = (
@@ -122,7 +122,7 @@ class MotionController(Node):
             10  # 0 !< p_rotation_two !< 2*base/(p*h*radius) = 41.999 h:= sampling time
         )
         self.v_damper = 1
-        self.w_damper = 1
+        self.w_damper = 1.2
         self.p = 0.3  # !>0 orientiert sich an einen punkt p meter vor sich
 
         self.stuck_check = 0
@@ -130,7 +130,9 @@ class MotionController(Node):
         self.last_delta_theta = 0
         self.stuck_parameter = 0
 
-        self.cycle_damping = 0.1
+        self.cycle_damping = 0.11
+
+        self.back_off_distance = 0.1  # Distance to back off when turn around is necessary
 
     def path_callback(self, msg: Path):
         self.get_logger().info("Received new path")
@@ -326,7 +328,7 @@ class MotionController(Node):
                 # Check if robot is stuck
                 if abs(self.last_distance - distance) < 0.0005:
                     self.stuck_check += 1
-                    self.get_logger().info(f"Not moving.")
+                    # self.get_logger().info(f"Not moving.")
                 else:
                     self.stuck_check = 0
                 if self.stuck_check > 7:
@@ -438,7 +440,7 @@ class MotionController(Node):
         # Check if the robot needs to continue backing off
         if (
             np.sqrt((pose[0] - current_pose[0]) ** 2 + (pose[1] - current_pose[1]) ** 2)
-            < 0.01
+            < self.back_off_distance
         ):
             motor_msg = DutyCycles()
             motor_msg.duty_cycle_left = -0.15
@@ -506,6 +508,9 @@ class MotionController(Node):
         """
 
         current_pose = self.get_current_pos()
+        if current_pose is None:
+            self.get_logger().error("Failed to get current pose")
+            return False
         theta = current_pose[2]
         goal_theta = np.arctan2(
             waypoint.pose.position.y - current_pose[1],
