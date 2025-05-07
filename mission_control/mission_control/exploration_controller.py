@@ -142,9 +142,10 @@ class ExplorationController(Node):
         
         #self.exploration_points = self.compute_exploration_points(self.exploration_occupancy_grid, step=EXPLORATION_STEP)
         #self.exploration_points = [(10, 45), (185, 60), (185, 75), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
+        #self.exploration_points = [(10, 47), (65, 47), (145, 47), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (excluding cabinet)
         #self.exploration_points = [(10,45),(35,26),(59, 26),(50, 45), (185, 60), (190, 60),(190, 75), (185, 60), (135, 30), (105, 15), (20, 15), (20, 30), (105, 30)] # HARD CODED values (including cabinet)
-        #self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45),(105, 30)] # HARD CODED values (including cabinet)
+
+        self.exploration_points = [(10, 45), (190, 55), (185, 78),(189,78), (135, 30), (105, 15), (20, 15), (20, 30), (59, 26),(50, 45)] # HARD CODED values (including cabinet)
 
         self.mark_exploration_points(self.exploration_occupancy_grid, self.exploration_points)  # Just for DEBUG
         self.publish_exploration_grid()

@@ -89,19 +89,20 @@ private:
     pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp_;
 
 
-    const float MAX_TRANSLATION = 0.43;    // Maximum translation threshold (meters)
-    const float MAX_ROTATION = 0.80;    // Maximum rotation threshold (radians) ~ 10 degrees
+    const float MAX_TRANSLATION = 0.22;    // Maximum translation threshold (meters)
+    const float MAX_ROTATION = 0.4;    // Maximum rotation threshold (radians) ~ 10 degrees
     const float voxel_leaf_size_ = 0.01f; // Voxel grid leaf size (meters)
-    const float max_corr_dist_ = 0.3f; // Maximum correspondence distance (meters)
+    const float max_corr_dist_ = 0.22f; // Maximum correspondence distance (meters)
     long unsigned int MAX_COR = 20; // Maximum number of correspondences to consider
     const int max_iter_ = 50; // Maximum number of ICP iterations
 
     float corr_{0.0f}; // correction value
+    float ycorr_{0.0f}; // yaw correction value
     float previous_yaw_{0.0f}; // Initialize to zero or a valid starting value
     float yaw_rate_{0.0f};     // Yaw rate (radians per second)
     float linv_{0.0f};     // linear velocity (m/s)
 
-    const float smoothing_std = 0.2f; 
+    const float smoothing_std = 0.1f; 
     // Check yaw rate threshold before running ICP.
     const float YAW_RATE_THRESHOLD = 0.2; // Example threshold in rad/s
     int not_enough_counter_=0;
@@ -247,7 +248,11 @@ private:
     void corr_callback(const std_msgs::msg::Float32::SharedPtr msg) {
         corr_ = msg->data;
         //accumulated_transformation_(0,3) += -corr_;
-        no_icp_=true;
+        if (corr_ < 0.2f){
+            no_icp_=false;
+            ycorr_=0.05f;
+        }
+        return;
 
     }
 
@@ -276,6 +281,12 @@ private:
         
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
         pcl::fromROSMsg(*msg, *cloud);
+
+        if (no_icp_){
+            RCLCPP_WARN(this->get_logger(), "No ICP, just publishing cloud.");
+            publish_previous_cloud(output_topic, msg, cloud);
+            return;
+        }
     
         if (!prev_cloud) {
             prev_cloud = cloud;
@@ -361,12 +372,12 @@ private:
         }
         */
 
-        if (max_correspondences < MAX_COR) {
+        if (max_correspondences < MAX_COR && corr_==0) {
             RCLCPP_WARN(this->get_logger(), "%zu correspondences found, not enough.",max_correspondences);
             //publish_previous_cloud(output_topic, msg, cloud);t
             not_enough_counter_++;
 
-            if (not_enough_counter_%3==0){
+            if (not_enough_counter_%8==0){
                 RCLCPP_WARN(this->get_logger(), "Not enough correspondences found continually, asking for new ref.");
                 not_enough_counter_=0;  // Reset to default value
                 // Somewhere in your code, when you want to publish 'true' or 'false':
@@ -452,7 +463,7 @@ private:
 
 
 
-            if ((translation_magnitude < MAX_TRANSLATION && rotation_magnitude < MAX_ROTATION)||over_rotation) {
+            if ((translation_magnitude < MAX_TRANSLATION && rotation_magnitude < MAX_ROTATION)||over_rotation||corr_!=0) {
         
                 // Smoothing factor: 0.0 means no update; 1.0 means full update.
                 
@@ -471,8 +482,6 @@ private:
                 else{
                     new_yaw = euler_angles.x();  // Only the z-axis rotation
                 }
-                
-                
 
             
                 // Build the new (smoothed) accumulated transformation.
@@ -500,11 +509,15 @@ private:
                 transform_stamped.child_frame_id = "odom";
         
                 // Use the smoothed translation; ensure z remains zero.
+                if (corr_>0.2f){
+                    no_icp_=true;
+                    ycorr_ = 0.07f;
+                }
                 transform_stamped.transform.translation.x = smoothed_translation.x() - corr_;
-                transform_stamped.transform.translation.y = smoothed_translation.y();
+                transform_stamped.transform.translation.y = smoothed_translation.y()  -ycorr_  ;
                 transform_stamped.transform.translation.z = 0.0f;
         
-
+                ycorr_=0.0f; // Reset ycorr_ after using it
                 //TODO figure out way to pause ICP when in top box, whislt also performing the correction at least once
                 /*
                 if (corr_==0.25){
@@ -543,7 +556,7 @@ private:
         } else {
             RCLCPP_WARN(this->get_logger(), "ICP failed to converge on topic %s.", output_topic.c_str());
             // Publish the last valid nth cloud without updating
-            publish_previous_cloud(output_topic, msg, prev_cloud);
+            //publish_previous_cloud(output_topic, msg, prev_cloud);
             //prev_cloud = nullptr;  // Reset the previous cloud to force a new alignment
             //corrected_accum_cloud_ = nullptr;  // Reset the corrected accumulated cloud
         }

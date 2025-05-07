@@ -54,7 +54,7 @@ WORKSPACE_FILE_PATH = os.path.join(
 
 RESOLUTION = 0.05  # Grid cell size in meters per cell
 EXPANSION_RADIUS = 1  # Number of cells to expand occupied areas (for better visualization)
-SCAN_FREQUENCY = 4  # Number of scans to skip before processing new data
+SCAN_FREQUENCY = 5  # Number of scans to skip before processing new data
 MAP_FREQUENCY = 60  # Frequency at which the map is published and saved
 NTH_SCAN = 5  # Process every Nth scan
 DISTANCE_FILTER = 0.20  # Minimum distance filter for LiDAR points to avoid noise
@@ -356,7 +356,7 @@ class LidarProcessor(Node):
         self.from2_1to1_0 = False  # Flag to track when x > 2 and y < 1'
         self.from4_2to1_0 = False  # Flag to track when x > 2 and y < 1
         self.from5_4to1_0 = False  # Flag to track when x > 2 and y < 1
-
+        self.push_flag= 0.0
 
         # Load workspace boundaries from TSV file
         self.vertices = self.read_tsv(WORKSPACE_FILE_PATH)
@@ -534,19 +534,19 @@ class LidarProcessor(Node):
                     
                    
                     if self.locked_high_x:
-                        self.correction_publisher.publish(Float32(data=0.20))
+                        self.correction_publisher.publish(Float32(data=0.22))
                         self.get_logger().info(f"Pushed correction to 0.2")
                         
                         shift_transform = TransformStamped()
                         shift_transform.header = transformed_cloud.header
                         shift_transform.child_frame_id = "shifted_cloud"
-                        shift_transform.transform.translation.x = -0.20
-                        shift_transform.transform.translation.y = 0.0 # Downward
+                        shift_transform.transform.translation.x = -0.22
+                        shift_transform.transform.translation.y = -0.07# Downward
                         shift_transform.transform.translation.z = 0.0  
                         shift_transform.transform.rotation.w = 1.0  # Identity rotation
                         
                         candidate_reference['cloud'] = do_transform_cloud(candidate_reference['cloud'], shift_transform)
-                        candidate_reference['pos'] = (current_pos[0] - 0.20, current_pos[1])
+                        candidate_reference['pos'] = (current_pos[0] - 0.22, current_pos[1]-0.07)
                     
                     
                     
@@ -570,12 +570,12 @@ class LidarProcessor(Node):
                         shift_transform.header = transformed_cloud.header
                         shift_transform.child_frame_id = "shifted_cloud"
                         shift_transform.transform.translation.x = -0.22
-                        shift_transform.transform.translation.y = 0.0 # Downward
+                        shift_transform.transform.translation.y = -0.07 # Downward
                         shift_transform.transform.translation.z = 0.0  
                         shift_transform.transform.rotation.w = 1.0  # Identity rotation
                         
                         candidate_reference['cloud'] = do_transform_cloud(candidate_reference['cloud'], shift_transform)
-                        candidate_reference['pos'] = (current_pos[0] - 0.22, current_pos[1])
+                        candidate_reference['pos'] = (current_pos[0] - 0.22, current_pos[1]-0.07)
 
 
                         self.get_logger().info(f"Entering high-x {current_pos[0]} zone (>8.15m). Forcing new shifted keyframe.")
@@ -596,12 +596,13 @@ class LidarProcessor(Node):
                             # === Force new keyframe if x > 8.1 and lock updates ===
 
 
-                # === If x has gone back under 8.1, unlock keyframe updates ===
-                if self.locked_high_x and current_pos[0] <= 7.5:
+                # === If x has gone back under 8.1, unlock keyframe updats ===
+                if self.locked_high_x and current_pos[0] <= 7.7:
                     self.get_logger().info("Exited high-x zone. Re-enabling keyframe updates.")
                     self.locked_high_x = False
                     self.correction_publisher.publish(Float32(data=0.10))
-                    self.get_logger().info(f"Pushed correction to 0.10")
+                    self.push_flag= 0.1
+                    self.get_logger().info(f"Pushed correction to 0.0")
                 
             
 
@@ -670,6 +671,18 @@ class LidarProcessor(Node):
                         self.publish_circle_marker(msg)
                 else:
                     # No close keyframes — add this one
+                    if self.push_flag!=0.0:                      
+                        shift_transform = TransformStamped()
+                        shift_transform.header = transformed_cloud.header
+                        shift_transform.child_frame_id = "shifted_cloud"
+                        shift_transform.transform.translation.x = self.push_flag
+                        shift_transform.transform.translation.y = -0.05 # Downward
+                        shift_transform.transform.translation.z = 0.0  
+                        shift_transform.transform.rotation.w = 1.0  # Identity rotation
+                        
+                        candidate_reference['cloud'] = do_transform_cloud(candidate_reference['cloud'], shift_transform)
+                        candidate_reference['pos'] = (current_pos[0] -self.push_flag, current_pos[1])
+
                     self.reference_scans.append(candidate_reference)
                     self.latest_reference = candidate_reference
                     self.publish_reference(candidate_reference)
