@@ -34,6 +34,10 @@ import os  # To get the current directory
 import time
 import numpy as np
 
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Path
+from tf_transformations import quaternion_from_euler
+
 """
 NOTES (HUGO):
 - Fix trapped inside objects
@@ -72,13 +76,14 @@ EXPLORATION_STEP = 15  # DEBUGGING
 POSITION_THRESHOLD = 0.13  # Threshold for considering two detections as the same [m]
 MAP_FILE_NAME = "map_exploration.tsv"  # Name of the map file to save
 OBSERVATION_TIME = 3.0  # Time to observe the environment [s]
+INITIAL_ROTATION_ANGLE = 90.0  # [degrees] Initial rotation angle to get the keyframe  EDIT HERE MAXIMOS
 # ------------------------------------
 
 
 # ------------------------------- State class -------------------------------
 class State(Enum):
     INIT = auto()
-    OBSERVING = auto()
+    ROTATE = auto()
     GET_NEXT_EXPLORATION_POINT = auto()
     PLAN_PATH = auto()
     MOVING = auto()
@@ -91,8 +96,8 @@ class ExplorationController(Node):
 
     def run(self):
         while rclpy.ok():
-            if self.state == State.OBSERVING:
-                self.observing(OBSERVATION_TIME)
+            if self.state == State.ROTATE:
+                self.rotate(OBSERVATION_TIME, INITIAL_ROTATION_ANGLE)  # Rotate to get the keyframe
             elif self.state == State.GET_NEXT_EXPLORATION_POINT:
                 self.get_next_exploration_point()
             elif self.state == State.PLAN_PATH:
@@ -176,23 +181,54 @@ class ExplorationController(Node):
         self.get_logger().info("Waiting 3 sec...")
         time.sleep(3)  # Wait for all nodes to be ready and the TF buffer to populate
 
-        # self.state = State.OBSERVING
         # self.state = State.MOVING # DEBUG detection
+        # self.state = State.ROTATE 
         self.state = State.GET_NEXT_EXPLORATION_POINT  # DEBUG motion controller
 
 
     # ------------------- STATE FUNCTIONS -------------------
-    def observing(self, duration):
-        """
-        Process callbacks for a specified duration, just for initial observation of the environment (using camera and lidar)
-        """
-        self.get_logger().info(f"Observing for {duration} seconds...")
+    def rotate(self, duration, angle_degrees):
+        angle = np.deg2rad(angle_degrees)  # Convert degrees to radians
+      
+        self.get_logger().info(f"Rotating {angle_degrees}° to get keyframe. Waiting for {duration} seconds...")
         start_time = self.get_clock().now().nanoseconds() / 1e9  # Start time in seconds
 
+        # Update current pose
+        self.update_current_pose()
+        x, y, theta = self.current_pose
+
+        # Create a PoseStamped with the same position but rotated 90º left
+        pose = PoseStamped()
+        pose.header.frame_id = "map"
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+
+        # Compute new orientation (theta + angle)
+        new_theta = theta + angle
+        new_theta = (new_theta + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi)
+        q = quaternion_from_euler(0, 0, new_theta)
+        pose.pose.orientation.x = q[0]
+        pose.pose.orientation.y = q[1]
+        pose.pose.orientation.z = q[2]
+        pose.pose.orientation.w = q[3]
+
+        # Create Path
+        path = Path()
+        path.header.frame_id = "map"
+        path.header.stamp = self.get_clock().now().to_msg()
+        path.poses.append(pose)
+
+        # Publish to /planned_path
+        self.path_publisher.publish(path)
+
+        # Spin the node while waiting for the keyframe
         while (self.get_clock().now().nanoseconds / 1e9) - start_time < duration:
             rclpy.spin_once(self)
+        
+        #time.sleep(duration) # Change to this if a blocking behavior is needed
 
-        self.get_logger().info("Finished observing.")
+        self.get_logger().info("Finished waiting for keyframe.")
         self.state = State.GET_NEXT_EXPLORATION_POINT # Now it can get the first exploration point
 
 
@@ -287,6 +323,9 @@ class ExplorationController(Node):
 
 
     def reached_destination_callback(self, msg):
+        if self.state == State.ROTATE:  # Ignore the message while rotating for keyframe
+            return
+        
         if msg.data:  # msg.data is True if the destination was reached
             self.get_logger().info("Destination reached successfully. Going to the next exploration point.")
             self.state = State.GET_NEXT_EXPLORATION_POINT
