@@ -333,21 +333,33 @@ class ExplorationController(Node):
             detected_list = self.detections  # Unified list for all detections
             for detection in detected_list:
                 if ((detection["x"] - msg.x) ** 2 + (detection["y"] - msg.y) ** 2) ** 0.5 < POSITION_THRESHOLD:
+                    
+                    # ---- Commented out to consider only the first measurement (reduced drift) ----
                     # Existing detection: update position and add vote
-                    detection["x"] = msg.x
-                    detection["y"] = msg.y
+                    #detection["x"] = msg.x
+                    #detection["y"] = msg.y
+                    # ------------------------------------------------------------------------------
                     
                     # If the new message is a BOX, update theta and force the winner to BOX
                     if msg.type == "BOX":
-                        detection["theta"] = msg.theta
-                        detection["votes"].append(msg.type)
-                        detection["winner"] = "BOX" # Force winner to BOX
+                        if detection["winner"] != "BOX":
+                            detection["votes"] = []  # Reset votes for BOX
+                            detection["count"] = 1  # Reset count for BOX
+                            detection["winner"] = "BOX"  # Force winner to BOX
+                            detection["theta"] = msg.theta
+                        else:
+                            detection["count"] += 1  # Increment count for BOX
+
                     # If the new message is an OBJECT
                     else:
                         detection["votes"].append(msg.cat)
-                        # Only update the winner if it's not already decided as a BOX
-                        if detection["winner"] != "BOX":
-                            detection["winner"] = max(set(detection["votes"]), key=detection["votes"].count) # Update winner based on votes
+                        if detection["winner"] != "BOX":  # Only update the winner if it's not already decided as a BOX
+                            new_winner = max(set(detection["votes"]), key=detection["votes"].count) # Update winner based on votes
+                            if new_winner != detection["winner"]:
+                                detection["winner"] = new_winner
+                                detection["count"] = detection["votes"].count(new_winner)  # Count all votes for the new winner
+                            else:
+                                detection["count"] += 1
     
                     # self.get_logger().info(f'Updated detection: {detection}')
                     return False  # Existing detection updated
@@ -358,7 +370,8 @@ class ExplorationController(Node):
                 "y": msg.y,
                 "theta": msg.theta if msg.type == "BOX" else None,
                 "votes": ([msg.cat] if msg.type == "OBJECT" else [msg.type]),  # Initialize votes with the category or type
-                "winner": (msg.cat if msg.type == "OBJECT" else msg.type)  # Initialize winner with the category or type
+                "winner": (msg.cat if msg.type == "OBJECT" else msg.type),  # Initialize winner with the category or type
+                "count": 1  # Initialize count to 1
             }
             detected_list.append(new_detection)  # detected_list is a list of dictionaries
             # self.get_logger().info(f'Added new detection: {new_detection}')
@@ -377,9 +390,9 @@ class ExplorationController(Node):
 
         for detection in self.detections:
             if detection["winner"] == "BOX":  # The detection is classified as a box (x, y, theta)
-                self.detected_boxes.append((detection["x"], detection["y"], detection["theta"]))
+                self.detected_boxes.append((detection["x"], detection["y"], detection["theta"], detection["count"]))
             else:  # The detection is classified as an object (x, y, category)
-                self.detected_objects.append((detection["x"], detection["y"], detection["winner"]))
+                self.detected_objects.append((detection["x"], detection["y"], detection["winner"], detection["count"]))
 
 
     def is_inside_workspace(self, x, y):
@@ -493,16 +506,16 @@ class ExplorationController(Node):
     # The map is saved in the directory where the node is run
     def write_map_file(self, file_name=MAP_FILE_NAME):
         current_directory = os.getcwd()  # Get the current working directory
-
+    
         with open(file_name, "w") as file:
             # Write the objects to the file
-            for x, y, category in self.detected_objects:
-                file.write(f"{category}\t{x * 100:.0f}\t{y * 100:.0f}\t0\n")  # Angle is 0 for objects
-
+            for x, y, category, count in self.detected_objects:
+                file.write(f"{category}\t{x * 100:.0f}\t{y * 100:.0f}\t0\t{count}\n")  # Angle is 0 for objects, add count
+    
             # Write the boxes to the file
-            for x, y, theta in self.detected_boxes:
-                file.write(f"B\t{x * 100:.0f}\t{y * 100:.0f}\t{theta:.0f}\n")  # Use theta for the angle
-
+            for x, y, theta, count in self.detected_boxes:
+                file.write(f"B\t{x * 100:.0f}\t{y * 100:.0f}\t{theta:.0f}\t{count}\n")  # Use theta for the angle, add count
+    
         self.get_logger().info(f"Map file '{file_name}' has been written successfully to '{current_directory}'.")
 
 
