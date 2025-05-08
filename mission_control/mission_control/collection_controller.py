@@ -97,15 +97,15 @@ IN ros2 run mission_control collection_controller
 
 
 # -------- Tunable parameters --------
-MAP_FILE_NAME = "src/g2_robot/MAPS/collection_2_2.tsv"  # Name of the map file to read
+MAP_FILE_NAME = "src/g2_robot/MAPS/collection_1_2.tsv"  # Name of the map file to read
 
 SCANNING_TIME = 3.0  # Time to scan the environment [s]
-DETECTION_TIMEOUT = 10.0  # Timeout for waiting for object detection [s]
+DETECTION_TIMEOUT = 8.0  # Timeout for waiting for object detection [s]
 
 RESOLUTION = 0.05  # Resolution of the occupancy grid [m] Also CHECK occupancy_grid_map.py
 OBSERVATION_DISTANCE = 0.50 # Distance to the object for observation [m]. The 3D camera only sees from 0.37 m
 PICK_DISTANCE = 0.175 # Distance to the object for pick [m] TUNED FOR SIMPLE ARM
-DROP_DISTANCE = 0.28  # Distance to the box for drop [m] NOT TUNED!
+DROP_DISTANCE = 0.3  # Distance to the box for drop [m] NOT TUNED!
 # ------------------------------------
 
 
@@ -263,6 +263,9 @@ class CollectionController(Node):
 
         self.task = None # State.PICK or State.DROP
 
+        # self.use_backup_astar = [False, 0] # Flag to use the backup A* algorithm
+        # BACKUP ASTAR
+
         #self.state = State.TESTING # DEBUGGING
         #self.state = State.SCANNING
         self.state = State.GET_NEXT_OBJECT
@@ -288,41 +291,12 @@ class CollectionController(Node):
 
 
     def get_next_object(self):
-        ## REMOVE
-        def publish_debug_line(self, line_points):
-                marker = Marker()
-                marker.header.frame_id = self.latest_lidar_grid.header.frame_id  # Usually "map"
-                marker.header.stamp = self.get_clock().now().to_msg()
-                marker.ns = "feasibility_debug"
-                marker.id = 0
-                marker.type = Marker.POINTS  # Or LINE_STRIP for continuous line
-                marker.action = Marker.ADD
-                marker.pose.orientation.w = 1.0
-
-                marker.scale.x = 0.1  # Thickness
-                marker.scale.y = 0.1  # Only used for POINTS
-                marker.color.r = 0.0
-                marker.color.g = 1.0
-                marker.color.b = 0.0
-                marker.color.a = 1.0
-                grid_points = []
-                for point_x, point_y in line_points:
-                    grid_point = (point_x, point_y)
-                    grid_points.append(grid_point)
-
-                # print("3")
-                real_points = grid_to_real_coordinates(grid_points, self.latest_lidar_grid)
-                # print("3.5")
-                for grid_x, grid_y,_ in real_points:
-                    p = Point(x=grid_x, y=grid_y, z=0.05)
-                    marker.points.append(p)
-                # print("4")
-                self.marker_pub.publish(marker)
-                return
-        ## REMOVE END
 
         if not self.map_up_to_date: # Wait for the map to be up to date
             return
+        else:
+            self.get_logger().info('Map is up to date. Proceeding to get next object.')
+            self.map_up_to_date = False # Reset the flag
         
         if not self.objects: # Empty list of objects
             self.get_logger().info("No more objects to collect. GET_NEXT_OBJECT -> END_COLLECTION")
@@ -332,11 +306,7 @@ class CollectionController(Node):
         self.task = State.PICK # Useful for MOVING and WAIT_FOR_ARM states
         self.compute_closest_object() # Select the closest object to the current position of the robot
         self.closest_box = None # Reset to inflate the box position again
-        path_planning_grid = self.update_path_planning_grid() # Update the path planning grid to uninflate around the object to pick
-        time.sleep(2) # Give time to the path planning grid to update
-        
-
-
+        path_planning_grid = self.update_path_planning_grid() # Update the path planning grid to uninflate around the object to pick        
 
         # --------------------- TODO -------------------
         # Compute the observation point
@@ -358,6 +328,7 @@ class CollectionController(Node):
         goal = (real_to_grid_coordinates([self.destination_pose], self.path_planning_grid)[0], self.destination_pose)
         #self.get_logger().info(f'Start: {start} | Goal: {goal}')  # DEBUG
         self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock(),self.get_logger())
+        # self.grid_path, path = compute_path(start, goal, self.path_planning_grid, self.get_clock(), self.get_logger()) # BACKUP ASTAR
         if path: # Path found
             self.path_publisher.publish(path) # Publish the path to the motion controller and RViz
             self.get_logger().info('Path published. PLAN_PATH -> MOVING')
@@ -371,16 +342,24 @@ class CollectionController(Node):
 
 
     def mapper_occupancy_grid_callback(self, msg):
-        self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
-        self.map_up_to_date = True
-        self.latest_lidar_grid = msg  # Save the latest lidar grid for detections_callback)
+        # self.get_logger().info('Received new mapper occupancy grid.') # DEBUG
+          # Save the latest lidar grid for detections_callback)
         
-        if self.state != State.MOVING: # Ignore lidar mapping when not moving
+        if not ((self.state == State.MOVING) or (self.state == State.GET_NEXT_OBJECT) or (self.state == State.MOVE_TO_BOX)): # Ignore lidar mapping when not moving
             return
         
+        self.map_up_to_date = True
+        self.latest_lidar_grid = msg
+
         # Update path planning grid with the received lidar occupancy grid and check for collision
         is_collision = self.update_path_planning_grid_and_check_collision(msg)
         if self.state == State.MOVING:
+            # BACKUP ASTAR
+            # if self.use_backup_astar[0] and self.use_backup_astar[1] < 10:
+            #     self.use_backup_astar[1] += 1
+            #     return
+            # if  self.use_backup_astar[1] >= 10:
+            #     self.use_backup_astar = 0
             if is_collision:
                 self.get_logger().info("Collision detected from lidar. Recomputing path.")
                 self.state = State.PLAN_PATH
@@ -405,7 +384,9 @@ class CollectionController(Node):
     def observe_object(self, timeout):
         self.get_logger().info(f"Observing for object category {self.next_object['category']} for {timeout} seconds...")
         start_time = self.get_clock().now().nanoseconds / 1e9  # Start time in seconds
-    
+
+        if self.task == State.CHECK_PICK:
+            timeout = 3.0
         # Wait for the detection or timeout
         while self.state == State.OBSERVE_OBJECT:
             rclpy.spin_once(self) # Process callbacks
@@ -470,11 +451,19 @@ class CollectionController(Node):
         self.task = State.CHECK_PICK
         self.update_current_pose()  # Update the robot's current pose
         observe_path, observe_pose = self.create_reobserve_path(OBSERVATION_DISTANCE)
+        observe_path.header.frame_id = "reobserve"
         self.path_publisher.publish(observe_path) # Publish the path
         self.get_logger().info(f"Path to reobserve position published: Start {self.current_pose} | Goal ({observe_pose[0]}, {observe_pose[1]}, {np.degrees(observe_pose[2])} degrees). MOVE_TO_PICK -> MOVING_BLINDLY")
         self.state = State.MOVING_BLINDLY
 
     def move_to_box(self):
+
+        if not self.map_up_to_date: # Wait for the map to be up to date
+            return
+        else:
+            self.get_logger().info('Map is up to date. Proceeding to move to box.')
+            self.map_up_to_date = False # Reset the flag
+
         if self.state == State.MOVE_TO_BOX:
             self.task = State.OBSERVE_BOX
             # Remove the picked object from the objects list
@@ -755,43 +744,15 @@ class CollectionController(Node):
                     y0 += sy
             return points
 
-        def publish_debug_line(self, line_points):
-            marker = Marker()
-            marker.header.frame_id = self.latest_lidar_grid.header.frame_id  # Usually "map"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.ns = "feasibility_debug"
-            marker.id = 0
-            marker.type = Marker.POINTS  # Or LINE_STRIP for continuous line
-            marker.action = Marker.ADD
-            marker.pose.orientation.w = 1.0
 
-            marker.scale.x = 0.1  # Thickness
-            marker.scale.y = 0.1  # Only used for POINTS
-            marker.color.r = 0.0
-            marker.color.g = 1.0
-            marker.color.b = 0.0
-            marker.color.a = 1.0
-            grid_points = []
-            for point_x, point_y in line_points:
-                grid_point = (point_x, point_y)
-                grid_points.append(grid_point)
 
-            # print("3")
-            real_points = grid_to_real_coordinates(grid_points, self.latest_lidar_grid)
-            # print("3.5")
-            for grid_x, grid_y,_ in real_points:
-                p = Point(x=grid_x, y=grid_y, z=0.05)
-                marker.points.append(p)
-            # print("4")
-            self.marker_pub.publish(marker)
-            return
-
-        width = self.latest_lidar_grid.info.width
-        height = self.latest_lidar_grid.info.height
+        width = self.path_planning_grid.info.width
+        height = self.path_planning_grid.info.height
         
         # Check if the pose is within grid bounds
         grid_pose_x, grid_pose_y = real_to_grid_coordinates([(pose_x, pose_y, None)], self.latest_lidar_grid)[0]
-        if not ((self.latest_lidar_grid.data[grid_pose_y * width + grid_pose_x] == 0) or (self.latest_lidar_grid.data[grid_pose_y*width + grid_pose_x] == 70)):  # Not free space
+        if not ((self.path_planning_grid.data[grid_pose_y * width + grid_pose_x] <= 0) or (self.latest_lidar_grid.data[grid_pose_y*width + grid_pose_x] == 70)):  # Not free space
+            self.get_logger().info(f"Pose invalid: {self.path_planning_grid.data[grid_pose_y * width + grid_pose_x]}")
             return False
 
         # Compute the direction vector from the target to the pose
@@ -810,10 +771,11 @@ class CollectionController(Node):
         line_points = bresenham_line(grid_pose_x, grid_pose_y, grid_adjusted_target_x, grid_adjusted_target_y)
         for grid_x, grid_y in line_points:
             index = grid_y * width + grid_x
-            if not ((self.latest_lidar_grid.data[index] == 0) or (self.latest_lidar_grid.data[index] == 70)):  # Not free space
+            if not ((self.path_planning_grid.data[index] <= 0) or (self.path_planning_grid.data[index] == 70) or (self.path_planning_grid.data[index] == 100)):  # Not free space
+                self.get_logger().info(f"Cell invalid: {self.path_planning_grid.data[index]}")
                 return False
             else:
-                self.get_logger().info(f"Cell valid with value: {self.latest_lidar_grid.data[index]}")
+                self.get_logger().info(f"Cell valid with value: {self.path_planning_grid.data[index]}")
         
         # --- DEBUGGING ---
         for grid_x, grid_y in line_points:
@@ -822,14 +784,7 @@ class CollectionController(Node):
         # Publish the updated workspace grid
         self.publish_workspace_grid()
         # -----------------
-        publish_debug_line(self, line_points)  # Publish the debug line to RViz
-        ### REMOVE
-        # all_cells = []
-        # for i in range(0, width):
-        #     for j in range(0, height):
-        #         if self.latest_lidar_grid.data[j * width + i] == 0:
-        #             all_cells.append((i, j))
-        # publish_debug_line(self, all_cells)  # Publish the debug line to RViz
+        
         return True
 
 
@@ -859,7 +814,7 @@ class CollectionController(Node):
         # Mark the target pose on the workspace grid for DEBUGGING
         target_grid = real_to_grid_coordinates([(pose_x, pose_y, None)], self.workspace_grid)[0]
         grid_index = target_grid[1] * self.workspace_grid.info.width + target_grid[0]
-        self.workspace_grid.data[grid_index] = 50
+        self.workspace_grid.data[grid_index] = 20
 
         # Publish the updated workspace grid
         self.publish_workspace_grid()
@@ -995,7 +950,7 @@ class CollectionController(Node):
     def publish_planning_grid(self):
         self.path_planning_grid.header.stamp = self.get_clock().now().to_msg()
         # self.planning_grid_publisher.publish(self.path_planning_grid)
-        self.planning_grid_publisher.publish(self.latest_lidar_grid)
+        self.planning_grid_publisher.publish(self.path_planning_grid)
 
 
     def publish_workspace_grid(self):

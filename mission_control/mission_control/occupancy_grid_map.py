@@ -90,7 +90,7 @@ def inflate_occupied_cells(occupancy_grid, expansion_radius=EXPANSION_RADIUS):
                     for dx in range(-expansion_radius, expansion_radius + 1):
                         nx, ny = x + dx, y + dy
                         if 0 <= nx < width and 0 <= ny < height:
-                            if data[ny * width + nx] == 0:  # Only inflate free cells
+                            if data[ny * width + nx] == 0 or data[ny*width+nx] == 49:  # Only inflate free cells
                                 data[ny * width + nx] = 70  # Mark as dilated space
 
 
@@ -252,7 +252,7 @@ def mark_line_as_occupied(occupancy_grid, x1, y1, x2, y2):
     data = occupancy_grid.data 
     for (grid_x, grid_y) in line_points:
         index = grid_y * width + grid_x
-        data[index] = 100  # Mark as occupied space
+        data[index] = 98  # Mark as occupied space
 
 
 # Flood fill algorithm to mark free cells

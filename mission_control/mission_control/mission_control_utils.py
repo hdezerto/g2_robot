@@ -32,10 +32,12 @@ def publish_workspace(publisher, clock, file_path=None):
 
 
 def compute_path(start, goal, exploration_occupancy_grid, clock, logger):
+# def compute_path(start, goal, exploration_occupancy_grid, clock, self): # BACKUP ASTAR
     start_cell, start_real = start
     goal_cell, goal_real = goal
 
     path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid, logger)
+    # path_points = compute_grid_path(start_cell, goal_cell, exploration_occupancy_grid, self) # BACKUP ASTAR
 
     if not path_points:
         return None, None
@@ -185,6 +187,7 @@ def create_polygon(coordinates):
 
 # A* pathfinding algorithm
 def compute_grid_path(start, goal, grid, logger):
+# def compute_grid_path(start, goal, grid, self): # BACKUP ASTAR
     diagonal_cost = 1.414  # Cost to move diagonally ~= sqrt(2)
 
     # Octile distance heuristic
@@ -221,6 +224,8 @@ def compute_grid_path(start, goal, grid, logger):
                 current = came_from[current]
             # return a_star_backup(start, goal, grid)  # FOR TESTING - remove when no errors in A* backup
             logger.info(f"Path found from {start} to {goal} with A*")
+            # self.get_logger().info(f"Path found from {start} to {goal} with A*") # BACKUOP ASTAR
+            # self.use_backup_astar[0] = False # BACKUP ASTAR
             return [start] + data[::-1]  # Return reversed path (start to goal)
 
         close_set.add(current)
@@ -244,6 +249,12 @@ def compute_grid_path(start, goal, grid, logger):
                 heapq.heappush(oheap, (fscore[neighbor], neighbor))
     logger.warning(f"No path found from {start} to {goal} with A*. Using backup A*.")
     return a_star_backup(start, goal, grid, logger)  # Fallback to backup A* if no path is found
+    
+    ### BACKUP ASTAR
+    # self.get_logger().warning(f"No path found from {start} to {goal} with A*. Using backup A*.")
+    # self.use_backup_astar[0] = True
+    # self.use_backup_astar[1] = 0
+    # return a_star_backup(start, goal, grid, self.get_logger())  # Fallback to backup A* if no path is found
 
 
 def a_star_backup(start, goal, grid, logger):
@@ -290,8 +301,8 @@ def a_star_backup(start, goal, grid, logger):
         neighbors = []
         for dx, dy in [(-1, 0), (1, 0), (0, 1), (0, -1)]:  # Cardinal directions
             nx, ny = current_position[0] + dx, current_position[1] + dy
-            
-            neighbors.append((nx, ny))
+            if grid.data[ny*grid.info.width+nx] != -1:
+                neighbors.append((nx, ny))
 
         for neighbor in neighbors:
             if neighbor in closed_list:
