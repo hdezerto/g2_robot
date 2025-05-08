@@ -133,9 +133,20 @@ class MotionController(Node):
         self.cycle_damping = 0.11
 
         self.back_off_distance = 0.1  # Distance to back off when turn around is necessary
+        self.reobserve = False
 
     def path_callback(self, msg: Path):
         self.get_logger().info("Received new path")
+
+        if msg.header.frame_id == "reobserve":
+            self.reobserve = True
+            self.turn_around = True
+            self.turn_around_pose = self.get_current_pos()
+            self.get_logger().info("Backing off for reobservation")
+            self.back_off_distance = 0.3
+            return
+        else:
+            self.get_logger().info("Following new path")
 
         self.current_path = msg
         self.current_path.poses.pop(0)
@@ -157,11 +168,12 @@ class MotionController(Node):
             self.stop()
 
     def follow_path(self):
-        if self.current_path is None:
-            return
 
-        if self.turn_around:
+        if self.turn_around or self.reobserve:
             self.move_back()
+            return
+        
+        if self.current_path is None:
             return
 
         if (
@@ -424,10 +436,12 @@ class MotionController(Node):
         return
 
     def move_back(self):
+        self.get_logger().info("Backing off")
         # return
-        if self.turn_around_pose is None:
-            self.get_logger().error("Turn around pose is not set")
-            return
+        if not self.reobserve:
+            if self.turn_around_pose is None:
+                self.get_logger().error("Turn around pose is not set")
+                return
 
         pose = self.turn_around_pose
         current_pose = self.get_current_pos()
@@ -452,6 +466,10 @@ class MotionController(Node):
             self.get_logger().info("Backed off successfully. Continue to follow path.")
             self.turn_around = False
             self.turn_around_pose = None
+            self.back_off_distance = 0.1
+            if self.reobserve:
+                self.notify_reached_destination(True)
+                self.reobserve = False
             return
 
     def stop(self):
