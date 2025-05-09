@@ -14,7 +14,7 @@ from .mission_control_utils import (
 from .occupancy_grid_map import (
     initialize_occupancy_grid,
     inflate_occupied_cells,
-    update_path_planning_grid,
+    update_path_planning_grid_ext,
     grid_to_real_coordinates,
     real_to_grid_coordinates,
 )
@@ -349,7 +349,7 @@ class ExplorationController(Node):
 
     def update_path_planning_grid_and_check_collision(self, lidar_occupancy_grid):
         # Update the planning grid with the latest detected objects/boxes
-        self.path_planning_grid = update_path_planning_grid(lidar_occupancy_grid, self.detected_objects, self.detected_boxes)
+        self.path_planning_grid = update_path_planning_grid_ext(lidar_occupancy_grid, self.detected_objects, self.detected_boxes)
         self.publish_planning_grid()  # Publish the updated grid to RViz
         self.update_current_pose()  # Update the current pose of the robot
         if check_collision(self.path_planning_grid, self.grid_path, self.current_grid_position):
