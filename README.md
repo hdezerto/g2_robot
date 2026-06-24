@@ -32,19 +32,15 @@ These videos show the final system running the two main mission phases.
 
 ### Exploration
 
-<video controls muted playsinline width="100%">
-  <source src="https://raw.githubusercontent.com/hdezerto/g2_robot/main/docs/media/exploration-demo.mp4" type="video/mp4">
-</video>
+[![Exploration demo preview](docs/media/exploration-preview.gif)](docs/media/exploration-demo.mp4)
 
-[Open exploration demo](https://github.com/hdezerto/g2_robot/blob/main/docs/media/exploration-demo.mp4)
+[Open exploration demo](docs/media/exploration-demo.mp4)
 
 ### Collection
 
-<video controls muted playsinline width="100%">
-  <source src="https://raw.githubusercontent.com/hdezerto/g2_robot/main/docs/media/collection-demo.mp4" type="video/mp4">
-</video>
+[![Collection demo preview](docs/media/collection-preview.gif)](docs/media/collection-demo.mp4)
 
-[Open collection demo](https://github.com/hdezerto/g2_robot/blob/main/docs/media/collection-demo.mp4)
+[Open collection demo](docs/media/collection-demo.mp4)
 
 ## Build
 
@@ -94,7 +90,7 @@ fastdds discovery -i 0 -t <robot-ip> -q 42100
 ## Repository Notes
 
 - Generated `colcon` outputs (`build/`, `install/`, `log/`) are excluded from version control.
-- Raw calibration photos, ROS bags, local debug images, and ad-hoc recordings are ignored going forward; the curated demo videos in `docs/media/` are kept.
+- Raw calibration photos, ROS bags, local debug images, and ad-hoc recordings are ignored going forward; the curated demo videos and README previews in `docs/media/` are kept.
 - The small camera calibration `.npz` files used by the arm camera code are kept in the repository.
 
 ## Contributors
