@@ -1,8 +1,48 @@
+# Editor and OS files
 .vscode/
-__pycache__/
-*.pyc
-**/__pycache__/
-**/*.pyc
+.idea/
 *:Zone.Identifier
 .DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ROS 2 / colcon generated files
+build/
+install/
+log/
+**/build/
+**/install/
+**/log/
+.colcon/
+
+# CMake generated files
+icp/Makefile
+cmake-build-*/
+
+# ROS bags and local run outputs
+*.db3
+*.mcap
+rosbag*/
+bag*/
+
+# Local media and calibration captures
 *.MOV
+*.mov
+*.mp4
+*.avi
+armplanner/armplanner/calibration/
+
+# Local debug images
+*.png
+*.jpg
+*.jpeg

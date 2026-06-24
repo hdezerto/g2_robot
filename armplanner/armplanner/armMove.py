@@ -218,29 +218,9 @@ class robotArmNode(Node):
 
 
     def findObjCenter(self):
-        video_path = "greenCube.MOV"  
-        cap = cv2.VideoCapture(video_path)
-        
-        if not cap.isOpened():
-            print("Error: Could not open video file.")
-            exit()
-
-        while cap.isOpened():
-            #print('hello')
-            ret, frame = cap.read() # Read a frame
-            
-            if not ret:  # If no frame is returned, video has ended
-                break
-            #cv2.imshow("Video Frame", frame)
-
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                break
-            break
-    
-        findObjectCenter(['Green','Cube'], frame)
-        cap.release()
-        cv2.destroyAllWindows()
-        #placeholder func, probably using detection node
+        raise NotImplementedError(
+            "Use the arm_camera_detection node for camera-based object localization."
+        )
 
 
     def trajectoryCalc(self,x,y):
@@ -253,7 +233,7 @@ class robotArmNode(Node):
         L1 = 0 # Distance from arm base to arm camera X (default config)
         L2 = 0 # Distance from arm base to arm camera Y (default config)
         C = 0  # Center of camera coordinate 
-        x_cam, y_cam = findObjCenter()
+        x_cam, y_cam = self.findObjCenter()
         pos_x = x_cam - C 
         pos_y = y_cam - C + L2
         self.trajectoryCalc(pos_x,pos_y)

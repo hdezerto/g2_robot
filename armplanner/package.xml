@@ -3,8 +3,8 @@
 <package format="3">
   <name>armplanner</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="robot@invalid.com">happy</maintainer>
+  <description>Arm-camera processing and pickup/drop service nodes for the G2 robot.</description>
+  <maintainer email="email@example.com">TODO</maintainer>
   <license>MIT</license>
 
   <depend>geometry_msgs</depend>

@@ -2,9 +2,9 @@
 <package format="3">
   <name>my_custom_interfaces</name>
   <version>0.0.0</version>
-  <description>Custom interfaces for pick/drop robot commands</description>
-  <maintainer email="robot@todo.todo">robot</maintainer>
-  <license>TODO: License declaration</license>
+  <description>Custom services for pickup, drop, and position requests.</description>
+  <maintainer email="email@example.com">TODO</maintainer>
+  <license>MIT</license>
 
   <!-- Build tool -->
   <buildtool_depend>ament_cmake</buildtool_depend>

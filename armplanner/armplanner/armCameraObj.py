@@ -45,35 +45,16 @@ class armCameraNode(Node):
             rclpy.shutdown() """
 
     def findObjectCenter(self, msg):
-        #video_path = "/home/happy/Desktop/MATTIAS_WS/src/armplanner/armplanner/brownishPlush.MOV"  
-        #cap = cv2.VideoCapture(video_path)
         if self.latest_frame is None:
             self.get_logger().warn("No frame received yet!")
             return
 
         frame = self.latest_frame
-        
-        """ if not cap.isOpened():
-            print("Error: Could not open video file.")
-            exit()
-
-        while cap.isOpened():
-            #print('hello')
-            ret, frame = cap.read() # Read a frame
-            
-            if not ret:  # If no frame is returned, video has ended
-                break
-            #cv2.imshow("Video Frame", frame)
-
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                break
-            break """
         frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
         cv2.imshow('frame', frame)
         cv2.waitKey(10000)
         obj = ['Plush', 'Gray']
-        # Green Cube Code:
-        print('gay')
+
         if obj[0] == 'Cube' or obj[0] == 'Sphere':
             print(obj[0])
             if obj [1] == 'Green':
@@ -208,7 +189,6 @@ class armCameraNode(Node):
 
 
 def main():
-    # do camera shit
     rclpy.init()
     node = armCameraNode()
     try:
@@ -216,47 +196,6 @@ def main():
     except KeyboardInterrupt:
         pass
     rclpy.shutdown()
-
-
-def main12():
-
-    video_path = "src/kinematics/kinematics/greenCube.MOV"  
-    cap = cv2.VideoCapture(video_path)
-    
-    if not cap.isOpened():
-        print("Error: Could not open video file.")
-        exit()
-
-    while cap.isOpened():
-        #print('hello')
-        ret, frame = cap.read() # Read a frame
-         
-        if not ret:  # If no frame is returned, video has ended
-            break
-        #cv2.imshow("Video Frame", frame)
-
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            break
-        break
-    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-    cx, cy = findObjectCenter(['Cube','Green'], frame)
-    hfov = 120  # Horizontal FOV
-    #vfov = 2 * np.arctan((120/2)/asp_ratio)     # Vertical FOV
-    #asp_ratio = 16/9
-    d = 0.2 # Distance of camera from ground
-    h, w = frame.shape[:2]
-    vfov = 2*np.arctan(h/w * np.tan(hfov/2))
-    cx_t = cx - w/2
-    cy_t = -cy + h
-    realw = 2 * d * np.tan(hfov/2)
-    realh = 2 * d * np.tan(vfov/2)
-    pixelw = realw/w
-    pixelh = realh/h
-
-    xreal = cx_t * pixelw
-    yreal = cy_t * pixelh
-    cap.release()
-    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':

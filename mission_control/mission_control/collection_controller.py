@@ -38,57 +38,18 @@ from geometry_msgs.msg import Point
 
 
 """
-NOTES (HUGO):
+Collection mission controller.
 
-MOTION_CONTROLLER:
--  The motion controller is publishing more than one True to the /reached_destination topic for each path. This created problems.
--  Sometimes the motion_controller fails for the path to pick the plushie:
-    [INFO] [1745338952.729685789] [motion_controller]: Received new path
-    [ERROR] [1745338953.230844790] [motion_controller]: Failed to get current pose: 'NoneType' object has no attribute 'transform'
-- Check how the current pose is obtained in the motion_controller. Isnt spin_thread = True better than async? I had to increase the timeout to 3.0 s to avoid this error.
-
-ICP:
-- Running with ICP when compared to just odometry, the collection has a worse performance.
-- The motion controller still gets "stuck" when using ICP.
-
-MISSION_CONTROL_UTILS:
--  Correct the new path simplifier because it doesnt update the grid_path that is the one used to check for path collisions.
-
-ARM:
-- The arm detection doesnt seem to work with blue spheres (we can just use the green ones)
-- The pick service sometimes fails for cubes
-
-DETECTION:
-- I had to comment out the "near box" logic in the detection for the colletion to work
-
-COLLECTION:
-- Now I inflate the boxes back again before moving to the next object (to avoid collision). Might be needed to add state to move the robot back a bit to avoid path error (in case we want to
-drop closer to boxes). I can do it quickly if needed.
-
-
-DONT FORGET TO UNCOMMENT ALL: self.update_current_pose() 
-
-
------ COMMANDS -----:
-IN ~/dd2419_ws    rviz2 -d collection.rviz
-
---- SSH into the robot ( ssh happy@192.168.128.110 ):
-IN ~/dd2419_ws    colcon build --symlink-install
-fastdds discovery -i 0 -t 192.168.128.110 -q 42100
-ros2 launch g2_robot_launch g2_robot_launch_arm.xml
-ros2 run arm simple_arm_controller
-ros2 run armplanner pickup_service
-
-ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
-
-ros2 run icp icp_processor
-ros2 run mission_control processor_mapper
-
-ros2 run motion_control motion_control
-ros2 run detection detection
-IN ros2 run mission_control collection_controller
-
-
+Typical supporting nodes:
+- ros2 launch g2_robot_launch g2_robot_launch_arm.xml
+- ros2 run arm simple_arm_controller
+- ros2 run armplanner pickup_service
+- ros2 run armplanner drop_service
+- ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
+- ros2 run icp icp_processor
+- ros2 run mission_control processor_mapper
+- ros2 run motion_control motion_control
+- ros2 run detection detection
 """
 
 

@@ -18,14 +18,13 @@ setup(
     zip_safe=True,
     maintainer='TODO',
     maintainer_email='email@example.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='Exploration and collection mission controllers for the G2 robot.',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'exploration_controller = mission_control.exploration_controller:main',
             'collection_controller = mission_control.collection_controller:main',
-            'mapper = mission_control.occupancy_mapping_gray:main',
             'simple_mapper = mission_control.simple_mapping:main',
             'processor_mapper = mission_control.Processor_Mapper:main',
         ],

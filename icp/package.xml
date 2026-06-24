@@ -3,8 +3,8 @@
 <package format="3">
   <name>icp</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="robot@todo.todo">robot</maintainer>
+  <description>ICP-based localization correction for the G2 robot.</description>
+  <maintainer email="email@example.com">TODO</maintainer>
   <license>MIT</license>
 
   <!-- Dependencies for C++ -->

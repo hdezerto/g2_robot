@@ -2,7 +2,7 @@
 <package format="3">
   <name>detection</name>
   <version>0.0.0</version>
-  <description>Package for custom DetectionMsg message.</description>
+  <description>Camera and point-cloud detection node for objects and boxes.</description>
   <maintainer email="email@example.com">TODO</maintainer>
   <license>Apache-2.0</license>
 

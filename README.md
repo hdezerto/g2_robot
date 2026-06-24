@@ -1,102 +1,86 @@
-# g2_robot
+# G2 Robot - ROS 2 Search and Collection System
 
+ROS 2 workspace for an autonomous mobile manipulator that explores a bounded arena, builds and updates an occupancy grid, detects objects and boxes, plans collision-aware paths, and collects detected objects with an arm.
 
-## Setup
+This was a group project for **DD2419 VT25 Project Course in Robotics and Autonomous Systems**, using the KTH G2 robot platform. The system is organized as a set of ROS 2 packages that coordinate exploration, mapping, perception, localization, motion control, and manipulation.
 
-1. Navigate to the workspace directory:
-    ```sh
-    cd ~/dd2419_ws/
-    ```
+## System Overview
 
-2. Build the workspace:
-    ```sh
-    # Option 1: Build the workspace by copying files (default method)
-    colcon build
+The high-level behavior is split into two mission phases:
 
-    # Option 2: Build the workspace by creating symbolic links (useful for development)
-    colcon build --symlink-install
-    ```
+- **Exploration:** the mission controller visits exploration points, receives occupancy-grid updates, tracks detected objects and boxes, and replans with A* if the current path becomes invalid.
+- **Collection:** the mission controller moves to re-observation poses near known objects, refines object and box positions with the camera pipeline, calls the arm pickup/drop services, and repeats until no known objects remain.
 
-## Running the System
+Core packages:
 
-### Using the Remote Laptop
+| Package | Purpose |
+| --- | --- |
+| `mission_control` | Exploration and collection finite-state machines, A* path planning utilities, occupancy-grid helpers, and map processing. |
+| `motion_control` | Odometry, joystick/motor control, stop handling, and path-following motion control. |
+| `detection` | Camera/point-cloud based object and box detection. |
+| `detection_interfaces` | Custom ROS 2 detection message definitions. |
+| `icp` | ICP-based localization correction. |
+| `arm` | Simple arm controller node. |
+| `armplanner` | Arm camera processing and pickup/drop service nodes. |
+| `my_custom_interfaces` | Custom pickup and position services. |
+| `g2_robot_launch` | Launch files for hardware, mission, arm, and frame setup. |
+| `MAPS` | Saved arena maps used during exploration and collection experiments. |
 
-On the **remote laptop**, run the following commands:
+## Build
 
-1. SSH into the robot:
-    ```sh
-    ssh happy@192.168.128.110
-    ```
+The project is intended to be built inside a ROS 2 workspace with the course robot dependencies available.
 
-2. Start the FastDDS discovery server:
-    ```sh
-    fastdds discovery -i 0 -t 192.168.128.110 -q 42100
-    ```
-
-3. In a new terminal, SSH into the robot again:
-    ```sh
-    ssh happy@192.168.128.110
-    ```
-
-4. Source the setup file:   
-    ```sh
-    source ~/dd2419_ws/install/setup.bash
-    ```
-
-5. Launch the hardware using the `g2_robot_launch` package:
-    ```sh
-    ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
-    ```
-
-6. Launch the mission planner using the `g2_robot_launch` package:
-    ```sh
-    ros2 launch g2_robot_launch g2_robot_launch_mission.xml
-    ```
-
-7. In a new terminal, run RViz on the laptop (NOT using SSH):
-    ```sh
-    rviz2
-    ```
-
-For the arm:
 ```sh
-ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/hiwonder_arm -v6
+cd ~/dd2419_ws
+colcon build --symlink-install
+source install/setup.bash
 ```
 
+## Running
 
+Hardware and mission launch files:
 
-### Using the Robot (avoid it!)
-
-On the **robot**, run the following commands:
-
-1. Start the FastDDS discovery server:
-    ```sh
-    fastdds discovery -i 0 -t 192.168.128.110 -q 42100
-    ```
-
-2. Run commands from 4 to 7 in the previous section.
-
-
-If nothing is being published to the laptop, run on the robot and laptop:
 ```sh
-ros2 daemon stop
+ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
+ros2 launch g2_robot_launch g2_robot_launch_mission.xml
 ```
 
+Arm-related nodes:
 
-**Note:**
-The FastDDS discovery server makes the nodes communicate through the server using TCP (Transmission Control Protocol), instead of using Simple Discovery Protocol (SDP) over UDP multicast. This isolates each group's robot in the shared KTH-IoT network, preventing cross-talk between groups. Without it, multicast discovery would make laptops detect all robots, causing topic conflicts and data mix-ups. Additionally, with many robots broadcasting discovery messages, network congestion could occur, leading to delays, dropped packets, and instability. The server ensures efficient, reliable communication while reducing network load.
+```sh
+ros2 launch g2_robot_launch g2_robot_launch_arm.xml
+ros2 run arm simple_arm_controller
+ros2 run armplanner pickup_service
+ros2 run armplanner drop_service
+```
 
+Common individual nodes used during development:
 
-### Ros Bags
+```sh
+ros2 run icp icp_processor
+ros2 run mission_control processor_mapper
+ros2 run motion_control motion_control
+ros2 run detection detection
+ros2 run mission_control exploration_controller
+ros2 run mission_control collection_controller
+```
 
-RECORD ROSBAG
-ros2 bag record -o bag_hugo --topics Topic /camera/camera/color/camera_info /camera/camera/color/image_raw /camera/camera/color/metadata /camera/camera/depth/camera_info /camera/camera/depth/color/points /camera/camera/depth/metadata /camera/camera/rgbd /cmd_vel /imu/data_raw /imu/mag /imu/temperature /joy /joy/set_feedback /motor/current_duty_cycles /motor/duty_cycles /motor/encoders /parameter_events /path /rosout /scan /tf /tf_static
+When running on the physical robot over the course network, start the Fast DDS discovery server with the robot IP configured for the current session:
 
-# OUTDATED COMMAND
-ros2 bag record -o bag1 -a
+```sh
+fastdds discovery -i 0 -t <robot-ip> -q 42100
+```
 
+## Repository Notes
 
-PLAY ROSBAG
-ros2 bag play --read-ahead-queue-size 100 -l -r 1.0 --clock 100 --start-paused bag1
+- Generated `colcon` outputs (`build/`, `install/`, `log/`) are excluded from version control.
+- Raw calibration photos, recorded videos, ROS bags, and local debug images are ignored going forward.
+- The small camera calibration `.npz` files used by the arm camera code are kept in the repository.
 
+## Contributors
 
+- Hugo Dezerto
+- Maria Carolina Sebastião
+- Jule Haala
+- Mattias Ewerby
+- Maximos Agis Bolotas

@@ -29,6 +29,16 @@ from sklearn.cluster import DBSCAN
 from my_custom_interfaces.srv import Pickup, GetPosition  
 from armplanner.kinematics3 import inverse_kinematics, compute_fk, translate_to_servo
 
+DEBUG_IMAGE_DIR = os.environ.get("G2_ARM_DEBUG_DIR")
+
+
+def write_debug_image(filename, image):
+    if not DEBUG_IMAGE_DIR:
+        return
+    os.makedirs(DEBUG_IMAGE_DIR, exist_ok=True)
+    cv2.imwrite(os.path.join(DEBUG_IMAGE_DIR, filename), image)
+
+
 class PickupService(Node):
     def __init__(self):
         super().__init__('robot_arm_node')
@@ -158,7 +168,7 @@ class PickupService(Node):
         # Crop the undistorted image
         x, y, w, h = roi
         cropped_img = imgUndist[y:y+h-34, x:x+w]
-        cv2.imwrite('/home/happy/img.png', cropped_img)
+        write_debug_image('img.png', cropped_img)
 
         if object_type == 'Cube' or object_type == 'Sphere':
             
@@ -175,11 +185,11 @@ class PickupService(Node):
             inverted_edges = cv2.bitwise_not(edges)
             maskk = cv2.erode(inverted_edges, kernel, iterations=1)
 
-            cv2.imwrite('/home/happy/edges.png', inverted_edges)
+            write_debug_image('edges.png', inverted_edges)
 
 
             # Optionally, visualize the edges
-            cv2.imwrite('/home/happy/maskk.png', maskk)
+            write_debug_image('maskk.png', maskk)
             #end = time.time()
             #print('time', end-start)
 
@@ -266,7 +276,7 @@ class PickupService(Node):
             #_, binary = cv2.threshold(gray_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             
             #gray_img = cv2.erode(binary, np.ones((5, 5), np.uint8), iterations=1)
-            cv2.imwrite('/home/happy/res2.png', gray_img)
+            write_debug_image('res2.png', gray_img)
 
             # Apply Canny edge detection
             kernel = np.ones((5, 5), np.uint8)
@@ -275,9 +285,9 @@ class PickupService(Node):
             maskk = cv2.erode(inverted_edges, kernel, iterations=1)
 
             # Optionally, visualize the edges
-            cv2.imwrite('/home/happy/edges.png', inverted_edges)
+            write_debug_image('edges.png', inverted_edges)
 
-            cv2.imwrite('/home/happy/maskk.png', maskk)
+            write_debug_image('maskk.png', maskk)
 
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(maskk, connectivity=8)
             print('num_labels', num_labels, 'labels',labels, 'stats', stats, 'centroids', centroids)
@@ -311,7 +321,7 @@ class PickupService(Node):
                         max_solidity = solidity
 
             maskk = high_solidity_mask
-            cv2.imwrite('/home/happy/highmask.png', high_solidity_mask)
+            write_debug_image('highmask.png', high_solidity_mask)
             points = np.column_stack(np.where(maskk > 0))
             cx,cy = 0, 0 # maybe change this
             avg_point = 0
@@ -438,7 +448,7 @@ class PickupService(Node):
 
         # Show the result
         print('showing result')
-        cv2.imwrite("/home/happy/cluster_overlay.png", result)
+        write_debug_image("cluster_overlay.png", result)
 
         return msg
 

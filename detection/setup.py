@@ -20,8 +20,8 @@ setup(
     zip_safe=True,
     maintainer='TODO',
     maintainer_email='email@example.com',
-    description='Detection message package',
-    license='Apache License 2.0',
+    description='Camera and point-cloud detection node for objects and boxes.',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
     'console_scripts': [

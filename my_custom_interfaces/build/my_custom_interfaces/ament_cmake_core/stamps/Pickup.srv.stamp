@@ -1,4 +1,0 @@
-string command  # e.g., "Pick" or "Drop"
----
-bool success
-string message  # optional feedback like "Picked successfully"

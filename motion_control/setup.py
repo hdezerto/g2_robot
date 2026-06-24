@@ -15,8 +15,8 @@ setup(
     zip_safe=True,
     maintainer='TODO',
     maintainer_email='email@example.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='Odometry, path following, and motor-control nodes for the G2 robot.',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [

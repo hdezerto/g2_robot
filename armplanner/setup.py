@@ -13,9 +13,9 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='happy',
-    maintainer_email='robot@invalid.com',
-    description='TODO: Package description',
+    maintainer='TODO',
+    maintainer_email='email@example.com',
+    description='Arm-camera processing and pickup/drop service nodes for the G2 robot.',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
@@ -28,7 +28,7 @@ setup(
             'detection_service = armplanner.detectionService:main',
             'client = armplanner.client:main',
             'drop_service = armplanner.dropService:main',
-            'pickup_success = armplanner.pickupSuccess:main',
+            'pickup_success = armplanner.pickupsuccessService:main',
 
         ],
     },

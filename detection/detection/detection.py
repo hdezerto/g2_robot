@@ -213,7 +213,7 @@ class PointCloudDetection(Node):
 
             x_map, y_map, _ = self.transform_to_map(x, z, msg.header.stamp)
 
-            # HUGO EDITED: had to comnment this out for the collection due to false box detections
+            # Disabled during collection because nearby boxes caused false object rejections.
             # if self.is_near_box(x_map, y_map):
             #     self.get_logger().info(f'Cluster is near a box!')
             #     continue
@@ -485,7 +485,6 @@ class PointCloudDetection(Node):
         angle_deg = np.degrees(angle)
         
 
-        # HUGO CHECK: diego explain below please 
         # Compute the dimensions of the box
         min_coords = np.min(cluster_points, axis=0)
         max_coords = np.max(cluster_points, axis=0)
@@ -529,7 +528,7 @@ class PointCloudDetection(Node):
         # 3. Match dimensions to expected length/width
         dim_match = (
             (abs(max_size - EXPECTED_LENGTH) < TOLERANCE) or
-            (abs(max_size - EXPECTED_WIDTH) < TOLERANCE) or # HUGO CHECK: i dont understand this one 
+            (abs(max_size - EXPECTED_WIDTH) < TOLERANCE) or
             (abs(min_size - EXPECTED_WIDTH) < TOLERANCE)
         )
 

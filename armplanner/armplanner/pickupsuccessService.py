@@ -11,6 +11,16 @@ from my_custom_interfaces.srv import Pickup
 from std_msgs.msg import Int64MultiArray, Int16MultiArray,MultiArrayDimension, MultiArrayLayout, String
 from armplanner.kinematics3 import inverse_kinematics, compute_fk, translate_to_servo
 
+DEBUG_IMAGE_DIR = os.environ.get("G2_ARM_DEBUG_DIR")
+
+
+def write_debug_image(filename, image):
+    if not DEBUG_IMAGE_DIR:
+        return
+    os.makedirs(DEBUG_IMAGE_DIR, exist_ok=True)
+    cv2.imwrite(os.path.join(DEBUG_IMAGE_DIR, filename), image)
+
+
 class PickupSuccess(Node):
     def __init__(self):
         super().__init__('check_pickup_service')
@@ -71,7 +81,7 @@ class PickupSuccess(Node):
             maskk = cv2.erode(inverted_edges, kernel, iterations=1)
 
             # Optionally, visualize the edges
-            cv2.imwrite('/home/happy/maskk.png', maskk)
+            write_debug_image('maskk.png', maskk)
             #end = time.time()
             #print('time', end-start)
 
@@ -140,7 +150,7 @@ class PickupSuccess(Node):
             maskk = cv2.erode(inverted_edges, kernel, iterations=1)
 
             # Optionally, visualize the edges
-            cv2.imwrite('/home/happy/maskk.png', maskk)
+            write_debug_image('maskk.png', maskk)
 
 
             points = np.column_stack(np.where(maskk > 0))
@@ -248,7 +258,7 @@ class PickupSuccess(Node):
         result = cv2.addWeighted(original_image, 1 - alpha, overlay, alpha, 0)
 
         # Show the result
-        cv2.imwrite("/home/happy/cluster_overlay.png", result)
+        write_debug_image("cluster_overlay.png", result)
 
         return msg
 

@@ -25,9 +25,9 @@ class MotionController(Node):
     - After reaching a waypoint, map should be checked for new obstacles and path should possibly be replanned. (Not implemented in this node)
     - Currently no local obstacle avoidance is implemented.
 
-    TODO:
-    - Full Turn after reaching a waypoint?
-    - Add lidar check before movement?
+    Possible extensions:
+    - Add a full turn after reaching a waypoint.
+    - Add a lidar check before movement.
 
     Attributes:
         path_subscriber (Subscription): Subscriber for the planned path.
@@ -197,7 +197,7 @@ class MotionController(Node):
             else:
                 self.notify_reached_destination(False)
             self.get_logger().info("Path execution finished")
-            self.current_path = None  # Reset the path to avoid publishing to /reached_destination more than once HUGO EDITED
+            self.current_path = None  # Avoid publishing to /reached_destination more than once.
 
     def move_to_waypoint(self, waypoint):
         """
@@ -496,7 +496,7 @@ class MotionController(Node):
         )
         rclpy.spin_until_future_complete(
             self, compared_transform, timeout_sec=3.0
-        )  # HUGO EDITED: I had to increase the timeout to avoid transform not being available
+        )  # Wait long enough for map to base_link transforms to become available.
 
         try:
             # Extract translation (x, y) and rotation (theta)
@@ -548,7 +548,7 @@ class MotionController(Node):
             return False
 
     def check_lidar(self):
-        # TODO: Implement lidar check
+        # Placeholder for future local obstacle checks.
         # Check if an obstacle is detected
         if False:
             self.obstacle_detected = True

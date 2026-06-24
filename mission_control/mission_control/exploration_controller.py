@@ -39,30 +39,16 @@ from nav_msgs.msg import Path
 from tf_transformations import quaternion_from_euler
 
 """
-NOTES (HUGO):
-- Fix trapped inside objects
-- Fix unable to process more map callbacks and detection at the same time
+Exploration mission controller.
 
------ COMMANDS -----:
-IN ~/dd2419_ws    rviz2 -d exploration.rviz
+Typical supporting nodes:
+- ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
+- ros2 run icp icp_processor
+- ros2 run mission_control processor_mapper
+- ros2 run motion_control motion_control
+- ros2 run detection detection
 
---- SSH into the robot ( ssh happy@192.168.128.110 ):
-IN ~/dd2419_ws    colcon build --symlink-install
-fastdds discovery -i 0 -t 192.168.128.110 -q 42100
-ros2 launch g2_robot_launch g2_robot_launch_hardware.xml
-
-ros2 run icp icp_processor
-ros2 run mission_control processor_mapper
-
-ros2 run mission_control simple_mapper
-
-ros2 run motion_control motion_control
-ros2 run detection detection
-IN ~/dd2419_ws/src/g2_robot/MAPS  ros2 run mission_control exploration_controller
-
------ MAP FILE -----:
-The map is saved in the directory where the node is run.
-
+The generated exploration map is saved in the directory where the node is run.
 """
 
 
