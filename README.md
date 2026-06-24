@@ -30,17 +30,19 @@ Core packages:
 
 These videos show the final system running the two main mission phases.
 
+[Watch the videos with playback controls](https://hdezerto.github.io/g2_robot/)
+
 ### Exploration
 
-[![Exploration demo preview](docs/media/exploration-preview.gif)](docs/media/exploration-demo.mp4)
+[![Exploration demo preview](docs/media/exploration-preview.webp)](https://hdezerto.github.io/g2_robot/#exploration)
 
-[Open exploration demo](docs/media/exploration-demo.mp4)
+[Open exploration demo](https://hdezerto.github.io/g2_robot/#exploration)
 
 ### Collection
 
-[![Collection demo preview](docs/media/collection-preview.gif)](docs/media/collection-demo.mp4)
+[![Collection demo preview](docs/media/collection-preview.webp)](https://hdezerto.github.io/g2_robot/#collection)
 
-[Open collection demo](docs/media/collection-demo.mp4)
+[Open collection demo](https://hdezerto.github.io/g2_robot/#collection)
 
 ## Build
 
