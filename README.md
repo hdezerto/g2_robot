@@ -32,15 +32,19 @@ These videos show the final system running the two main mission phases.
 
 ### Exploration
 
-<video src="docs/media/exploration-demo.mp4" controls muted width="100%"></video>
+<video controls muted playsinline width="100%">
+  <source src="https://raw.githubusercontent.com/hdezerto/g2_robot/main/docs/media/exploration-demo.mp4" type="video/mp4">
+</video>
 
-[Open exploration demo](docs/media/exploration-demo.mp4)
+[Open exploration demo](https://github.com/hdezerto/g2_robot/blob/main/docs/media/exploration-demo.mp4)
 
 ### Collection
 
-<video src="docs/media/collection-demo.mp4" controls muted width="100%"></video>
+<video controls muted playsinline width="100%">
+  <source src="https://raw.githubusercontent.com/hdezerto/g2_robot/main/docs/media/collection-demo.mp4" type="video/mp4">
+</video>
 
-[Open collection demo](docs/media/collection-demo.mp4)
+[Open collection demo](https://github.com/hdezerto/g2_robot/blob/main/docs/media/collection-demo.mp4)
 
 ## Build
 
