@@ -26,6 +26,22 @@ Core packages:
 | `g2_robot_launch` | Launch files for hardware, mission, arm, and frame setup. |
 | `MAPS` | Saved arena maps used during exploration and collection experiments. |
 
+## Demo
+
+These videos show the final system running the two main mission phases.
+
+### Exploration
+
+<video src="docs/media/exploration-demo.mp4" controls muted width="100%"></video>
+
+[Open exploration demo](docs/media/exploration-demo.mp4)
+
+### Collection
+
+<video src="docs/media/collection-demo.mp4" controls muted width="100%"></video>
+
+[Open collection demo](docs/media/collection-demo.mp4)
+
 ## Build
 
 The project is intended to be built inside a ROS 2 workspace with the course robot dependencies available.
@@ -74,7 +90,7 @@ fastdds discovery -i 0 -t <robot-ip> -q 42100
 ## Repository Notes
 
 - Generated `colcon` outputs (`build/`, `install/`, `log/`) are excluded from version control.
-- Raw calibration photos, recorded videos, ROS bags, and local debug images are ignored going forward.
+- Raw calibration photos, ROS bags, local debug images, and ad-hoc recordings are ignored going forward; the curated demo videos in `docs/media/` are kept.
 - The small camera calibration `.npz` files used by the arm camera code are kept in the repository.
 
 ## Contributors

@@ -42,6 +42,9 @@ bag*/
 *.avi
 armplanner/armplanner/calibration/
 
+# Curated portfolio demo videos
+!docs/media/*.mp4
+
 # Local debug images
 *.png
 *.jpg
